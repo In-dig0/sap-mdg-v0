@@ -40,7 +40,7 @@ DB_CONFIG = {
     "password": os.environ["BRUIN_POSTGRES_PASSWORD"],
 }
 
-INBOUND_PATH = "/data/inbound/from_olderp"
+INBOUND_PATH = "/project/datalake/from_olderp"
 RAW_SCHEMA   = "raw"
 
 

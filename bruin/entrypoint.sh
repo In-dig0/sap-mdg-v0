@@ -1,19 +1,19 @@
 #!/bin/sh
 # entrypoint.sh MDG
 # In v0: mantiene il container attivo per run manuali via docker exec
-# In produzione: riceve il nome dell'asset come argomento
+# In produzione: riceve il comando bruin come argomento
 
 set -e
 
-LOG_FILE="/pipelines/logs/bruin_pipeline.log"
-mkdir -p /pipelines/logs
+LOG_FILE="/project/logs/bruin_pipeline.log"
+mkdir -p /project/logs
 
 TIMESTAMP=$(date '+%Y-%m-%dT%H:%M:%S')
 echo "[$TIMESTAMP] Container MDG Bruin avviato." >> "$LOG_FILE"
 
 if [ $# -eq 0 ]; then
     echo "[$TIMESTAMP] Modalità attesa — run manuale con:" >> "$LOG_FILE"
-    echo "[$TIMESTAMP]   docker exec -it mdg_bruin bruin run /pipelines/assets/ingestion" >> "$LOG_FILE"
+    echo "[$TIMESTAMP]   docker exec -it mdg_bruin bruin run /project/bruin/assets/ingestion" >> "$LOG_FILE"
     tail -f /dev/null
 else
     echo "[$TIMESTAMP] Avvio: bruin $@" >> "$LOG_FILE"
