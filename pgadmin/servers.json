@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "MDG PostgreSQL",
+      "Group": "MDG",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "mdg",
+      "Username": "mdg_user",
+      "SSLMode": "prefer",
+      "PassFile": "/pgpass"
+    }
+  }
+}

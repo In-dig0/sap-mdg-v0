@@ -1,0 +1,13 @@
+# ────────────────────────────────────────────────────────────────
+# MDG — Migration Data Governance Pipeline
+#
+# Ordine di esecuzione:
+#   ingestion.ingest_zip_to_raw   (ZIP/CSV → schema raw)
+#   ingestion.ingest_xlsx_to_ref  (XLSX SAP → schema ref)
+#       └── stg.check_*           (controlli qualità → stg.check_results)
+# ────────────────────────────────────────────────────────────────
+
+name: mdg_migration_pipeline
+
+default_connections:
+  postgres: mdg_postgres
