@@ -1,18 +1,16 @@
-"""
-MDG — Asset Bruin: ingestion ZIP → schema raw
-==============================================
-Regole:
-  - Nome tabella  = nome file CSV senza .csv, tra virgolette doppie
-                    es. S_SUPPL_GEN#ZBP_DatiGenerali.csv
-                    →   raw."S_SUPPL_GEN#ZBP_DatiGenerali"
-  - Nomi colonne  = intestazioni ORIGINALI invariate, tra virgolette doppie
-                    es. "LIFNR(k/*)"  "AKONT(*)"  "BP_ROLE(k/*)"
-  - Colonne chiave: quelle con 'k' nel suffisso → UNIQUE INDEX
-  - Colonne audit: "_zip_source" TEXT, "_loaded_at" TIMESTAMPTZ
-  - Prima del reload: DELETE selettivo per _zip_source = nome ZIP
-  - Duplicati su chiave: scartati PRIMA dell'insert e loggati
-  - Tutte le colonne dati sono TEXT
-"""
+""" @bruin
+name: ingestion.ingest_zip_to_raw
+type: python
+description: >
+  Legge tutti i file ZIP da /project/datalake/from_olderp/,
+  estrae i CSV e li carica nello schema raw di PostgreSQL.
+  Nome tabella = nome file CSV senza estensione (virgolette doppie).
+  Nomi colonne = intestazioni originali invariate (virgolette doppie).
+  Colonne con (k) nel suffisso → UNIQUE INDEX sulla tabella.
+  Duplicati su chiave: scartati e loggati prima dell'insert.
+  Colonne audit: _zip_source TEXT, _loaded_at TIMESTAMPTZ.
+  Strategia: DELETE selettivo per _zip_source + INSERT.
+@bruin """
 
 import os
 import re
@@ -33,11 +31,11 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 DB_CONFIG = {
-    "host":     os.environ["BRUIN_POSTGRES_HOST"],
-    "port":     int(os.environ.get("BRUIN_POSTGRES_PORT", 5432)),
-    "dbname":   os.environ["BRUIN_POSTGRES_DB"],
-    "user":     os.environ["BRUIN_POSTGRES_USER"],
-    "password": os.environ["BRUIN_POSTGRES_PASSWORD"],
+    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
+    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
+    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
+    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
+    "password": os.environ.get("POSTGRES_PASSWORD", ""),
 }
 
 INBOUND_PATH = "/project/datalake/from_olderp"
@@ -58,7 +56,7 @@ def key_display_name(col: str) -> str:
 
 
 def q(name: str) -> str:
-    """Identificatore SQL tra virgolette doppie (escape delle virgolette interne)."""
+    """Identificatore SQL tra virgolette doppie."""
     return '"' + name.replace('"', '""') + '"'
 
 
@@ -118,34 +116,25 @@ def ensure_table(cur, schema: str, table: str,
 
 def deduplicate(df: pd.DataFrame, key_cols: list) -> tuple:
     """
-    Rimuove i duplicati su chiave PRIMA dell'insert.
+    Rimuove duplicati su chiave nel DataFrame prima dell'insert.
     Restituisce (df_clean, df_dupes).
-    Strategia: mantiene il primo occorrenza, scarta i successivi.
     """
     if not key_cols:
         return df, pd.DataFrame()
-
-    # Usa i nomi originali delle colonne chiave per il groupby
-    # (sono già presenti nel df con il nome originale es. "LIFNR(k/*)")
     dupes_mask = df.duplicated(subset=key_cols, keep="first")
-    df_dupes   = df[dupes_mask].copy()
-    df_clean   = df[~dupes_mask].copy()
-    return df_clean, df_dupes
+    return df[~dupes_mask].copy(), df[dupes_mask].copy()
 
 
 def ingest_csv(cur, schema: str, table: str,
                df: pd.DataFrame, key_cols: list, zip_name: str) -> tuple:
     """
-    1. Deduplica nel DataFrame (prima dell'insert)
-    2. Logga i record scartati con i valori delle chiavi
-    3. Inserisce i record puliti in batch
+    Deduplica, logga i duplicati, inserisce in batch.
     Restituisce (inseriti, scartati).
     """
     if df.empty:
         log.warning("    CSV vuoto, skip.")
         return 0, 0
 
-    # Deduplicazione preventiva
     df_clean, df_dupes = deduplicate(df, key_cols)
     discarded = len(df_dupes)
 
@@ -163,7 +152,6 @@ def ingest_csv(cur, schema: str, table: str,
         log.warning("    Nessun record da inserire dopo deduplicazione.")
         return 0, discarded
 
-    # Aggiunge colonne audit
     fqt     = f'{schema}.{q(table)}'
     now_utc = datetime.now(timezone.utc)
     df_ins  = df_clean.copy()
@@ -179,11 +167,11 @@ def ingest_csv(cur, schema: str, table: str,
 
 
 def process_zip(zip_path: str, conn):
-    zip_name = os.path.basename(zip_path)
-    log.info(f"=== ZIP: {zip_name} ===")
-
+    zip_name   = os.path.basename(zip_path)
     total_ins  = 0
     total_disc = 0
+
+    log.info(f"=== ZIP: {zip_name} ===")
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         csv_files = [n for n in zf.namelist() if n.lower().endswith(".csv")]
@@ -205,10 +193,8 @@ def process_zip(zip_path: str, conn):
                 keep_default_na=False,
             )
 
-            # Nomi colonna ORIGINALI (solo strip spazi iniziali/finali di riga)
             raw_cols = [c.strip() for c in df.columns]
             df.columns = raw_cols
-
             key_cols = identify_keys(raw_cols)
 
             log.info(f"     Righe: {len(df)} | Colonne: {len(df.columns)}")

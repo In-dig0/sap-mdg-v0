@@ -118,7 +118,6 @@ services:
       - .:/project                              # tutta la cartella progetto
       - datalake_olderp:/project/datalake/from_olderp:ro
       - datalake_sap:/project/datalake/from_sap:ro
-      - bruin_logs:/project/logs
     depends_on:
       postgres:
         condition: service_healthy
