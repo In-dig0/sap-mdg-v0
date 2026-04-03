@@ -122,47 +122,69 @@ class BadLineCollector:
         )
 
 
+def scan_bad_lines(clean_bytes: bytes, csv_filename: str) -> list:
+    """
+    Pre-scansiona il CSV riga per riga per trovare le righe con
+    un numero di campi diverso dall'header.
+    Restituisce lista di dict con numero riga, campi attesi/trovati e contenuto.
+    """
+    bad = []
+    lines = clean_bytes.decode("utf-8").splitlines()
+    if not lines:
+        return bad
+
+    # Numero campi attesi dall'header
+    header_fields = len(lines[0].split(";"))
+
+    for i, line in enumerate(lines[1:], start=2):  # riga 1 = header, partiamo da 2
+        if not line.strip():
+            continue
+        n_fields = len(line.split(";"))
+        if n_fields != header_fields:
+            preview = line[:120] + ("..." if len(line) > 120 else "")
+            bad.append({
+                "line_num":  i,
+                "expected":  header_fields,
+                "found":     n_fields,
+                "preview":   preview,
+            })
+    return bad
+
+
 def read_csv_safe(raw_bytes: bytes, csv_filename: str) -> tuple:
     """
     Legge il CSV intercettando e loggando:
-    - Righe malformate (on_bad_lines='warn')
+    - Righe malformate (numero campi diverso dall'header) con numero riga e preview
     - Byte non UTF-8 e caratteri non stampabili (clean_bytes)
     Restituisce (df, n_bad_lines).
     """
     # Step 1: pulizia byte
     clean = clean_bytes(raw_bytes, csv_filename)
 
-    # Step 2: lettura CSV con intercettazione righe malformate
-    # Usiamo warnings.catch_warnings per catturare i ParserWarning di pandas
-    bad_lines = []
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-
-        df = pd.read_csv(
-            io.BytesIO(clean),
-            sep=";",
-            encoding="utf-8",
-            dtype=str,
-            keep_default_na=False,
-            on_bad_lines="warn",
-        )
-
-        # Filtra i warning di tipo ParserWarning (righe malformate)
-        for w in caught:
-            if issubclass(w.category, pd.errors.ParserWarning) or \
-               "Skipping line" in str(w.message) or \
-               "Expected" in str(w.message):
-                bad_lines.append(str(w.message))
-                log.warning(
-                    f"    [RIGA SKIPPATA] {csv_filename}: {w.message}"
-                )
-
+    # Step 2: pre-scansione per identificare righe malformate con dettaglio
+    bad_lines = scan_bad_lines(clean, csv_filename)
     if bad_lines:
+        for b in bad_lines:
+            log.warning(
+                f"    [RIGA SKIPPATA] {csv_filename} "
+                f"riga {b['line_num']}: "
+                f"attesi {b['expected']} campi, trovati {b['found']} | "
+                f"contenuto: {b['preview']}"
+            )
         log.warning(
             f"    [RIEPILOGO] {csv_filename}: {len(bad_lines)} righe skippate "
             f"per formato non valido"
         )
+
+    # Step 3: lettura CSV (on_bad_lines='warn' per sicurezza)
+    df = pd.read_csv(
+        io.BytesIO(clean),
+        sep=";",
+        encoding="utf-8",
+        dtype=str,
+        keep_default_na=False,
+        on_bad_lines="warn",
+    )
 
     return df, len(bad_lines)
 
