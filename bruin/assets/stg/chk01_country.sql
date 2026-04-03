@@ -7,7 +7,7 @@ description: >
   CHK01 — Verifica che il campo COUNTRY della tabella
   S_SUPPL_GEN#ZBP_DatiGenerali sia valorizzato e presente
   nella tabella di controllo SAP ref.EXPORT_T005S (colonna LAND1).
-  Scrive sia i record in errore (Error) che quelli validi (Ok).
+  COUNTRY è obbligatorio per SAP.
 connection: mdg_postgres
 @bruin */
 
@@ -47,7 +47,10 @@ SELECT
             THEN 'Error'
         ELSE 'Ok'
     END                                          AS status,
-    TO_CHAR(NOW(), 'YYYYMMDD_HH24MISS')          AS run_id,
+    -- run_id progressivo dall'ultimo run aperto
+    (SELECT run_id::integer FROM stg.pipeline_runs
+     WHERE status = 'running'
+     ORDER BY started_at DESC LIMIT 1)           AS run_id,
     NOW()                                        AS created_at
 FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" raw
 ;

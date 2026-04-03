@@ -36,7 +36,7 @@ SELECT
             THEN 'Error'
         ELSE 'Ok'
     END                                          AS status,
-    (SELECT run_id FROM stg.pipeline_runs
+    (SELECT run_id::integer FROM stg.pipeline_runs
      WHERE status = 'running'
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
     NOW()                                        AS created_at
