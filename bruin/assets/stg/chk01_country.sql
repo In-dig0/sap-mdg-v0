@@ -7,8 +7,7 @@ description: >
   CHK01 — Verifica che il campo COUNTRY della tabella
   S_SUPPL_GEN#ZBP_DatiGenerali sia valorizzato e presente
   nella tabella di controllo SAP ref.EXPORT_T005S (colonna LAND1).
-  COUNTRY è obbligatorio per SAP.
-  Segnala: COUNTRY vuoto/nullo E valore non presente in T005S.
+  Scrive sia i record in errore (Error) che quelli validi (Ok).
 connection: mdg_postgres
 @bruin */
 
@@ -30,23 +29,25 @@ SELECT
     CASE
         WHEN raw."COUNTRY" IS NULL OR raw."COUNTRY" = ''
             THEN 'COUNTRY obbligatorio mancante'
+        WHEN NOT EXISTS (
+            SELECT 1 FROM ref."EXPORT_T005S" ref
+            WHERE ref."LAND1" = raw."COUNTRY"
+        )
+            THEN 'Codice paese [' || raw."COUNTRY" || '] non presente in SAP (T005S.LAND1)'
         ELSE
-            'Codice paese [' || raw."COUNTRY" || '] non presente in SAP (T005S.LAND1)'
+            'Codice paese [' || raw."COUNTRY" || '] valido'
     END                                          AS message,
-    'Error'                                      AS status,
+    CASE
+        WHEN raw."COUNTRY" IS NULL OR raw."COUNTRY" = ''
+            THEN 'Error'
+        WHEN NOT EXISTS (
+            SELECT 1 FROM ref."EXPORT_T005S" ref
+            WHERE ref."LAND1" = raw."COUNTRY"
+        )
+            THEN 'Error'
+        ELSE 'Ok'
+    END                                          AS status,
     TO_CHAR(NOW(), 'YYYYMMDD_HH24MISS')          AS run_id,
     NOW()                                        AS created_at
 FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" raw
-WHERE
-    (raw."COUNTRY" IS NULL OR raw."COUNTRY" = '')
-    OR
-    (
-        raw."COUNTRY" IS NOT NULL
-        AND raw."COUNTRY" <> ''
-        AND NOT EXISTS (
-            SELECT 1
-            FROM ref."EXPORT_T005S" ref
-            WHERE ref."LAND1" = raw."COUNTRY"
-        )
-    )
 ;

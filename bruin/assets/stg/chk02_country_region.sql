@@ -7,8 +7,7 @@ description: >
   CHK02 — Verifica che la coppia COUNTRY+REGION della tabella
   S_SUPPL_GEN#ZBP_DatiGenerali esista nella tabella di
   controllo SAP ref.EXPORT_T005S (colonne LAND1+BLAND).
-  COUNTRY e REGION sono entrambi obbligatori per SAP.
-  Segnala: REGION vuota/nulla E coppia non presente in T005S.
+  Scrive sia i record in errore (Error) che quelli validi (Ok).
 connection: mdg_postgres
 @bruin */
 
@@ -30,24 +29,27 @@ SELECT
     CASE
         WHEN raw."REGION" IS NULL OR raw."REGION" = ''
             THEN 'REGION obbligatoria mancante (COUNTRY=' || COALESCE(raw."COUNTRY", 'NULL') || ')'
-        ELSE
-            'Coppia paese/regione [' || raw."COUNTRY" || '/' || raw."REGION" || '] non presente in SAP (T005S)'
-    END                                          AS message,
-    'Error'                                      AS status,
-    TO_CHAR(NOW(), 'YYYYMMDD_HH24MISS')          AS run_id,
-    NOW()                                        AS created_at
-FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" raw
-WHERE
-    (raw."REGION" IS NULL OR raw."REGION" = '')
-    OR
-    (
-        raw."REGION" IS NOT NULL
-        AND raw."REGION" <> ''
-        AND NOT EXISTS (
-            SELECT 1
-            FROM ref."EXPORT_T005S" ref
+        WHEN NOT EXISTS (
+            SELECT 1 FROM ref."EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY"
               AND ref."BLAND" = raw."REGION"
         )
-    )
+            THEN 'Coppia paese/regione [' || raw."COUNTRY" || '/' || raw."REGION" || '] non presente in SAP (T005S)'
+        ELSE
+            'Coppia paese/regione [' || raw."COUNTRY" || '/' || raw."REGION" || '] valida'
+    END                                          AS message,
+    CASE
+        WHEN raw."REGION" IS NULL OR raw."REGION" = ''
+            THEN 'Error'
+        WHEN NOT EXISTS (
+            SELECT 1 FROM ref."EXPORT_T005S" ref
+            WHERE ref."LAND1" = raw."COUNTRY"
+              AND ref."BLAND" = raw."REGION"
+        )
+            THEN 'Error'
+        ELSE 'Ok'
+    END                                          AS status,
+    TO_CHAR(NOW(), 'YYYYMMDD_HH24MISS')          AS run_id,
+    NOW()                                        AS created_at
+FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" raw
 ;
