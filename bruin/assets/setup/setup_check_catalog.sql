@@ -1,0 +1,66 @@
+/* @bruin
+name: setup.check_catalog
+type: pg.sql
+description: >
+  Mantiene aggiornata la tabella stg.check_catalog con i check
+  implementati nella pipeline MDG.
+  Strategia: UPSERT su check_id — aggiorna se esiste, inserisce se nuovo.
+  Da aggiornare ogni volta che si aggiunge un nuovo check.
+connection: mdg_postgres
+@bruin */
+
+INSERT INTO stg.check_catalog (
+    check_id,
+    check_desc,
+    category,
+    target_table,
+    target_field,
+    ref_table,
+    severity,
+    is_active,
+    updated_at
+)
+VALUES
+    (
+        'CHK01',
+        'Codice paese (COUNTRY) valorizzato e presente in T005S',
+        'BP',
+        'S_SUPPL_GEN#ZBP_DatiGenerali',
+        'COUNTRY',
+        'ref.EXPORT_T005S (LAND1)',
+        'Error',
+        TRUE,
+        NOW()
+    ),
+    (
+        'CHK02',
+        'Coppia paese/regione (COUNTRY+REGION) presente in T005S',
+        'BP',
+        'S_SUPPL_GEN#ZBP_DatiGenerali',
+        'COUNTRY + REGION',
+        'ref.EXPORT_T005S (LAND1+BLAND)',
+        'Error',
+        TRUE,
+        NOW()
+    ),
+    (
+        'CHK03',
+        'Partita IVA mancante per soggetti UE/ExtraUE',
+        'BP',
+        'S_SUPPL_GEN#ZBP_DatiGenerali',
+        'TAXNUM(*)',
+        'S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc',
+        'Error',
+        TRUE,
+        NOW()
+    )
+ON CONFLICT (check_id) DO UPDATE SET
+    check_desc   = EXCLUDED.check_desc,
+    category     = EXCLUDED.category,
+    target_table = EXCLUDED.target_table,
+    target_field = EXCLUDED.target_field,
+    ref_table    = EXCLUDED.ref_table,
+    severity     = EXCLUDED.severity,
+    is_active    = EXCLUDED.is_active,
+    updated_at   = NOW()
+;
