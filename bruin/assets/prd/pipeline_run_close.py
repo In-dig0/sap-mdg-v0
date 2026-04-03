@@ -7,9 +7,8 @@ depends:
   - stg.chk03_partita_iva
 description: >
   Chiude il record in stg.pipeline_runs al termine del run.
-  Legge il run_id dal file semaforo creato da pipeline_run_open,
-  calcola i totali da stg.check_results e aggiorna il record.
-  Deve essere l'ultimo asset ad eseguire.
+  Legge il run_id dal file semaforo /tmp/mdg_run_id.txt.
+  Calcola i totali da stg.check_results e aggiorna il record.
 @bruin """
 
 import os
@@ -27,7 +26,6 @@ DB_CONFIG = {
 SEMAPHORE_PATH = "/tmp/mdg_run_id.txt"
 
 def main():
-    # Leggi run_id dal semaforo
     if not os.path.exists(SEMAPHORE_PATH):
         raise FileNotFoundError(
             f"File semaforo non trovato: {SEMAPHORE_PATH}. "
@@ -35,19 +33,20 @@ def main():
         )
 
     with open(SEMAPHORE_PATH) as f:
-        run_id = f.read().strip()
+        run_id = int(f.read().strip())
 
     now = datetime.now(timezone.utc)
 
     conn = psycopg2.connect(**DB_CONFIG)
     try:
         with conn.cursor() as cur:
-            # Calcola totali da check_results
+
+            # Totali check dall'ultimo run (check_results è già troncata a inizio run)
             cur.execute("""
                 SELECT
-                    COUNT(*)                                        AS checks_run,
-                    COUNT(*) FILTER (WHERE status = 'Error')       AS checks_error,
-                    COUNT(*) FILTER (WHERE status = 'Ok')          AS checks_ok
+                    COUNT(*)                                   AS checks_run,
+                    COUNT(*) FILTER (WHERE status = 'Error')  AS checks_error,
+                    COUNT(*) FILTER (WHERE status = 'Ok')     AS checks_ok
                 FROM stg.check_results
                 WHERE run_id = %s
             """, (run_id,))
@@ -56,17 +55,23 @@ def main():
             checks_error = row[1] if row else 0
             checks_ok    = row[2] if row else 0
 
-            # Calcola record caricati nello schema raw
+            # Totale record nelle tabelle raw
             cur.execute("""
-                SELECT COUNT(*) AS records_loaded
-                FROM stg.check_results
-                WHERE run_id = %s
-            """, (run_id,))
-            row2 = cur.fetchone()
-            records_loaded = row2[0] if row2 else 0
+                SELECT COALESCE(SUM(n_live_tup), 0)::integer
+                FROM pg_stat_user_tables
+                WHERE schemaname = 'raw'
+            """)
+            records_loaded = cur.fetchone()[0]
 
-            # Aggiorna pipeline_runs
+            # Numero tabelle raw
+            cur.execute("""
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_schema = 'raw'
+            """)
+            tables_raw = cur.fetchone()[0]
+
             status = "success" if checks_error == 0 else "completed_with_errors"
+
             cur.execute("""
                 UPDATE stg.pipeline_runs SET
                     finished_at    = %s,
@@ -83,14 +88,18 @@ def main():
                 records_loaded,
                 checks_run,
                 checks_error,
-                f"Ok: {checks_ok} | Error: {checks_error}",
+                f"Ok: {checks_ok} | Error: {checks_error} | Tabelle raw: {tables_raw}",
                 run_id,
             ))
-        conn.commit()
-        print(f"[OK] Pipeline run chiuso: {run_id} | status={status} | "
-              f"checks={checks_run} | errors={checks_error}")
 
-        # Rimuovi semaforo
+        conn.commit()
+        print(f"[OK] Pipeline run #{run_id} chiuso")
+        print(f"     Status:        {status}")
+        print(f"     Records raw:   {records_loaded}")
+        print(f"     Checks totali: {checks_run}")
+        print(f"     Checks ok:     {checks_ok}")
+        print(f"     Checks error:  {checks_error}")
+
         os.remove(SEMAPHORE_PATH)
 
     finally:

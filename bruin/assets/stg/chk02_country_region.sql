@@ -5,9 +5,8 @@ depends:
   - stg.clean_check_results
 description: >
   CHK02 — Verifica che la coppia COUNTRY+REGION della tabella
-  S_SUPPL_GEN#ZBP_DatiGenerali esista nella tabella di
-  controllo SAP ref.EXPORT_T005S (colonne LAND1+BLAND).
-  Scrive sia i record in errore (Error) che quelli validi (Ok).
+  S_SUPPL_GEN#ZBP_DatiGenerali esista in ref.EXPORT_T005S.
+  COUNTRY e REGION sono entrambi obbligatori per SAP.
 connection: mdg_postgres
 @bruin */
 
@@ -49,7 +48,9 @@ SELECT
             THEN 'Error'
         ELSE 'Ok'
     END                                          AS status,
-    TO_CHAR(NOW(), 'YYYYMMDD_HH24MISS')          AS run_id,
+    (SELECT run_id FROM stg.pipeline_runs
+     WHERE status = 'running'
+     ORDER BY started_at DESC LIMIT 1)           AS run_id,
     NOW()                                        AS created_at
 FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" raw
 ;

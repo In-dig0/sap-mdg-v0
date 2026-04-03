@@ -5,10 +5,8 @@ depends:
   - stg.clean_check_results
 description: >
   CHK03 — Partita IVA mancante per soggetti UE/ExtraUE.
-  Verifica che ogni BP in S_SUPPL_GEN#ZBP_DatiGenerali
-  abbia almeno un codice fiscale valorizzato in
-  S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc (TAXNUM(*) non vuoto).
-  Ottimizzato con LEFT JOIN invece di subquery annidate.
+  Verifica che ogni BP abbia almeno un TAXNUM(*) valorizzato
+  in S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc.
 connection: mdg_postgres
 @bruin */
 
@@ -38,7 +36,9 @@ SELECT
             THEN 'Error'
         ELSE 'Ok'
     END                                          AS status,
-    TO_CHAR(NOW(), 'YYYYMMDD_HH24MISS')          AS run_id,
+    (SELECT run_id FROM stg.pipeline_runs
+     WHERE status = 'running'
+     ORDER BY started_at DESC LIMIT 1)           AS run_id,
     NOW()                                        AS created_at
 FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" gen
 LEFT JOIN (
