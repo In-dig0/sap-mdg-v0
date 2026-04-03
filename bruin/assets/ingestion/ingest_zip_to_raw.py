@@ -8,15 +8,19 @@ description: >
   Nomi colonne = intestazioni originali invariate (virgolette doppie).
   Colonne con (k) nel suffisso → UNIQUE INDEX sulla tabella.
   Duplicati su chiave: scartati e loggati prima dell'insert.
+  Righe malformate (campi in eccesso): skippate e loggatecon numero riga.
+  Caratteri non stampabili o non UTF-8: rimossi e loggati.
   Colonne audit: _zip_source TEXT, _loaded_at TIMESTAMPTZ.
   Strategia: DELETE selettivo per _zip_source + INSERT.
 @bruin """
 
 import os
 import re
+import sys
 import zipfile
 import io
 import logging
+import warnings
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -42,21 +46,19 @@ INBOUND_PATH = "/project/datalake/from_olderp"
 RAW_SCHEMA   = "raw"
 
 
+# ---------------------------------------------------------------------------
+# Utility
+# ---------------------------------------------------------------------------
+
 def identify_keys(raw_cols: list) -> list:
-    """Restituisce i nomi ORIGINALI delle colonne chiave (suffisso con 'k')."""
-    return [
-        c.strip() for c in raw_cols
-        if re.search(r"\(.*?k.*?\)", c.strip())
-    ]
+    return [c.strip() for c in raw_cols if re.search(r"\(.*?k.*?\)", c.strip())]
 
 
 def key_display_name(col: str) -> str:
-    """Nome pulito dal suffisso, usato solo per i messaggi di log."""
     return re.sub(r"\(.*?\)", "", col).strip()
 
 
 def q(name: str) -> str:
-    """Identificatore SQL tra virgolette doppie."""
     return '"' + name.replace('"', '""') + '"'
 
 
@@ -64,15 +66,115 @@ def get_connection():
     return psycopg2.connect(**DB_CONFIG)
 
 
+# ---------------------------------------------------------------------------
+# Pulizia bytes: rimuove caratteri non stampabili e non UTF-8
+# ---------------------------------------------------------------------------
+
+def clean_bytes(raw_bytes: bytes, csv_filename: str) -> bytes:
+    """
+    1. Decodifica con UTF-8, sostituendo byte non validi con il
+       carattere di replacement U+FFFD (invece di crashare).
+    2. Rimuove caratteri di controllo non stampabili (eccetto
+       tab, newline, carriage return che sono legittimi nei CSV).
+    3. Logga quante sostituzioni sono avvenute.
+    """
+    # Decodifica con gestione errori — i byte non UTF-8 diventano '?'
+    text_raw  = raw_bytes.decode("utf-8-sig", errors="replace")
+    text_clean = text_raw
+
+    # Rimuovi caratteri di controllo non stampabili (U+0000-U+001F esclusi
+    # \t=0x09, \n=0x0A, \r=0x0D che sono legittimi nei CSV)
+    non_printable = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+    matches = non_printable.findall(text_clean)
+    if matches:
+        unique_chars = set(repr(c) for c in matches)
+        text_clean = non_printable.sub("", text_clean)
+        log.warning(
+            f"    [PULIZIA] {csv_filename}: rimossi {len(matches)} caratteri "
+            f"non stampabili/non UTF-8: {unique_chars}"
+        )
+
+    # Controlla se ci sono stati replacement U+FFFD (byte non UTF-8)
+    replacements = text_clean.count("\ufffd")
+    if replacements > 0:
+        log.warning(
+            f"    [PULIZIA] {csv_filename}: {replacements} byte non UTF-8 "
+            f"sostituiti con carattere di replacement (U+FFFD)"
+        )
+
+    return text_clean.encode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Lettura CSV con intercettazione righe malformate
+# ---------------------------------------------------------------------------
+
+class BadLineCollector:
+    """Collector che intercetta i warning di pandas sulle righe malformate."""
+    def __init__(self, csv_filename: str):
+        self.csv_filename = csv_filename
+        self.bad_lines    = []
+
+    def warn(self, msg):
+        self.bad_lines.append(msg)
+        log.warning(
+            f"    [RIGA SKIPPATA] {self.csv_filename}: {msg}"
+        )
+
+
+def read_csv_safe(raw_bytes: bytes, csv_filename: str) -> tuple:
+    """
+    Legge il CSV intercettando e loggando:
+    - Righe malformate (on_bad_lines='warn')
+    - Byte non UTF-8 e caratteri non stampabili (clean_bytes)
+    Restituisce (df, n_bad_lines).
+    """
+    # Step 1: pulizia byte
+    clean = clean_bytes(raw_bytes, csv_filename)
+
+    # Step 2: lettura CSV con intercettazione righe malformate
+    # Usiamo warnings.catch_warnings per catturare i ParserWarning di pandas
+    bad_lines = []
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        df = pd.read_csv(
+            io.BytesIO(clean),
+            sep=";",
+            encoding="utf-8",
+            dtype=str,
+            keep_default_na=False,
+            on_bad_lines="warn",
+        )
+
+        # Filtra i warning di tipo ParserWarning (righe malformate)
+        for w in caught:
+            if issubclass(w.category, pd.errors.ParserWarning) or \
+               "Skipping line" in str(w.message) or \
+               "Expected" in str(w.message):
+                bad_lines.append(str(w.message))
+                log.warning(
+                    f"    [RIGA SKIPPATA] {csv_filename}: {w.message}"
+                )
+
+    if bad_lines:
+        log.warning(
+            f"    [RIEPILOGO] {csv_filename}: {len(bad_lines)} righe skippate "
+            f"per formato non valido"
+        )
+
+    return df, len(bad_lines)
+
+
+# ---------------------------------------------------------------------------
+# DDL e gestione tabella
+# ---------------------------------------------------------------------------
+
 def ensure_table(cur, schema: str, table: str,
                  raw_cols: list, key_cols: list, zip_name: str):
-    """
-    Crea la tabella se non esiste, aggiunge colonne mancanti,
-    crea UNIQUE INDEX sulle chiavi, poi cancella i record del ZIP.
-    """
     fqt = f'{schema}.{q(table)}'
 
-    # CREATE TABLE IF NOT EXISTS
     col_defs = ",\n    ".join(f"{q(c)} TEXT" for c in raw_cols)
     cur.execute(f"""
         CREATE TABLE IF NOT EXISTS {fqt} (
@@ -82,7 +184,6 @@ def ensure_table(cur, schema: str, table: str,
         )
     """)
 
-    # Schema evolution: aggiunge colonne mancanti
     cur.execute("""
         SELECT column_name FROM information_schema.columns
         WHERE table_schema = %s AND table_name = %s
@@ -97,7 +198,6 @@ def ensure_table(cur, schema: str, table: str,
         if col not in existing:
             cur.execute(f"ALTER TABLE {fqt} ADD COLUMN IF NOT EXISTS {q(col)} {ctype}")
 
-    # UNIQUE INDEX su (chiavi..., _zip_source)
     if key_cols:
         safe_name = re.sub(r"[^a-z0-9]", "_", table.lower())[:40]
         idx_name  = f"uidx_{safe_name}_key"
@@ -107,18 +207,17 @@ def ensure_table(cur, schema: str, table: str,
             ON {fqt} ({key_defs}, "_zip_source")
         """)
 
-    # DELETE selettivo per questo ZIP
     cur.execute(f'DELETE FROM {fqt} WHERE "_zip_source" = %s', (zip_name,))
     deleted = cur.rowcount
     if deleted > 0:
         log.info(f"    Rimossi {deleted} record precedenti di '{zip_name}'")
 
 
+# ---------------------------------------------------------------------------
+# Deduplicazione e insert
+# ---------------------------------------------------------------------------
+
 def deduplicate(df: pd.DataFrame, key_cols: list) -> tuple:
-    """
-    Rimuove duplicati su chiave nel DataFrame prima dell'insert.
-    Restituisce (df_clean, df_dupes).
-    """
     if not key_cols:
         return df, pd.DataFrame()
     dupes_mask = df.duplicated(subset=key_cols, keep="first")
@@ -127,10 +226,6 @@ def deduplicate(df: pd.DataFrame, key_cols: list) -> tuple:
 
 def ingest_csv(cur, schema: str, table: str,
                df: pd.DataFrame, key_cols: list, zip_name: str) -> tuple:
-    """
-    Deduplica, logga i duplicati, inserisce in batch.
-    Restituisce (inseriti, scartati).
-    """
     if df.empty:
         log.warning("    CSV vuoto, skip.")
         return 0, 0
@@ -166,10 +261,15 @@ def ingest_csv(cur, schema: str, table: str,
     return len(rows), discarded
 
 
+# ---------------------------------------------------------------------------
+# Elaborazione ZIP
+# ---------------------------------------------------------------------------
+
 def process_zip(zip_path: str, conn):
     zip_name   = os.path.basename(zip_path)
     total_ins  = 0
     total_disc = 0
+    total_bad  = 0
 
     log.info(f"=== ZIP: {zip_name} ===")
 
@@ -185,20 +285,17 @@ def process_zip(zip_path: str, conn):
             with zf.open(csv_filename) as f:
                 raw_bytes = f.read()
 
-            df = pd.read_csv(
-                io.BytesIO(raw_bytes),
-                sep=";",
-                encoding="utf-8-sig",
-                dtype=str,
-                keep_default_na=False,
-            )
+            # Lettura sicura con pulizia e intercettazione righe malformate
+            df, n_bad = read_csv_safe(raw_bytes, csv_filename)
 
             raw_cols = [c.strip() for c in df.columns]
             df.columns = raw_cols
             key_cols = identify_keys(raw_cols)
 
-            log.info(f"     Righe: {len(df)} | Colonne: {len(df.columns)}")
+            log.info(f"     Righe valide: {len(df)} | Colonne: {len(df.columns)}")
             log.info(f"     Chiavi: {key_cols}")
+            if n_bad > 0:
+                log.warning(f"     Righe skippate per formato non valido: {n_bad}")
 
             with conn.cursor() as cur:
                 ensure_table(cur, RAW_SCHEMA, table_name,
@@ -209,20 +306,30 @@ def process_zip(zip_path: str, conn):
 
             total_ins  += ins
             total_disc += disc
-            status = "OK" if disc == 0 else f"ATTENZIONE: {disc} duplicati"
-            log.info(f"     Inseriti: {ins} | Scartati: {disc} | {status}")
+            total_bad  += n_bad
+
+            parts = [f"inseriti={ins}"]
+            if disc > 0:
+                parts.append(f"duplicati scartati={disc}")
+            if n_bad > 0:
+                parts.append(f"righe malformate skippate={n_bad}")
+            log.info(f"     {' | '.join(parts)}")
 
     log.info(
         f"  Riepilogo '{zip_name}': "
-        f"inseriti={total_ins}, scartati={total_disc}"
+        f"inseriti={total_ins} | "
+        f"duplicati={total_disc} | "
+        f"righe_malformate={total_bad}"
     )
 
 
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 def main():
     if not os.path.isdir(INBOUND_PATH):
-        raise FileNotFoundError(
-            f"Cartella inbound non trovata: {INBOUND_PATH}"
-        )
+        raise FileNotFoundError(f"Cartella inbound non trovata: {INBOUND_PATH}")
 
     zip_files = sorted([
         os.path.join(INBOUND_PATH, f)
