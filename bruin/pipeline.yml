@@ -4,7 +4,8 @@
 # Ordine di esecuzione:
 #   ingestion.ingest_zip_to_raw   (ZIP/CSV → schema raw)
 #   ingestion.ingest_xlsx_to_ref  (XLSX SAP → schema ref)
-#       └── stg.check_*           (controlli qualità → stg.check_results)
+#       └── stg.chk01_country         (COUNTRY vs T005S.LAND1)
+#       └── stg.chk02_country_region  (COUNTRY+REGION vs T005S.LAND1+BLAND)
 # ────────────────────────────────────────────────────────────────
 
 name: mdg_migration_pipeline
