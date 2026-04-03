@@ -7,6 +7,13 @@ sftp/ssh_host_*
 # Dati PostgreSQL locali
 db/data/
 
+# Datalake — dati sensibili
+datalake/from_olderp/*
+datalake/from_sap/*
+
+# File temporanei Office
+~$*
+
 # Artefatti Python
 __pycache__/
 *.pyc
