@@ -16,25 +16,26 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Connessione DB
+# Connessione DB — nuova connessione ad ogni query (evita "connection closed")
 # ---------------------------------------------------------------------------
-@st.cache_resource
-def get_conn():
-    return psycopg2.connect(
-        host=os.environ["POSTGRES_HOST"],
-        port=os.environ["POSTGRES_PORT"],
-        dbname=os.environ["POSTGRES_DB"],
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
-        cursor_factory=RealDictCursor,
-    )
+def get_db_params():
+    return {
+        "host":     os.environ["POSTGRES_HOST"],
+        "port":     os.environ["POSTGRES_PORT"],
+        "dbname":   os.environ["POSTGRES_DB"],
+        "user":     os.environ["POSTGRES_USER"],
+        "password": os.environ["POSTGRES_PASSWORD"],
+    }
 
 def run_query(sql: str, params=None) -> pd.DataFrame:
-    conn = get_conn()
-    with conn.cursor() as cur:
-        cur.execute(sql, params)
-        rows = cur.fetchall()
-    return pd.DataFrame(rows)
+    conn = psycopg2.connect(**get_db_params(), cursor_factory=RealDictCursor)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+        return pd.DataFrame(rows)
+    finally:
+        conn.close()
 
 # ---------------------------------------------------------------------------
 # Recupera parametri dalla session state
@@ -42,7 +43,6 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
 check_id     = st.session_state.get("detail_check_id", None)
 source_table = st.session_state.get("detail_source_table", None)
 
-# Bottone torna alla home
 if st.button("← Torna alla dashboard"):
     st.switch_page("dashboard.py")
 
@@ -58,6 +58,7 @@ if not check_id:
 CHECK_DESCRIPTIONS = {
     "CHK01": "Codice paese (COUNTRY) valorizzato e presente in T005S",
     "CHK02": "Coppia paese/regione (COUNTRY+REGION) presente in T005S",
+    "CHK03": "Partita IVA mancante per soggetti UE/ExtraUE",
 }
 
 st.title(f"❌ Dettaglio errori — {check_id}")
@@ -77,6 +78,11 @@ df_kpi = run_query("""
     FROM stg.check_results
     WHERE check_id = %s AND source_table = %s
 """, (check_id, source_table))
+
+num_error = 0
+num_ok    = 0
+total     = 0
+run_id    = "—"
 
 if not df_kpi.empty:
     num_error = int(df_kpi["num_error"].iloc[0])
@@ -105,9 +111,9 @@ df_errors = run_query("""
         message     AS "Messaggio errore",
         created_at  AS "Rilevato il"
     FROM stg.check_results
-    WHERE check_id   = %s
+    WHERE check_id     = %s
       AND source_table = %s
-      AND status     = 'Error'
+      AND status       = 'Error'
     ORDER BY object_key
 """, (check_id, source_table))
 
@@ -119,15 +125,14 @@ else:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Codice oggetto":  st.column_config.TextColumn(width="small"),
+            "Codice oggetto":   st.column_config.TextColumn(width="small"),
             "Messaggio errore": st.column_config.TextColumn(width="large"),
-            "Rilevato il":     st.column_config.DatetimeColumn(
+            "Rilevato il":      st.column_config.DatetimeColumn(
                 format="DD/MM/YYYY HH:mm:ss", width="medium"
             ),
         }
     )
 
-    # Export CSV
     csv = df_errors.to_csv(index=False).encode("utf-8")
     st.download_button(
         label="⬇️ Scarica errori CSV",

@@ -16,25 +16,26 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Connessione DB
+# Connessione DB — nuova connessione ad ogni query (evita "connection closed")
 # ---------------------------------------------------------------------------
-@st.cache_resource
-def get_conn():
-    return psycopg2.connect(
-        host=os.environ["POSTGRES_HOST"],
-        port=os.environ["POSTGRES_PORT"],
-        dbname=os.environ["POSTGRES_DB"],
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
-        cursor_factory=RealDictCursor,
-    )
+def get_db_params():
+    return {
+        "host":     os.environ["POSTGRES_HOST"],
+        "port":     os.environ["POSTGRES_PORT"],
+        "dbname":   os.environ["POSTGRES_DB"],
+        "user":     os.environ["POSTGRES_USER"],
+        "password": os.environ["POSTGRES_PASSWORD"],
+    }
 
 def run_query(sql: str, params=None) -> pd.DataFrame:
-    conn = get_conn()
-    with conn.cursor() as cur:
-        cur.execute(sql, params)
-        rows = cur.fetchall()
-    return pd.DataFrame(rows)
+    conn = psycopg2.connect(**get_db_params(), cursor_factory=RealDictCursor)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+        return pd.DataFrame(rows)
+    finally:
+        conn.close()
 
 # ---------------------------------------------------------------------------
 # Descrizioni check (estendibile)

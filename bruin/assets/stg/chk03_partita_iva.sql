@@ -4,10 +4,11 @@ type: pg.sql
 depends:
   - stg.clean_check_results
 description: >
-  CHK03 — Verifica che ogni BP presente in S_SUPPL_GEN#ZBP_DatiGenerali
-  abbia almeno un codice fiscale valorizzato in S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc
-  (campo TAXNUM(*) non vuoto).
-  Partita IVA mancante per soggetti UE/ExtraUE.
+  CHK03 — Partita IVA mancante per soggetti UE/ExtraUE.
+  Verifica che ogni BP in S_SUPPL_GEN#ZBP_DatiGenerali
+  abbia almeno un codice fiscale valorizzato in
+  S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc (TAXNUM(*) non vuoto).
+  Ottimizzato con LEFT JOIN invece di subquery annidate.
 connection: mdg_postgres
 @bruin */
 
@@ -27,41 +28,23 @@ SELECT
     gen."LIFNR(k/*)"                             AS object_key,
     'CHK03'                                      AS check_id,
     CASE
-        WHEN NOT EXISTS (
-            SELECT 1
-            FROM raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc" tax
-            WHERE tax."LIFNR(k/*)" = gen."LIFNR(k/*)"
-        )
+        WHEN tax."LIFNR(k/*)" IS NULL
             THEN 'Nessun codice fiscale presente in ZBP_CodiciFisc'
-        WHEN NOT EXISTS (
-            SELECT 1
-            FROM raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc" tax
-            WHERE tax."LIFNR(k/*)" = gen."LIFNR(k/*)"
-              AND tax."TAXNUM(*)"  IS NOT NULL
-              AND tax."TAXNUM(*)"  <> ''
-        )
-            THEN 'Codici fiscali presenti ma tutti vuoti (TAXNUM* non valorizzato)'
         ELSE
             'Almeno un codice fiscale valorizzato presente'
     END                                          AS message,
     CASE
-        WHEN NOT EXISTS (
-            SELECT 1
-            FROM raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc" tax
-            WHERE tax."LIFNR(k/*)" = gen."LIFNR(k/*)"
-        )
-            THEN 'Error'
-        WHEN NOT EXISTS (
-            SELECT 1
-            FROM raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc" tax
-            WHERE tax."LIFNR(k/*)" = gen."LIFNR(k/*)"
-              AND tax."TAXNUM(*)"  IS NOT NULL
-              AND tax."TAXNUM(*)"  <> ''
-        )
+        WHEN tax."LIFNR(k/*)" IS NULL
             THEN 'Error'
         ELSE 'Ok'
     END                                          AS status,
     TO_CHAR(NOW(), 'YYYYMMDD_HH24MISS')          AS run_id,
     NOW()                                        AS created_at
 FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" gen
+LEFT JOIN (
+    SELECT DISTINCT "LIFNR(k/*)"
+    FROM raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc"
+    WHERE "TAXNUM(*)" IS NOT NULL
+      AND "TAXNUM(*)" <> ''
+) tax ON tax."LIFNR(k/*)" = gen."LIFNR(k/*)"
 ;
