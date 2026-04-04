@@ -35,14 +35,20 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
         conn.close()
 
 CHECK_DESCRIPTIONS = {
+    # Fornitori
     "CHK01_SUPPL": "Fornitori: codice paese (COUNTRY) valorizzato e presente in T005S",
     "CHK02_SUPPL": "Fornitori: coppia paese/regione (COUNTRY+REGION) presente in T005S",
-    "CHK03_SUPPL": "Fornitori: Partita IVA mancante per soggetti UE/ExtraUE",
+    "CHK03_SUPPL": "Fornitori: partita IVA mancante per soggetti UE/ExtraUE",
     "CHK04_SUPPL": "Fornitori: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
-    "CHK01_CUST": "Clienti: codice paese (COUNTRY) valorizzato e presente in T005S",
-    "CHK02_CUST": "Clienti: coppia paese/regione (COUNTRY+REGION) presente in T005S",
-    "CHK03_CUST": "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
-    "CHK04_CUST": "Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
+    "CHK05_SUPPL": "Fornitori: codice fiscale orfano (assente in ZBP_DatiGenerali)",
+    "CHK06_SUPPL": "Fornitori: interlocutore orfano (assente in ZBP_DatiGenerali)",
+    # Clienti
+    "CHK01_CUST":  "Clienti: codice paese (COUNTRY) valorizzato e presente in T005S",
+    "CHK02_CUST":  "Clienti: coppia paese/regione (COUNTRY+REGION) presente in T005S",
+    "CHK03_CUST":  "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
+    "CHK04_CUST":  "Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
+    "CHK05_CUST":  "Clienti: codice fiscale orfano (assente in ZBP_DatiGenerali)",
+    "CHK06_CUST":  "Clienti: interlocutore orfano (assente in ZBP_DatiGenerali)",
 }
 
 # ---------------------------------------------------------------------------
@@ -165,7 +171,7 @@ else:
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f'<span style="color:#EF9F27; font-size:14px;">{description}</span>',
+                    f'<span style="color:#EF9F27; font-size:17px; font-weight:500;">{description}</span>',
                     unsafe_allow_html=True,
                 )
                 st.markdown(
@@ -178,17 +184,24 @@ else:
                 )
 
             with col_ok:
-                st.metric("✅ Ok", num_ok)
+                st.markdown(
+                    f'<div style="font-size:11px;color:gray;">✅ Ok</div>'
+                    f'<div style="font-size:20px;font-weight:600;">{num_ok}</div>',
+                    unsafe_allow_html=True)
 
             with col_warn:
-                st.metric("⚠️ Warning", num_warning)
+                st.markdown(
+                    f'<div style="font-size:11px;color:gray;">⚠️ Warning</div>'
+                    f'<div style="font-size:20px;font-weight:600;">{num_warning}</div>',
+                    unsafe_allow_html=True)
 
             with col_err:
-                st.metric(
-                    "❌ Errori", num_error,
-                    delta=f"{pct_error}%" if num_error > 0 else None,
-                    delta_color="inverse",
-                )
+                delta_html = f'<div style="font-size:11px;color:#e24b4a;">↑ {pct_error}%</div>' if num_error > 0 else ""
+                st.markdown(
+                    f'<div style="font-size:11px;color:gray;">❌ Errori</div>'
+                    f'<div style="font-size:20px;font-weight:600;">{num_error}</div>'
+                    f'{delta_html}',
+                    unsafe_allow_html=True)
 
             with col_btn:
                 st.markdown("<br>", unsafe_allow_html=True)

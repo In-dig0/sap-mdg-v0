@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS stg.check_catalog (
     target_table    VARCHAR(100) NOT NULL,
     target_field    VARCHAR(100) NOT NULL,
     ref_table       VARCHAR(100),
+    check_type      VARCHAR(20)  NOT NULL DEFAULT 'EXISTENCE',
     severity        VARCHAR(10)  NOT NULL DEFAULT 'Error',
     is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
