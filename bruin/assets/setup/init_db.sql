@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS stg.pipeline_runs (
     pipeline_name   VARCHAR(100) NOT NULL,
     started_at      TIMESTAMP    NOT NULL,
     finished_at     TIMESTAMP,
-    status          VARCHAR(20)  NOT NULL DEFAULT 'running',
+    status          VARCHAR(30)  NOT NULL DEFAULT 'running',
     records_loaded  INTEGER,
     checks_run      INTEGER,
     checks_error    INTEGER,

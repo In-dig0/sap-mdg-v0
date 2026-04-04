@@ -87,7 +87,7 @@ def main():
             """)
             tables_raw = cur.fetchone()[0]
 
-            status = "success" if checks_error == 0 else "completed_with_errors"
+            status = "success" if checks_error == 0 else "done_with_errors"
 
             cur.execute("""
                 UPDATE stg.pipeline_runs SET
