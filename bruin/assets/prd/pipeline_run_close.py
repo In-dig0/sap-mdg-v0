@@ -31,14 +31,26 @@ DB_CONFIG = {
 SEMAPHORE_PATH = "/tmp/mdg_run_id.txt"
 
 def main():
-    if not os.path.exists(SEMAPHORE_PATH):
-        raise FileNotFoundError(
-            f"File semaforo non trovato: {SEMAPHORE_PATH}. "
-            "Verificare che setup.pipeline_run_open sia eseguito prima."
-        )
-
-    with open(SEMAPHORE_PATH) as f:
-        run_id = int(f.read().strip())
+    # Leggi run_id dal semaforo se disponibile, altrimenti dal DB
+    if os.path.exists(SEMAPHORE_PATH):
+        with open(SEMAPHORE_PATH) as f:
+            run_id = int(f.read().strip())
+    else:
+        # Fallback: leggi l'ultimo run con status 'running' dal DB
+        conn_tmp = psycopg2.connect(**DB_CONFIG)
+        try:
+            with conn_tmp.cursor() as cur:
+                cur.execute("""
+                    SELECT run_id FROM stg.pipeline_runs
+                    WHERE status = 'running'
+                    ORDER BY started_at DESC LIMIT 1
+                """)
+                row = cur.fetchone()
+                if not row:
+                    raise RuntimeError("Nessun run attivo trovato in stg.pipeline_runs")
+                run_id = row[0]
+        finally:
+            conn_tmp.close()
 
     now = datetime.now(timezone.utc)
 
