@@ -35,9 +35,14 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
         conn.close()
 
 CHECK_DESCRIPTIONS = {
-    "CHK01": "Codice paese (COUNTRY) valorizzato e presente in T005S",
-    "CHK02": "Coppia paese/regione (COUNTRY+REGION) presente in T005S",
-    "CHK03": "Partita IVA mancante per soggetti UE/ExtraUE",
+    "CHK01":      "Codice paese (COUNTRY) valorizzato e presente in T005S",
+    "CHK02":      "Coppia paese/regione (COUNTRY+REGION) presente in T005S",
+    "CHK03":      "Partita IVA mancante per soggetti UE/ExtraUE",
+    "CHK04":      "Codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
+    "CHK01_CUST": "Clienti: codice paese (COUNTRY) valorizzato e presente in T005S",
+    "CHK02_CUST": "Clienti: coppia paese/regione (COUNTRY+REGION) presente in T005S",
+    "CHK03_CUST": "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
+    "CHK04_CUST": "Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
 }
 
 # ---------------------------------------------------------------------------
@@ -51,9 +56,15 @@ df_run = run_query("""
     FROM stg.pipeline_runs WHERE status != 'running'
 """)
 if not df_run.empty and df_run["last_run"].iloc[0]:
+    run_id_val = df_run["last_run"].iloc[0]
+    run_at_val = df_run["last_run_at"].iloc[0]
+    run_at_str = run_at_val.strftime("%d/%m/%Y %H:%M:%S") if hasattr(run_at_val, "strftime") else str(run_at_val)[:19]
     st.markdown(
-        f"**Ultimo run:** `#{df_run['last_run'].iloc[0]}`"
-        f"  —  {df_run['last_run_at'].iloc[0]}"
+        f'<p style="font-size:15px; margin-bottom:4px;">'
+        f'<strong>Ultimo run:</strong> '
+        f'<code style="background:#1a472a; color:#4ade80; padding:2px 7px; border-radius:4px;">#{run_id_val}</code>'
+        f'&nbsp;&nbsp;{run_at_str}</p>',
+        unsafe_allow_html=True,
     )
 st.divider()
 
@@ -75,50 +86,53 @@ with col_filter:
     )
 
 category_filter = None if selected_category == "Tutti" else selected_category
+where = "WHERE category = %s" if category_filter else ""
+params_cat = (category_filter,) if category_filter else None
 
 # ---------------------------------------------------------------------------
 # KPI globali
 # ---------------------------------------------------------------------------
-sql_kpi = """
-    SELECT COUNT(*) AS total,
-           COUNT(*) FILTER (WHERE status = 'Error') AS errors,
-           COUNT(*) FILTER (WHERE status = 'Ok')    AS ok
-    FROM stg.check_results
-    {where}
-""".format(where="WHERE category = %s" if category_filter else "")
-
-df_kpi = run_query(sql_kpi, (category_filter,) if category_filter else None)
+df_kpi = run_query(f"""
+    SELECT
+        COUNT(*)                                        AS total,
+        COUNT(*) FILTER (WHERE status = 'Ok')           AS ok,
+        COUNT(*) FILTER (WHERE status = 'Error')        AS errors,
+        COUNT(*) FILTER (WHERE status = 'Warning')      AS warnings
+    FROM stg.check_results {where}
+""", params_cat)
 
 if not df_kpi.empty and int(df_kpi["total"].iloc[0]) > 0:
-    total  = int(df_kpi["total"].iloc[0])
-    errors = int(df_kpi["errors"].iloc[0])
-    ok     = int(df_kpi["ok"].iloc[0])
-    pct_ok = round(ok / total * 100, 1)
+    total    = int(df_kpi["total"].iloc[0])
+    ok       = int(df_kpi["ok"].iloc[0])
+    errors   = int(df_kpi["errors"].iloc[0])
+    warnings = int(df_kpi["warnings"].iloc[0])
+    pct_ok   = round(ok / total * 100, 1)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Controlli totali", total)
     c2.metric("✅ Ok",            ok)
-    c3.metric("❌ Errori",        errors)
-    c4.metric("% successo",       f"{pct_ok}%")
+    c3.metric("⚠️ Warning",       warnings)
+    c4.metric("❌ Errori",        errors)
+    c5.metric("% successo",       f"{pct_ok}%")
     st.divider()
 
 # ---------------------------------------------------------------------------
 # Card per ogni CHECK ID
 # ---------------------------------------------------------------------------
-sql_checks = """
-    SELECT check_id, source_table, category,
-           COUNT(*) FILTER (WHERE status = 'Ok')    AS num_ok,
-           COUNT(*) FILTER (WHERE status = 'Error') AS num_error,
-           COUNT(*)                                  AS total
+df_checks = run_query(f"""
+    SELECT
+        check_id,
+        source_table,
+        category,
+        COUNT(*) FILTER (WHERE status = 'Ok')      AS num_ok,
+        COUNT(*) FILTER (WHERE status = 'Warning')  AS num_warning,
+        COUNT(*) FILTER (WHERE status = 'Error')    AS num_error,
+        COUNT(*)                                     AS total
     FROM stg.check_results
     {where}
     GROUP BY check_id, source_table, category
     ORDER BY check_id
-""".format(where="WHERE category = %s" if category_filter else "")
-
-df_checks = run_query(
-    sql_checks, (category_filter,) if category_filter else None
-)
+""", params_cat)
 
 if df_checks.empty:
     st.info("Nessun risultato. Avvia la pipeline Bruin.")
@@ -131,32 +145,29 @@ else:
     st.subheader(f"Risultati per controllo — {label}")
 
     for _, row in df_checks.iterrows():
-        check_id     = row["check_id"]
+        check_id    = row["check_id"]
         source_table = row["source_table"]
-        category     = row["category"]
-        num_ok       = int(row["num_ok"])
-        num_error    = int(row["num_error"])
-        total        = int(row["total"])
-        pct_error    = round(num_error / total * 100, 1) if total > 0 else 0
-        description  = CHECK_DESCRIPTIONS.get(check_id, "—")
+        category    = row["category"]
+        num_ok      = int(row["num_ok"])
+        num_warning = int(row["num_warning"])
+        num_error   = int(row["num_error"])
+        total       = int(row["total"])
+        pct_error   = round(num_error / total * 100, 1) if total > 0 else 0
+        description = CHECK_DESCRIPTIONS.get(check_id, "—")
 
         with st.container(border=True):
-            col_info, col_ok, col_err, col_btn = st.columns([4, 1, 1, 1])
+            col_info, col_ok, col_warn, col_err, col_btn = st.columns([4, 1, 1, 1, 1])
 
             with col_info:
-                # Check ID in azzurro chiaro
                 st.markdown(
-                    f'<span style="font-size:26px; font-weight:700; '
-                    f'color:#85B7EB;">{check_id}</span>',
+                    f'<span style="font-size:26px; font-weight:700; color:#85B7EB;">'
+                    f'{check_id}</span>',
                     unsafe_allow_html=True,
                 )
-                # Descrizione in giallo
                 st.markdown(
-                    f'<span style="color:#EF9F27; font-size:14px;">'
-                    f'{description}</span>',
+                    f'<span style="color:#EF9F27; font-size:14px;">{description}</span>',
                     unsafe_allow_html=True,
                 )
-                # Tabella e categoria sulla stessa riga
                 st.markdown(
                     f'<span style="font-size:12px; color:gray;">Tabella: </span>'
                     f'<code style="font-size:12px;">{source_table}</code>'
@@ -168,6 +179,9 @@ else:
 
             with col_ok:
                 st.metric("✅ Ok", num_ok)
+
+            with col_warn:
+                st.metric("⚠️ Warning", num_warning)
 
             with col_err:
                 st.metric(
@@ -181,7 +195,7 @@ else:
                 if st.button(
                     "Check details",
                     key=f"btn_{check_id}_{category}",
-                    type="primary" if num_error > 0 else "secondary",
+                    type="primary" if (num_error > 0 or num_warning > 0) else "secondary",
                     use_container_width=True,
                 ):
                     st.session_state["detail_check_id"]     = check_id

@@ -1,11 +1,11 @@
 /* @bruin
-name: stg.chk02_country_region
+name: stg.chk02_country_region_cust
 type: pg.sql
 depends:
   - stg.clean_check_results
 description: >
-  CHK02 — Verifica che la coppia COUNTRY+REGION della tabella
-  S_SUPPL_GEN#ZBP_DatiGenerali esista in ref.EXPORT_T005S.
+  CHK02 — Clienti: verifica che la coppia COUNTRY+REGION della tabella
+  S_CUST_GEN#ZBP_DatiGenerali esista in ref.EXPORT_T005S.
   COUNTRY e REGION sono entrambi obbligatori per SAP.
 connection: mdg_postgres
 @bruin */
@@ -15,9 +15,9 @@ INSERT INTO stg.check_results (
     message, status, run_id, zip_source, created_at
 )
 SELECT
-    'S_SUPPL_GEN#ZBP_DatiGenerali'              AS source_table,
+    'S_CUST_GEN#ZBP_DatiGenerali'               AS source_table,
     'BP'                                         AS category,
-    raw."LIFNR(k/*)"                             AS object_key,
+    raw."KUNNR(k/*)"                             AS object_key,
     'CHK02'                                      AS check_id,
     CASE
         WHEN raw."REGION" IS NULL OR raw."REGION" = ''
@@ -47,5 +47,5 @@ SELECT
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
     raw."_zip_source"                            AS zip_source,
     NOW()                                        AS created_at
-FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" raw
+FROM raw."S_CUST_GEN#ZBP_DatiGenerali" raw
 ;

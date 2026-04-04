@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS stg.pipeline_runs (
     pipeline_name   VARCHAR(100) NOT NULL,
     started_at      TIMESTAMP    NOT NULL,
     finished_at     TIMESTAMP,
-    status          VARCHAR(30)  NOT NULL DEFAULT 'running',
+    status          VARCHAR(20)  NOT NULL DEFAULT 'running',
     records_loaded  INTEGER,
     checks_run      INTEGER,
     checks_error    INTEGER,
@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS stg.check_results (
     message         TEXT         NOT NULL,
     status          VARCHAR(10)  NOT NULL,
     run_id          INTEGER,
+    zip_source      TEXT,
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
     CONSTRAINT pk_check_results PRIMARY KEY (id)
 );

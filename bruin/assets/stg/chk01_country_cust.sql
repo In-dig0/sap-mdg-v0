@@ -1,12 +1,12 @@
 /* @bruin
-name: stg.chk02_country_region
+name: stg.chk01_country_cust
 type: pg.sql
 depends:
   - stg.clean_check_results
 description: >
-  CHK02 — Verifica che la coppia COUNTRY+REGION della tabella
-  S_SUPPL_GEN#ZBP_DatiGenerali esista in ref.EXPORT_T005S.
-  COUNTRY e REGION sono entrambi obbligatori per SAP.
+  CHK01 — Clienti: verifica che il campo COUNTRY della tabella
+  S_CUST_GEN#ZBP_DatiGenerali sia valorizzato e presente
+  nella tabella di controllo SAP ref.EXPORT_T005S (colonna LAND1).
 connection: mdg_postgres
 @bruin */
 
@@ -15,29 +15,27 @@ INSERT INTO stg.check_results (
     message, status, run_id, zip_source, created_at
 )
 SELECT
-    'S_SUPPL_GEN#ZBP_DatiGenerali'              AS source_table,
+    'S_CUST_GEN#ZBP_DatiGenerali'               AS source_table,
     'BP'                                         AS category,
-    raw."LIFNR(k/*)"                             AS object_key,
-    'CHK02'                                      AS check_id,
+    raw."KUNNR(k/*)"                             AS object_key,
+    'CHK01'                                      AS check_id,
     CASE
-        WHEN raw."REGION" IS NULL OR raw."REGION" = ''
-            THEN 'REGION obbligatoria mancante (COUNTRY=' || COALESCE(raw."COUNTRY", 'NULL') || ')'
+        WHEN raw."COUNTRY" IS NULL OR raw."COUNTRY" = ''
+            THEN 'COUNTRY obbligatorio mancante'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY"
-              AND ref."BLAND" = raw."REGION"
         )
-            THEN 'Coppia paese/regione [' || raw."COUNTRY" || '/' || raw."REGION" || '] non presente in SAP (T005S)'
+            THEN 'Codice paese [' || raw."COUNTRY" || '] non presente in SAP (T005S.LAND1)'
         ELSE
-            'Coppia paese/regione [' || raw."COUNTRY" || '/' || raw."REGION" || '] valida'
+            'Codice paese [' || raw."COUNTRY" || '] valido'
     END                                          AS message,
     CASE
-        WHEN raw."REGION" IS NULL OR raw."REGION" = ''
+        WHEN raw."COUNTRY" IS NULL OR raw."COUNTRY" = ''
             THEN 'Error'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY"
-              AND ref."BLAND" = raw."REGION"
         )
             THEN 'Error'
         ELSE 'Ok'
@@ -47,5 +45,5 @@ SELECT
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
     raw."_zip_source"                            AS zip_source,
     NOW()                                        AS created_at
-FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" raw
+FROM raw."S_CUST_GEN#ZBP_DatiGenerali" raw
 ;

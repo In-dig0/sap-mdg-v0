@@ -12,14 +12,8 @@ connection: mdg_postgres
 @bruin */
 
 INSERT INTO stg.check_results (
-    source_table,
-    category,
-    object_key,
-    check_id,
-    message,
-    status,
-    run_id,
-    created_at
+    source_table, category, object_key, check_id,
+    message, status, run_id, zip_source, created_at
 )
 SELECT
     'S_SUPPL_GEN#ZBP_DatiGenerali'              AS source_table,
@@ -47,10 +41,10 @@ SELECT
             THEN 'Error'
         ELSE 'Ok'
     END                                          AS status,
-    -- run_id progressivo dall'ultimo run aperto
     (SELECT run_id::integer FROM stg.pipeline_runs
      WHERE status = 'running'
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
+    raw."_zip_source"                            AS zip_source,
     NOW()                                        AS created_at
 FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" raw
 ;
