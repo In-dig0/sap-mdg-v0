@@ -23,7 +23,10 @@ VALUES
      'ref.EXPORT_T005S (LAND1+BLAND)', 'Error', TRUE, NOW()),
     ('CHK03', 'Partita IVA mancante per soggetti UE/ExtraUE',
      'BP', 'S_SUPPL_GEN#ZBP_DatiGenerali', 'TAXNUM(*)',
-     'S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc', 'Error', TRUE, NOW())
+     'S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc', 'Error', TRUE, NOW()),
+    ('CHK04', 'Codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)',
+     'BP', 'S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc', 'TAXTYPE(k/*) + TAXNUM(*)',
+     NULL, 'Warning', TRUE, NOW())
 ON CONFLICT (check_id) DO UPDATE SET
     check_desc   = EXCLUDED.check_desc,
     category     = EXCLUDED.category,

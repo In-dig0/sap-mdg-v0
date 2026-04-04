@@ -176,15 +176,18 @@ def read_csv_safe(raw_bytes: bytes, csv_filename: str) -> tuple:
             f"per formato non valido"
         )
 
-    # Step 3: lettura CSV (on_bad_lines='warn' per sicurezza)
-    df = pd.read_csv(
-        io.BytesIO(clean),
-        sep=";",
-        encoding="utf-8",
-        dtype=str,
-        keep_default_na=False,
-        on_bad_lines="warn",
-    )
+    # Step 3: lettura CSV — sopprimo il ParserWarning di pandas
+    # perché le righe malformate sono già state loggiate da scan_bad_lines
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", pd.errors.ParserWarning)
+        df = pd.read_csv(
+            io.BytesIO(clean),
+            sep=";",
+            encoding="utf-8",
+            dtype=str,
+            keep_default_na=False,
+            on_bad_lines="skip",  # skip silenzioso: il log lo gestiamo noi
+        )
 
     return df, len(bad_lines)
 
