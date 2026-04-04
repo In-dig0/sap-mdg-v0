@@ -19,7 +19,7 @@ SELECT
     'S_SUPPL_GEN#ZBP_DatiGenerali'              AS source_table,
     'BP'                                         AS category,
     raw."LIFNR(k/*)"                             AS object_key,
-    'CHK01'                                      AS check_id,
+    'CHK01_SUPPL'                                      AS check_id,
     CASE
         WHEN raw."COUNTRY" IS NULL OR raw."COUNTRY" = ''
             THEN 'COUNTRY obbligatorio mancante'

@@ -18,7 +18,7 @@ SELECT
     'S_SUPPL_GEN#ZBP_DatiGenerali'              AS source_table,
     'BP'                                         AS category,
     gen."LIFNR(k/*)"                             AS object_key,
-    'CHK03'                                      AS check_id,
+    'CHK03_SUPPL'                                      AS check_id,
     CASE
         WHEN tax."LIFNR(k/*)" IS NULL
             THEN 'Nessun codice fiscale presente in ZBP_CodiciFisc'

@@ -16,16 +16,16 @@ INSERT INTO stg.check_catalog (
 )
 VALUES
     -- Vettori/Fornitori
-    ('CHK01', 'Codice paese (COUNTRY) valorizzato e presente in T005S',
+    ('CHK01_SUPPL', 'Fornitori: codice paese (COUNTRY) valorizzato e presente in T005S',
      'BP', 'S_SUPPL_GEN#ZBP_DatiGenerali', 'COUNTRY',
      'ref.EXPORT_T005S (LAND1)', 'Error', TRUE, NOW()),
-    ('CHK02', 'Coppia paese/regione (COUNTRY+REGION) presente in T005S',
+    ('CHK02_SUPPL', 'Fornitori: coppia paese/regione (COUNTRY+REGION) presente in T005S',
      'BP', 'S_SUPPL_GEN#ZBP_DatiGenerali', 'COUNTRY + REGION',
      'ref.EXPORT_T005S (LAND1+BLAND)', 'Error', TRUE, NOW()),
-    ('CHK03', 'Partita IVA mancante per soggetti UE/ExtraUE',
+    ('CHK03_SUPPL', 'Fornitori: partita IVA mancante per soggetti UE/ExtraUE',
      'BP', 'S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc', 'TAXNUM(*)',
      NULL, 'Error', TRUE, NOW()),
-    ('CHK04', 'Codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)',
+    ('CHK04_SUPPL', 'Fornitori: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)',
      'BP', 'S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc', 'TAXTYPE(k/*) + TAXNUM(*)',
      NULL, 'Warning', TRUE, NOW()),
     -- Clienti

@@ -20,24 +20,24 @@ SELECT
     raw."KUNNR(k/*)"                             AS object_key,
     'CHK02'                                      AS check_id,
     CASE
-        WHEN raw."REGION(*)" IS NULL OR raw."REGION(*)" = ''
-            THEN 'REGION(*) obbligatoria mancante (COUNTRY(*)=' || COALESCE(raw."COUNTRY(*)", 'NULL') || ')'
+        WHEN raw."REGION" IS NULL OR raw."REGION" = ''
+            THEN 'REGION obbligatoria mancante (COUNTRY(*)=' || COALESCE(raw."COUNTRY(*)", 'NULL') || ')'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY(*)"
-              AND ref."BLAND" = raw."REGION(*)"
+              AND ref."BLAND" = raw."REGION"
         )
-            THEN 'Coppia paese/regione [' || raw."COUNTRY(*)" || '/' || raw."REGION(*)" || '] non presente in SAP (T005S)'
+            THEN 'Coppia paese/regione [' || raw."COUNTRY(*)" || '/' || raw."REGION" || '] non presente in SAP (T005S)'
         ELSE
-            'Coppia paese/regione [' || raw."COUNTRY(*)" || '/' || raw."REGION(*)" || '] valida'
+            'Coppia paese/regione [' || raw."COUNTRY(*)" || '/' || raw."REGION" || '] valida'
     END                                          AS message,
     CASE
-        WHEN raw."REGION(*)" IS NULL OR raw."REGION(*)" = ''
+        WHEN raw."REGION" IS NULL OR raw."REGION" = ''
             THEN 'Error'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY(*)"
-              AND ref."BLAND" = raw."REGION(*)"
+              AND ref."BLAND" = raw."REGION"
         )
             THEN 'Error'
         ELSE 'Ok'

@@ -35,10 +35,10 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
         conn.close()
 
 CHECK_DESCRIPTIONS = {
-    "CHK01":      "Codice paese (COUNTRY) valorizzato e presente in T005S",
-    "CHK02":      "Coppia paese/regione (COUNTRY+REGION) presente in T005S",
-    "CHK03":      "Partita IVA mancante per soggetti UE/ExtraUE",
-    "CHK04":      "Codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
+    "CHK01_SUPPL":      "Codice paese (COUNTRY) valorizzato e presente in T005S",
+    "CHK02_SUPPL":      "Coppia paese/regione (COUNTRY+REGION) presente in T005S",
+    "CHK03_SUPPL":      "Partita IVA mancante per soggetti UE/ExtraUE",
+    "CHK04_SUPPL":      "Codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
     "CHK01_CUST": "Clienti: codice paese (COUNTRY) valorizzato e presente in T005S",
     "CHK02_CUST": "Clienti: coppia paese/regione (COUNTRY+REGION) presente in T005S",
     "CHK03_CUST": "Clienti: partita IVA mancante per soggetti UE/ExtraUE",

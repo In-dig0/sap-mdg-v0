@@ -4,7 +4,12 @@ type: python
 depends:
   - stg.chk01_supplier_country
   - stg.chk02_supplier_country_region
-  - stg.chk03_partita_iva
+  - stg.chk03_supplier_partita_iva
+  - stg.chk04_supplier_taxnum_duplicati
+  - stg.chk01_customer_country
+  - stg.chk02_customer_country_region
+  - stg.chk03_customer_partita_iva
+  - stg.chk04_customer_taxnum_duplicati
 description: >
   Chiude il record in stg.pipeline_runs al termine del run.
   Legge il run_id dal file semaforo /tmp/mdg_run_id.txt.
