@@ -1,5 +1,5 @@
 /* @bruin
-name: stg.chk03_partita_iva
+name: stg.chk03_supplier_partita_iva
 type: pg.sql
 depends:
   - stg.clean_check_results

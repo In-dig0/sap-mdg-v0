@@ -1,11 +1,11 @@
 /* @bruin
-name: stg.chk03_partita_iva_cust
+name: stg.chk03_customer_partita_iva
 type: pg.sql
 depends:
   - stg.clean_check_results
 description: >
   CHK03 — Clienti: verifica che ogni BP abbia almeno un TAXNUM(*)
-  valorizzato in S_CUST_TAXNUMBERS#ZBP_CodiciFisc.
+  valorizzato in S_CUST_TAXNUMBERS#ZBP-CodiciFisc.
   Partita IVA mancante per soggetti UE/ExtraUE.
 connection: mdg_postgres
 @bruin */
@@ -15,7 +15,7 @@ INSERT INTO stg.check_results (
     message, status, run_id, zip_source, created_at
 )
 SELECT
-    'S_CUST_GEN#ZBP_DatiGenerali'               AS source_table,
+    'S_CUST_GEN#ZBP-DatiGenerali'               AS source_table,
     'BP'                                         AS category,
     gen."KUNNR(k/*)"                             AS object_key,
     'CHK03'                                      AS check_id,
@@ -35,10 +35,10 @@ SELECT
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
     gen."_zip_source"                            AS zip_source,
     NOW()                                        AS created_at
-FROM raw."S_CUST_GEN#ZBP_DatiGenerali" gen
+FROM raw."S_CUST_GEN#ZBP-DatiGenerali" gen
 LEFT JOIN (
     SELECT DISTINCT "KUNNR(k/*)"
-    FROM raw."S_CUST_TAXNUMBERS#ZBP_CodiciFisc"
+    FROM raw."S_CUST_TAXNUMBERS#ZBP-CodiciFisc"
     WHERE "TAXNUM(*)" IS NOT NULL
       AND "TAXNUM(*)" <> ''
 ) tax ON tax."KUNNR(k/*)" = gen."KUNNR(k/*)"

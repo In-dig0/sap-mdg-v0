@@ -1,5 +1,5 @@
 /* @bruin
-name: stg.chk02_country_region
+name: stg.chk02_supplier_country_region
 type: pg.sql
 depends:
   - stg.clean_check_results

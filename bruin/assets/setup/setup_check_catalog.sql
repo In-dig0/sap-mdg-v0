@@ -30,16 +30,16 @@ VALUES
      NULL, 'Warning', TRUE, NOW()),
     -- Clienti
     ('CHK01_CUST', 'Clienti: codice paese (COUNTRY) valorizzato e presente in T005S',
-     'BP', 'S_CUST_GEN#ZBP_DatiGenerali', 'COUNTRY',
+     'BP', 'S_CUST_GEN#ZBP-DatiGenerali', 'COUNTRY',
      'ref.EXPORT_T005S (LAND1)', 'Error', TRUE, NOW()),
     ('CHK02_CUST', 'Clienti: coppia paese/regione (COUNTRY+REGION) presente in T005S',
-     'BP', 'S_CUST_GEN#ZBP_DatiGenerali', 'COUNTRY + REGION',
+     'BP', 'S_CUST_GEN#ZBP-DatiGenerali', 'COUNTRY + REGION',
      'ref.EXPORT_T005S (LAND1+BLAND)', 'Error', TRUE, NOW()),
     ('CHK03_CUST', 'Clienti: partita IVA mancante per soggetti UE/ExtraUE',
-     'BP', 'S_CUST_TAXNUMBERS#ZBP_CodiciFisc', 'TAXNUM(*)',
+     'BP', 'S_CUST_TAXNUMBERS#ZBP-CodiciFisc', 'TAXNUM(*)',
      NULL, 'Error', TRUE, NOW()),
     ('CHK04_CUST', 'Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)',
-     'BP', 'S_CUST_TAXNUMBERS#ZBP_CodiciFisc', 'TAXTYPE(k/*) + TAXNUM(*)',
+     'BP', 'S_CUST_TAXNUMBERS#ZBP-CodiciFisc', 'TAXTYPE(k/*) + TAXNUM(*)',
      NULL, 'Warning', TRUE, NOW())
 ON CONFLICT (check_id) DO UPDATE SET
     check_desc   = EXCLUDED.check_desc,

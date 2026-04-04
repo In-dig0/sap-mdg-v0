@@ -2,8 +2,8 @@
 name: prd.pipeline_run_close
 type: python
 depends:
-  - stg.chk01_country
-  - stg.chk02_country_region
+  - stg.chk01_supplier_country
+  - stg.chk02_supplier_country_region
   - stg.chk03_partita_iva
 description: >
   Chiude il record in stg.pipeline_runs al termine del run.

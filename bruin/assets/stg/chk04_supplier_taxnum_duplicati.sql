@@ -1,5 +1,5 @@
 /* @bruin
-name: stg.chk04_taxnum_duplicati
+name: stg.chk04_supplier_taxnum_duplicati
 type: pg.sql
 depends:
   - stg.clean_check_results

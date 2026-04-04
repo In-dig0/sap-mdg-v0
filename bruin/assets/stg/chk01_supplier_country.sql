@@ -1,12 +1,13 @@
 /* @bruin
-name: stg.chk01_country_cust
+name: stg.chk01_supplier_country
 type: pg.sql
 depends:
   - stg.clean_check_results
 description: >
-  CHK01 — Clienti: verifica che il campo COUNTRY della tabella
-  S_CUST_GEN#ZBP_DatiGenerali sia valorizzato e presente
+  CHK01 — Verifica che il campo COUNTRY della tabella
+  S_SUPPL_GEN#ZBP_DatiGenerali sia valorizzato e presente
   nella tabella di controllo SAP ref.EXPORT_T005S (colonna LAND1).
+  COUNTRY è obbligatorio per SAP.
 connection: mdg_postgres
 @bruin */
 
@@ -15,9 +16,9 @@ INSERT INTO stg.check_results (
     message, status, run_id, zip_source, created_at
 )
 SELECT
-    'S_CUST_GEN#ZBP_DatiGenerali'               AS source_table,
+    'S_SUPPL_GEN#ZBP_DatiGenerali'              AS source_table,
     'BP'                                         AS category,
-    raw."KUNNR(k/*)"                             AS object_key,
+    raw."LIFNR(k/*)"                             AS object_key,
     'CHK01'                                      AS check_id,
     CASE
         WHEN raw."COUNTRY" IS NULL OR raw."COUNTRY" = ''
@@ -45,5 +46,5 @@ SELECT
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
     raw."_zip_source"                            AS zip_source,
     NOW()                                        AS created_at
-FROM raw."S_CUST_GEN#ZBP_DatiGenerali" raw
+FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" raw
 ;
