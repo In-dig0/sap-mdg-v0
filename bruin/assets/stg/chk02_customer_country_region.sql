@@ -18,7 +18,7 @@ SELECT
     'S_CUST_GEN#ZBP-DatiGenerali'               AS source_table,
     'BP'                                         AS category,
     raw."KUNNR(k/*)"                             AS object_key,
-    'CHK02'                                      AS check_id,
+    'CHK02_CUST'                                      AS check_id,
     CASE
         WHEN raw."REGION" IS NULL OR raw."REGION" = ''
             THEN 'REGION obbligatoria mancante (COUNTRY(*)=' || COALESCE(raw."COUNTRY(*)", 'NULL') || ')'

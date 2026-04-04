@@ -18,7 +18,7 @@ SELECT
     'S_CUST_TAXNUMBERS#ZBP-CodiciFisc'          AS source_table,
     'BP'                                         AS category,
     t."KUNNR(k/*)"                               AS object_key,
-    'CHK04'                                      AS check_id,
+    'CHK04_CUST'                                      AS check_id,
     'Codice fiscale [' || t."TAXTYPE(k/*)" || '/' || t."TAXNUM(*)" ||
     '] condiviso con altri ' || (dup.cnt - 1) || ' BP: ' || dup.altri_kunnr
                                                  AS message,

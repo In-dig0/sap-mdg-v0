@@ -18,7 +18,7 @@ SELECT
     'S_CUST_GEN#ZBP-DatiGenerali'               AS source_table,
     'BP'                                         AS category,
     gen."KUNNR(k/*)"                             AS object_key,
-    'CHK03'                                      AS check_id,
+    'CHK03_CUST'                                      AS check_id,
     CASE
         WHEN tax."KUNNR(k/*)" IS NULL
             THEN 'Nessun codice fiscale presente in ZBP_CodiciFisc'

@@ -18,7 +18,7 @@ SELECT
     'S_CUST_GEN#ZBP-DatiGenerali'               AS source_table,
     'BP'                                         AS category,
     raw."KUNNR(k/*)"                             AS object_key,
-    'CHK01'                                      AS check_id,
+    'CHK01_CUST'                                      AS check_id,
     CASE
         WHEN raw."COUNTRY(*)" IS NULL OR raw."COUNTRY(*)" = ''
             THEN 'COUNTRY(*) obbligatorio mancante'
