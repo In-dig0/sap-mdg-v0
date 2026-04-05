@@ -4,6 +4,7 @@ Check Catalog — visualizza e gestisce i controlli attivi della pipeline
 """
 
 import os
+import json
 import streamlit as st
 import pandas as pd
 import psycopg2
@@ -14,6 +15,8 @@ st.set_page_config(
     page_icon="📋",
     layout="wide",
 )
+
+STATES_PATH = "/project/bruin/config/check_states.json"
 
 def get_db_params():
     return {
@@ -34,7 +37,9 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
     finally:
         conn.close()
 
-def toggle_check(check_id: str, new_state: bool):
+def save_state(check_id: str, new_state: bool):
+    """Aggiorna DB e JSON in modo sincrono."""
+    # 1. Aggiorna DB
     conn = psycopg2.connect(**get_db_params())
     try:
         with conn.cursor() as cur:
@@ -46,6 +51,19 @@ def toggle_check(check_id: str, new_state: bool):
         conn.commit()
     finally:
         conn.close()
+
+    # 2. Aggiorna JSON
+    try:
+        if os.path.exists(STATES_PATH):
+            with open(STATES_PATH, "r") as f:
+                states = json.load(f)
+        else:
+            states = {}
+        states[check_id] = new_state
+        with open(STATES_PATH, "w") as f:
+            json.dump(states, f, indent=2)
+    except Exception as e:
+        st.warning(f"DB aggiornato ma impossibile scrivere {STATES_PATH}: {e}")
 
 # ---------------------------------------------------------------------------
 # Header
@@ -101,16 +119,8 @@ where_clause = " AND ".join(where_parts)
 
 try:
     df = run_query(f"""
-        SELECT
-            check_id,
-            check_desc,
-            check_type,
-            severity,
-            target_table,
-            target_field,
-            ref_table,
-            is_active,
-            updated_at
+        SELECT check_id, check_desc, check_type, severity,
+               target_table, target_field, ref_table, is_active, updated_at
         FROM stg.check_catalog
         WHERE {where_clause}
         ORDER BY check_type, check_id
@@ -126,18 +136,18 @@ if df.empty:
 # ---------------------------------------------------------------------------
 # KPI
 # ---------------------------------------------------------------------------
-total   = len(df)
-attivi  = int(df["is_active"].sum())
+total    = len(df)
+attivi   = int(df["is_active"].sum())
 inattivi = total - attivi
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Check totali",  total)
-c2.metric("✅ Attivi",     attivi)
-c3.metric("⏸️ Inattivi",   inattivi)
+c1.metric("Check totali", total)
+c2.metric("✅ Attivi",    attivi)
+c3.metric("⏸️ Inattivi",  inattivi)
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Legenda tipi
+# Legenda
 # ---------------------------------------------------------------------------
 with st.expander("ℹ️ Legenda tipologie controllo", expanded=False):
     st.markdown("""
@@ -149,10 +159,8 @@ with st.expander("ℹ️ Legenda tipologie controllo", expanded=False):
     """)
 
 # ---------------------------------------------------------------------------
-# Card per ogni check con toggle attivo/inattivo
+# Card per ogni check con toggle
 # ---------------------------------------------------------------------------
-
-# Raggruppa per check_type
 TYPE_COLORS = {
     "SAP_REF":     "#4A90D9",
     "EXISTENCE":   "#E8A838",
@@ -169,19 +177,17 @@ for check_type in ["SAP_REF", "EXISTENCE", "CROSS_TABLE"]:
     if df_type.empty:
         continue
 
-    color = TYPE_COLORS.get(check_type, "#888")
-    label = TYPE_LABELS.get(check_type, check_type)
-
     st.markdown(
-        f'<h3 style="color:{color}; margin-top:16px;">{label}</h3>',
+        f'<h3 style="color:{TYPE_COLORS[check_type]}; margin-top:16px;">'
+        f'{TYPE_LABELS[check_type]}</h3>',
         unsafe_allow_html=True,
     )
 
     for _, row in df_type.iterrows():
-        check_id   = row["check_id"]
-        is_active  = bool(row["is_active"])
-        severity   = row["severity"]
-        sev_color  = "#e24b4a" if severity == "Error" else "#E8A838"
+        check_id  = row["check_id"]
+        is_active = bool(row["is_active"])
+        severity  = row["severity"]
+        sev_color = "#e24b4a" if severity == "Error" else "#E8A838"
         updated_at = row["updated_at"]
 
         with st.container(border=True):
@@ -216,10 +222,10 @@ for check_type in ["SAP_REF", "EXISTENCE", "CROSS_TABLE"]:
                     key=f"toggle_{check_id}",
                 )
                 if new_state != is_active:
-                    toggle_check(check_id, new_state)
-                    action = "attivato" if new_state else "disattivato"
-                    st.toast(f"Check {check_id} {action}", icon="✅")
+                    save_state(check_id, new_state)
+                    action = "attivato ✅" if new_state else "disattivato ⏸️"
+                    st.toast(f"{check_id} {action}", icon="💾")
                     st.rerun()
 
-        st.caption(f"Aggiornato il: {updated_at.strftime('%d/%m/%Y %H:%M') if hasattr(updated_at, 'strftime') else updated_at}")
-
+        updated_str = updated_at.strftime('%d/%m/%Y %H:%M') if hasattr(updated_at, 'strftime') else str(updated_at)[:16]
+        st.caption(f"Aggiornato il: {updated_str}")

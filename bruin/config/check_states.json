@@ -1,0 +1,14 @@
+{
+  "_comment": "Stato attivo/inattivo dei check MDG. Modificato da Streamlit Check Catalog.",
+  "CHK01_SUPPL": true,
+  "CHK02_SUPPL": true,
+  "CHK03_SUPPL": true,
+  "CHK04_SUPPL": true,
+  "CHK05_SUPPL": true,
+  "CHK01_CUST":  true,
+  "CHK02_CUST":  true,
+  "CHK03_CUST":  true,
+  "CHK04_CUST":  true,
+  "CHK05_CUST":  true,
+  "CHK05_CUST_ZDM": true
+}

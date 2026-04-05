@@ -88,15 +88,29 @@ categories = (
     if not df_categories.empty else ["Tutti"]
 )
 
-col_filter, _ = st.columns([2, 6])
+col_filter, col_type, _ = st.columns([2, 2, 4])
 with col_filter:
     selected_category = st.selectbox(
         "Filtra per categoria", options=categories, index=0
     )
+with col_type:
+    selected_type = st.selectbox(
+        "Tipo controllo",
+        options=["Tutti", "SAP_REF", "EXISTENCE", "CROSS_TABLE"],
+        index=0,
+    )
 
 category_filter = None if selected_category == "Tutti" else selected_category
-where = "WHERE category = %s" if category_filter else ""
-params_cat = (category_filter,) if category_filter else None
+type_filter = None if selected_type == "Tutti" else selected_type
+where_parts = []
+if category_filter:
+    where_parts.append("category = %s")
+if type_filter:
+    where_parts.append("check_type = %s")
+where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+params_cat = tuple(
+    [p for p in [category_filter, type_filter] if p is not None]
+) or None
 
 # ---------------------------------------------------------------------------
 # KPI globali

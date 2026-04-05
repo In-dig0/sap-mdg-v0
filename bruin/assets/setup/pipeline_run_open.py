@@ -4,6 +4,7 @@ type: python
 depends:
   - setup.init_db
   - setup.check_catalog
+  - setup.apply_check_states
 description: >
   Apre un nuovo record in stg.pipeline_runs usando la sequence
   stg.pipeline_run_seq come run_id progressivo (1, 2, 3...).
