@@ -45,4 +45,9 @@ JOIN (
     AND dup."TAXNUM(*)"    = t."TAXNUM(*)"
 WHERE t."TAXNUM(*)" IS NOT NULL
   AND t."TAXNUM(*)" <> ''
+WHERE (
+    SELECT COALESCE(is_active, FALSE)
+    FROM stg.check_catalog
+    WHERE check_id = 'CHK04_CUST'
+)
 ;

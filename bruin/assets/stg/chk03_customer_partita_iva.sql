@@ -42,4 +42,9 @@ LEFT JOIN (
     WHERE "TAXNUM(*)" IS NOT NULL
       AND "TAXNUM(*)" <> ''
 ) tax ON tax."KUNNR(k/*)" = gen."KUNNR(k/*)"
+WHERE (
+    SELECT COALESCE(is_active, FALSE)
+    FROM stg.check_catalog
+    WHERE check_id = 'CHK03_CUST'
+)
 ;

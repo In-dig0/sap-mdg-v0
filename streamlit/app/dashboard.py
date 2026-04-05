@@ -56,21 +56,25 @@ CHECK_DESCRIPTIONS = {
 st.title("🔍 MDG — Data Quality Dashboard")
 st.caption("Migrazione ERP legacy → SAP S/4HANA — Risultati controlli qualità dati")
 
-df_run = run_query("""
-    SELECT MAX(run_id) AS last_run, MAX(started_at) AS last_run_at
-    FROM stg.pipeline_runs WHERE status != 'running'
-""")
-if not df_run.empty and df_run["last_run"].iloc[0]:
-    run_id_val = df_run["last_run"].iloc[0]
-    run_at_val = df_run["last_run_at"].iloc[0]
-    run_at_str = run_at_val.strftime("%d/%m/%Y %H:%M:%S") if hasattr(run_at_val, "strftime") else str(run_at_val)[:19]
-    st.markdown(
-        f'<p style="font-size:15px; margin-bottom:4px;">'
-        f'<strong>Ultimo run:</strong> '
-        f'<code style="background:#1a472a; color:#4ade80; padding:2px 7px; border-radius:4px;">#{run_id_val}</code>'
-        f'&nbsp;&nbsp;{run_at_str}</p>',
-        unsafe_allow_html=True,
-    )
+try:
+    df_run = run_query("""
+        SELECT MAX(run_id) AS last_run, MAX(started_at) AS last_run_at
+        FROM stg.pipeline_runs WHERE status != 'running'
+    """)
+    if not df_run.empty and df_run["last_run"].iloc[0]:
+        run_id_val = df_run["last_run"].iloc[0]
+        run_at_val = df_run["last_run_at"].iloc[0]
+        run_at_str = run_at_val.strftime("%d/%m/%Y %H:%M:%S") if hasattr(run_at_val, "strftime") else str(run_at_val)[:19]
+        st.markdown(
+            f'<p style="font-size:15px; margin-bottom:4px;">'
+            f'<strong>Ultimo run:</strong> '
+            f'<code style="background:#1a472a; color:#4ade80; padding:2px 7px; border-radius:4px;">#{run_id_val}</code>'
+            f'&nbsp;&nbsp;{run_at_str}</p>',
+            unsafe_allow_html=True,
+        )
+except Exception:
+    st.info("⚠️ Nessun dato disponibile. Avvia la pipeline Bruin per inizializzare il database.")
+    st.stop()
 st.divider()
 
 # ---------------------------------------------------------------------------

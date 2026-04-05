@@ -156,6 +156,17 @@ def main():
             total_orphans = 0
 
             for flow in FLOWS:
+                # Verifica se il check è attivo nel catalogo
+                cur.execute("""
+                    SELECT COALESCE(is_active, FALSE)
+                    FROM stg.check_catalog
+                    WHERE check_id = %s
+                """, (flow["check_id"],))
+                row_active = cur.fetchone()
+                if row_active is None or not row_active[0]:
+                    print(f"[SKIP] {flow['check_id']} disattivato nel catalogo")
+                    continue
+
                 print(f"[INFO] Verifica flusso {flow['check_id']} "
                       f"— master: {flow['master_table']}")
 

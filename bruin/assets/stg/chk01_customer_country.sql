@@ -46,4 +46,9 @@ SELECT
     raw."_zip_source"                            AS zip_source,
     NOW()                                        AS created_at
 FROM raw."S_CUST_GEN#ZBP-DatiGenerali" raw
+WHERE (
+    SELECT COALESCE(is_active, FALSE)
+    FROM stg.check_catalog
+    WHERE check_id = 'CHK01_CUST'
+)
 ;
