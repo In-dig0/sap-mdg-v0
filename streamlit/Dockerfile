@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+
 # Dipendenze Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

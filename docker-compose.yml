@@ -153,6 +153,45 @@ services:
     networks:
       - mdg_network
 
+  # ---------------------------------------------------------------------------
+  # FastAPI — Pipeline Controller
+  # URL: http://localhost:8000
+  # Docs Swagger: http://localhost:8000/docs
+  # Docs ReDoc:   http://localhost:8000/redoc
+  # ---------------------------------------------------------------------------
+  fastapi:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: mdg_fastapi
+    restart: unless-stopped
+    ports:
+      - "${FASTAPI_PORT:-8000}:8000"
+    environment:
+      BRUIN_CONTAINER:   mdg_bruin
+      BRUIN_PIPELINE:    /project/bruin
+      SEMAPHORE_PATH:    /data/inbound/DATASET_READY.txt
+      LOG_DIR:           /logs
+      POSTGRES_HOST:     ${POSTGRES_HOST}
+      POSTGRES_PORT:     ${POSTGRES_PORT}
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ:                ${TZ}
+    volumes:
+      # Socket Docker — permette a FastAPI di fare 'docker exec mdg_bruin ...'
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Volume datalake ERP — per leggere/creare il file semaforo DATASET_READY.txt
+      - datalake_olderp:/data/inbound
+      # Log persistenti dei run
+      - api_logs:/logs
+      - ./api:/app  
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mdg_network
+
 # =============================================================================
 # Volumi
 # =============================================================================
@@ -165,6 +204,9 @@ volumes:
     name: mdg_datalake_olderp
   datalake_sap:
     name: mdg_datalake_sap
+  api_logs:
+    name: mdg_api_logs
+    
 
 # =============================================================================
 # Rete interna
