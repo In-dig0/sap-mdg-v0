@@ -104,9 +104,9 @@ category_filter = None if selected_category == "Tutti" else selected_category
 type_filter = None if selected_type == "Tutti" else selected_type
 where_parts = []
 if category_filter:
-    where_parts.append("category = %s")
+    where_parts.append("cr.category = %s")
 if type_filter:
-    where_parts.append("check_type = %s")
+    where_parts.append("cc.check_type = %s")
 where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 params_cat = tuple(
     [p for p in [category_filter, type_filter] if p is not None]
@@ -118,10 +118,12 @@ params_cat = tuple(
 df_kpi = run_query(f"""
     SELECT
         COUNT(*)                                        AS total,
-        COUNT(*) FILTER (WHERE status = 'Ok')           AS ok,
-        COUNT(*) FILTER (WHERE status = 'Error')        AS errors,
-        COUNT(*) FILTER (WHERE status = 'Warning')      AS warnings
-    FROM stg.check_results {where}
+        COUNT(*) FILTER (WHERE cr.status = 'Ok')        AS ok,
+        COUNT(*) FILTER (WHERE cr.status = 'Error')     AS errors,
+        COUNT(*) FILTER (WHERE cr.status = 'Warning')   AS warnings
+    FROM stg.check_results cr
+    JOIN stg.check_catalog cc ON cc.check_id = cr.check_id
+    {where}
 """, params_cat)
 
 if not df_kpi.empty and int(df_kpi["total"].iloc[0]) > 0:
@@ -144,17 +146,18 @@ if not df_kpi.empty and int(df_kpi["total"].iloc[0]) > 0:
 # ---------------------------------------------------------------------------
 df_checks = run_query(f"""
     SELECT
-        check_id,
-        source_table,
-        category,
-        COUNT(*) FILTER (WHERE status = 'Ok')      AS num_ok,
-        COUNT(*) FILTER (WHERE status = 'Warning')  AS num_warning,
-        COUNT(*) FILTER (WHERE status = 'Error')    AS num_error,
-        COUNT(*)                                     AS total
-    FROM stg.check_results
+        cr.check_id,
+        cr.source_table,
+        cr.category,
+        COUNT(*) FILTER (WHERE cr.status = 'Ok')      AS num_ok,
+        COUNT(*) FILTER (WHERE cr.status = 'Warning')  AS num_warning,
+        COUNT(*) FILTER (WHERE cr.status = 'Error')    AS num_error,
+        COUNT(*)                                        AS total
+    FROM stg.check_results cr
+    JOIN stg.check_catalog cc ON cc.check_id = cr.check_id
     {where}
-    GROUP BY check_id, source_table, category
-    ORDER BY check_id
+    GROUP BY cr.check_id, cr.source_table, cr.category
+    ORDER BY cr.check_id
 """, params_cat)
 
 if df_checks.empty:
@@ -230,4 +233,4 @@ else:
                 ):
                     st.session_state["detail_check_id"]     = check_id
                     st.session_state["detail_source_table"] = source_table
-                    st.switch_page("pages/Check_Details.py")
+                    st.switch_page("pages/Check_Results.py")

@@ -10,7 +10,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 st.set_page_config(
-    page_title="Check Details",
+    page_title="Check Results",
     page_icon="🔎",
     layout="wide",
 )
