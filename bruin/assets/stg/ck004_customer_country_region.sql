@@ -1,12 +1,10 @@
 /* @bruin
-name: stg.chk01_customer_country
+name: stg.ck004_customer_country_region
 type: pg.sql
 depends:
   - stg.clean_check_results
 description: >
-  CHK01 — Clienti: verifica che il campo COUNTRY della tabella
-  S_CUST_GEN#ZBP-DatiGenerali sia valorizzato e presente
-  nella tabella di controllo SAP ref.EXPORT_T005S (colonna LAND1).
+  CK004 — SAP_REF: Clienti: coppia COUNTRY(*)+REGION presente in T005S.
 connection: mdg_postgres
 @bruin */
 
@@ -18,26 +16,25 @@ SELECT
     'S_CUST_GEN#ZBP-DatiGenerali'               AS source_table,
     'BP'                                         AS category,
     raw."KUNNR(k/*)"                             AS object_key,
-    'CHK01_CUST'                                      AS check_id,
+    'CK004'                                      AS check_id,
     CASE
-        WHEN raw."COUNTRY(*)" IS NULL OR raw."COUNTRY(*)" = ''
-            THEN 'COUNTRY(*) obbligatorio mancante'
+        WHEN raw."REGION" IS NULL OR raw."REGION" = ''
+            THEN 'REGION obbligatoria mancante (COUNTRY(*)=' || COALESCE(raw."COUNTRY(*)", 'NULL') || ')'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY(*)"
+              AND ref."BLAND" = raw."REGION"
         )
-            THEN 'Codice paese [' || raw."COUNTRY(*)" || '] non presente in SAP (T005S.LAND1)'
-        ELSE
-            'Codice paese [' || raw."COUNTRY(*)" || '] valido'
+            THEN 'Coppia paese/regione [' || raw."COUNTRY(*)" || '/' || raw."REGION" || '] non presente in SAP (T005S)'
+        ELSE 'Coppia paese/regione [' || raw."COUNTRY(*)" || '/' || raw."REGION" || '] valida'
     END                                          AS message,
     CASE
-        WHEN raw."COUNTRY(*)" IS NULL OR raw."COUNTRY(*)" = ''
-            THEN 'Error'
+        WHEN raw."REGION" IS NULL OR raw."REGION" = ''  THEN 'Error'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY(*)"
-        )
-            THEN 'Error'
+              AND ref."BLAND" = raw."REGION"
+        )                                               THEN 'Error'
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs
@@ -48,7 +45,6 @@ SELECT
 FROM raw."S_CUST_GEN#ZBP-DatiGenerali" raw
 WHERE (
     SELECT COALESCE(is_active, FALSE)
-    FROM stg.check_catalog
-    WHERE check_id = 'CHK01_CUST'
+    FROM stg.check_catalog WHERE check_id = 'CK004'
 )
 ;

@@ -1,12 +1,12 @@
 /* @bruin
-name: stg.chk03_customer_partita_iva
+name: stg.ck201_supplier_piva
 type: pg.sql
 depends:
   - stg.clean_check_results
 description: >
-  CHK03 — Clienti: verifica che ogni BP abbia almeno un TAXNUM(*)
-  valorizzato in S_CUST_TAXNUMBERS#ZBP-CodiciFisc.
-  Partita IVA mancante per soggetti UE/ExtraUE.
+  CK201 — EXISTENCE: Fornitori: partita IVA mancante.
+  Verifica che ogni LIFNR abbia almeno un TAXNUM(*) valorizzato
+  in S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc.
 connection: mdg_postgres
 @bruin */
 
@@ -15,19 +15,17 @@ INSERT INTO stg.check_results (
     message, status, run_id, zip_source, created_at
 )
 SELECT
-    'S_CUST_GEN#ZBP-DatiGenerali'               AS source_table,
+    'S_SUPPL_GEN#ZBP_DatiGenerali'              AS source_table,
     'BP'                                         AS category,
-    gen."KUNNR(k/*)"                             AS object_key,
-    'CHK03_CUST'                                      AS check_id,
+    gen."LIFNR(k/*)"                             AS object_key,
+    'CK201'                                      AS check_id,
     CASE
-        WHEN tax."KUNNR(k/*)" IS NULL
+        WHEN tax."LIFNR(k/*)" IS NULL
             THEN 'Nessun codice fiscale presente in ZBP_CodiciFisc'
-        ELSE
-            'Almeno un codice fiscale valorizzato presente'
+        ELSE 'Almeno un codice fiscale valorizzato presente'
     END                                          AS message,
     CASE
-        WHEN tax."KUNNR(k/*)" IS NULL
-            THEN 'Error'
+        WHEN tax."LIFNR(k/*)" IS NULL THEN 'Error'
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs
@@ -35,16 +33,14 @@ SELECT
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
     gen."_zip_source"                            AS zip_source,
     NOW()                                        AS created_at
-FROM raw."S_CUST_GEN#ZBP-DatiGenerali" gen
+FROM raw."S_SUPPL_GEN#ZBP_DatiGenerali" gen
 LEFT JOIN (
-    SELECT DISTINCT "KUNNR(k/*)"
-    FROM raw."S_CUST_TAXNUMBERS#ZBP-CodiciFisc"
-    WHERE "TAXNUM(*)" IS NOT NULL
-      AND "TAXNUM(*)" <> ''
-) tax ON tax."KUNNR(k/*)" = gen."KUNNR(k/*)"
+    SELECT DISTINCT "LIFNR(k/*)"
+    FROM raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc"
+    WHERE "TAXNUM(*)" IS NOT NULL AND "TAXNUM(*)" <> ''
+) tax ON tax."LIFNR(k/*)" = gen."LIFNR(k/*)"
 WHERE (
     SELECT COALESCE(is_active, FALSE)
-    FROM stg.check_catalog
-    WHERE check_id = 'CHK03_CUST'
+    FROM stg.check_catalog WHERE check_id = 'CK201'
 )
 ;

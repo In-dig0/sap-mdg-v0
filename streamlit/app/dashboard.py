@@ -35,19 +35,18 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
         conn.close()
 
 CHECK_DESCRIPTIONS = {
-    # Fornitori
-    "CHK01_SUPPL": "Fornitori: codice paese (COUNTRY) valorizzato e presente in T005S",
-    "CHK02_SUPPL": "Fornitori: coppia paese/regione (COUNTRY+REGION) presente in T005S",
-    "CHK03_SUPPL": "Fornitori: partita IVA mancante per soggetti UE/ExtraUE",
-    "CHK04_SUPPL": "Fornitori: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
-    "CHK05_SUPPL": "Fornitori: record orfano nelle tabelle secondarie del flusso ZBP",
-    # Clienti ZBP
-    "CHK01_CUST":     "Clienti: codice paese (COUNTRY) valorizzato e presente in T005S",
-    "CHK02_CUST":     "Clienti: coppia paese/regione (COUNTRY+REGION) presente in T005S",
-    "CHK03_CUST":     "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
-    "CHK04_CUST":     "Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
-    "CHK05_CUST":     "Clienti ZBP: record orfano nelle tabelle secondarie del flusso ZBP",
-    "CHK05_CUST_ZDM": "Clienti ZDM: record orfano nelle tabelle secondarie del flusso ZDM",
+    "CK001": "Fornitori: codice paese (COUNTRY) presente in T005S",
+    "CK002": "Fornitori: coppia COUNTRY+REGION presente in T005S",
+    "CK003": "Clienti: codice paese COUNTRY(*) presente in T005S",
+    "CK004": "Clienti: coppia COUNTRY(*)+REGION presente in T005S",
+    "CK201": "Fornitori: partita IVA mancante per soggetti UE/ExtraUE",
+    "CK202": "Fornitori: codice fiscale duplicato tra BP diversi",
+    "CK203": "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
+    "CK204": "Clienti: codice fiscale duplicato tra BP diversi",
+    "CK401": "Orfani flusso 01-ZBP-Vettori: LIFNR assente nella master",
+    "CK402": "Orfani flusso 04-ZBP-Fornitori: LIFNR assente nella master",
+    "CK403": "Orfani flusso 02-ZDM-Clienti: KUNNR assente nella master",
+    "CK404": "Orfani flusso 03-ZBP-Clienti: KUNNR assente nella master",
 }
 
 # ---------------------------------------------------------------------------
@@ -108,6 +107,10 @@ if category_filter:
 if type_filter:
     where_parts.append("cc.check_type = %s")
 where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+# where_active: aggiunge sempre il filtro cc.is_active = TRUE
+active_parts = where_parts + ["cc.is_active = TRUE"]
+where_active = "WHERE " + " AND ".join(active_parts)
 params_cat = tuple(
     [p for p in [category_filter, type_filter] if p is not None]
 ) or None
@@ -123,7 +126,7 @@ df_kpi = run_query(f"""
         COUNT(*) FILTER (WHERE cr.status = 'Warning')   AS warnings
     FROM stg.check_results cr
     JOIN stg.check_catalog cc ON cc.check_id = cr.check_id
-    {where}
+    {where_active}
 """, params_cat)
 
 if not df_kpi.empty and int(df_kpi["total"].iloc[0]) > 0:
@@ -155,7 +158,7 @@ df_checks = run_query(f"""
         COUNT(*)                                        AS total
     FROM stg.check_results cr
     JOIN stg.check_catalog cc ON cc.check_id = cr.check_id
-    {where}
+    {where_active}
     GROUP BY cr.check_id, cr.source_table, cr.category
     ORDER BY cr.check_id
 """, params_cat)
@@ -233,4 +236,4 @@ else:
                 ):
                     st.session_state["detail_check_id"]     = check_id
                     st.session_state["detail_source_table"] = source_table
-                    st.switch_page("pages/Check_Results.py")
+                    st.switch_page("pages/1_Check_Results.py")

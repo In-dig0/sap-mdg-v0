@@ -1,6 +1,6 @@
 """
 MDG — Migration Data Governance
-Check Details — dettaglio completo per un check
+Check Results — dettaglio completo per un check
 """
 
 import os
@@ -35,42 +35,81 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
         conn.close()
 
 CHECK_DESCRIPTIONS = {
-    # Fornitori
-    "CHK01_SUPPL": "Fornitori: codice paese (COUNTRY) valorizzato e presente in T005S",
-    "CHK02_SUPPL": "Fornitori: coppia paese/regione (COUNTRY+REGION) presente in T005S",
-    "CHK03_SUPPL": "Fornitori: partita IVA mancante per soggetti UE/ExtraUE",
-    "CHK04_SUPPL": "Fornitori: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
-    "CHK05_SUPPL": "Fornitori: record orfano nelle tabelle secondarie del flusso ZBP",
-    # Clienti ZBP
-    "CHK01_CUST":     "Clienti: codice paese (COUNTRY) valorizzato e presente in T005S",
-    "CHK02_CUST":     "Clienti: coppia paese/regione (COUNTRY+REGION) presente in T005S",
-    "CHK03_CUST":     "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
-    "CHK04_CUST":     "Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
-    "CHK05_CUST":     "Clienti ZBP: record orfano nelle tabelle secondarie del flusso ZBP",
-    "CHK05_CUST_ZDM": "Clienti ZDM: record orfano nelle tabelle secondarie del flusso ZDM",
+    "CK001": "Fornitori: codice paese (COUNTRY) presente in T005S",
+    "CK002": "Fornitori: coppia COUNTRY+REGION presente in T005S",
+    "CK003": "Clienti: codice paese COUNTRY(*) presente in T005S",
+    "CK004": "Clienti: coppia COUNTRY(*)+REGION presente in T005S",
+    "CK201": "Fornitori: partita IVA mancante per soggetti UE/ExtraUE",
+    "CK202": "Fornitori: codice fiscale duplicato tra BP diversi",
+    "CK203": "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
+    "CK204": "Clienti: codice fiscale duplicato tra BP diversi",
+    "CK401": "Orfani flusso 01-ZBP-Vettori: LIFNR assente nella master",
+    "CK402": "Orfani flusso 04-ZBP-Fornitori: LIFNR assente nella master",
+    "CK403": "Orfani flusso 02-ZDM-Clienti: KUNNR assente nella master",
+    "CK404": "Orfani flusso 03-ZBP-Clienti: KUNNR assente nella master",
 }
-
-# ---------------------------------------------------------------------------
-# Navigazione
-# ---------------------------------------------------------------------------
-if st.button("← Torna alla Dashboard"):
-    st.switch_page("Dashboard.py")
-
-st.divider()
-
-check_id     = st.session_state.get("detail_check_id", None)
-source_table = st.session_state.get("detail_source_table", None)
-
-if not check_id:
-    st.warning("Nessun check selezionato. Torna alla Dashboard e clicca 'Check details'.")
-    st.stop()
 
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
+st.title("🔎 Check Results")
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Carica lista check disponibili nel DB
+# ---------------------------------------------------------------------------
+try:
+    df_checks_available = run_query("""
+        SELECT DISTINCT cr.check_id, cr.source_table
+        FROM stg.check_results cr
+        ORDER BY cr.check_id, cr.source_table
+    """)
+except Exception:
+    st.info("⚠️ Nessun dato disponibile. Avvia la pipeline Bruin per inizializzare il database.")
+    st.stop()
+
+if df_checks_available.empty:
+    st.info("Nessun risultato disponibile. Avvia la pipeline Bruin.")
+    st.stop()
+
+# Costruisci opzioni dropdown: "CHK01_SUPPL — S_SUPPL_GEN#ZBP_DatiGenerali"
+options = [
+    f"{row['check_id']}  —  {row['source_table']}"
+    for _, row in df_checks_available.iterrows()
+]
+
+# Default: usa session_state se disponibile, altrimenti primo elemento
+default_idx = 0
+ss_check_id     = st.session_state.get("detail_check_id", None)
+ss_source_table = st.session_state.get("detail_source_table", None)
+
+if ss_check_id and ss_source_table:
+    target = f"{ss_check_id}  —  {ss_source_table}"
+    if target in options:
+        default_idx = options.index(target)
+
+selected = st.selectbox(
+    "Seleziona il controllo",
+    options=options,
+    index=default_idx,
+    key="check_selector",
+)
+
+# Estrai check_id e source_table dalla selezione
+check_id, source_table = [s.strip() for s in selected.split("  —  ", 1)]
+
+# Aggiorna session_state
+st.session_state["detail_check_id"]     = check_id
+st.session_state["detail_source_table"] = source_table
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Header check selezionato
+# ---------------------------------------------------------------------------
 st.markdown(
-    f'<h1 style="margin-bottom:4px;">🔎 Check Details — '
-    f'<span style="color:#85B7EB;">{check_id}</span></h1>',
+    f'<h2 style="margin-bottom:4px;">'
+    f'<span style="color:#85B7EB;">{check_id}</span></h2>',
     unsafe_allow_html=True,
 )
 description = CHECK_DESCRIPTIONS.get(check_id, "—")
@@ -85,16 +124,17 @@ st.markdown(
     f'border-radius:4px;">{source_table}</code></p>',
     unsafe_allow_html=True,
 )
+st.divider()
 
 # ---------------------------------------------------------------------------
-# KPI + info run in cima
+# KPI
 # ---------------------------------------------------------------------------
 df_kpi = run_query("""
     SELECT
         COUNT(*) FILTER (WHERE cr.status = 'Error')   AS num_error,
-        COUNT(*) FILTER (WHERE cr.status = 'Warning')  AS num_warning,
-        COUNT(*) FILTER (WHERE cr.status = 'Ok')       AS num_ok,
-        COUNT(*)                                        AS total,
+        COUNT(*) FILTER (WHERE cr.status = 'Warning') AS num_warning,
+        COUNT(*) FILTER (WHERE cr.status = 'Ok')      AS num_ok,
+        COUNT(*)                                       AS total,
         pr.run_id,
         pr.started_at,
         pr.finished_at
@@ -107,8 +147,6 @@ df_kpi = run_query("""
 """, (check_id, source_table))
 
 num_error = num_warning = num_ok = total = 0
-run_id = "—"
-
 if not df_kpi.empty:
     num_error   = int(df_kpi["num_error"].iloc[0])
     num_warning = int(df_kpi["num_warning"].iloc[0])
@@ -119,7 +157,6 @@ if not df_kpi.empty:
     finished_at = df_kpi["finished_at"].iloc[0]
     pct_error   = round(num_error / total * 100, 1) if total > 0 else 0
 
-    # Info run
     started_str  = started_at.strftime("%d/%m/%Y %H:%M:%S")
     finished_str = finished_at.strftime("%d/%m/%Y %H:%M:%S") if finished_at else "in corso"
     st.markdown(
@@ -159,7 +196,7 @@ with col_search:
     )
 
 # ---------------------------------------------------------------------------
-# Query — zip_source ora è in check_results
+# Query risultati
 # ---------------------------------------------------------------------------
 where_parts = ["check_id = %s", "source_table = %s"]
 params      = [check_id, source_table]

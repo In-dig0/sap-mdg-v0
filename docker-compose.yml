@@ -146,6 +146,7 @@ services:
     volumes:
       - ./streamlit/app:/app
       - ./bruin/config:/app/config
+      - ./logs:/app/logs         
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,8 +161,6 @@ volumes:
     name: mdg_postgres_data
   pgadmin_data:
     name: mdg_pgadmin_data
-  bruin_workspace:
-    name: mdg_bruin_workspace
   datalake_olderp:
     name: mdg_datalake_olderp
   datalake_sap:
