@@ -40,15 +40,14 @@ CHECK_DESCRIPTIONS = {
     "CHK02_SUPPL": "Fornitori: coppia paese/regione (COUNTRY+REGION) presente in T005S",
     "CHK03_SUPPL": "Fornitori: partita IVA mancante per soggetti UE/ExtraUE",
     "CHK04_SUPPL": "Fornitori: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
-    "CHK05_SUPPL": "Fornitori: codice fiscale orfano (assente in ZBP_DatiGenerali)",
-    "CHK06_SUPPL": "Fornitori: interlocutore orfano (assente in ZBP_DatiGenerali)",
-    # Clienti
-    "CHK01_CUST":  "Clienti: codice paese (COUNTRY) valorizzato e presente in T005S",
-    "CHK02_CUST":  "Clienti: coppia paese/regione (COUNTRY+REGION) presente in T005S",
-    "CHK03_CUST":  "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
-    "CHK04_CUST":  "Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
-    "CHK05_CUST":  "Clienti: codice fiscale orfano (assente in ZBP_DatiGenerali)",
-    "CHK06_CUST":  "Clienti: interlocutore orfano (assente in ZBP_DatiGenerali)",
+    "CHK05_SUPPL": "Fornitori: record orfano nelle tabelle secondarie del flusso ZBP",
+    # Clienti ZBP
+    "CHK01_CUST":     "Clienti: codice paese (COUNTRY) valorizzato e presente in T005S",
+    "CHK02_CUST":     "Clienti: coppia paese/regione (COUNTRY+REGION) presente in T005S",
+    "CHK03_CUST":     "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
+    "CHK04_CUST":     "Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)",
+    "CHK05_CUST":     "Clienti ZBP: record orfano nelle tabelle secondarie del flusso ZBP",
+    "CHK05_CUST_ZDM": "Clienti ZDM: record orfano nelle tabelle secondarie del flusso ZDM",
 }
 
 # ---------------------------------------------------------------------------

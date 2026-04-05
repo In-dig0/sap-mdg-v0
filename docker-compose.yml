@@ -87,6 +87,7 @@ services:
       - datalake_sap:/home/mdg_sftp/from_sap
       - ./sftp/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key:ro
       - ./sftp/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key:ro
+      - ./sftp/init:/etc/sftp.d:ro          # ← aggiungi questa riga
     command: ${SFTP_USERS}
     environment:
       TZ: ${TZ}

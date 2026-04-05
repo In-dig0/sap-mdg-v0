@@ -10,10 +10,7 @@ depends:
   - stg.chk02_customer_country_region
   - stg.chk03_customer_partita_iva
   - stg.chk04_customer_taxnum_duplicati
-  - stg.chk05_supplier_taxnum_orphans
-  - stg.chk06_supplier_contacts_orphans
-  - stg.chk05_customer_taxnum_orphans
-  - stg.chk06_customer_contacts_orphans
+  - stg.chk05_cross_table_orphans
 description: >
   Chiude il record in stg.pipeline_runs al termine del run.
   Legge il run_id dal file semaforo /tmp/mdg_run_id.txt.

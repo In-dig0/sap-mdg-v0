@@ -41,12 +41,8 @@ VALUES
      NULL, 'Warning', 'EXISTENCE', TRUE, NOW()),
     -- Fornitori — CROSS_TABLE
     ('CHK05_SUPPL',
-     'Fornitori: LIFNR in ZBP_CodiciFisc senza corrispondenza in ZBP_DatiGenerali',
-     'BP', 'S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc', 'LIFNR(k/*)',
-     'S_SUPPL_GEN#ZBP_DatiGenerali', 'Error', 'CROSS_TABLE', TRUE, NOW()),
-    ('CHK06_SUPPL',
-     'Fornitori: LIFNR in ZBP_AddInterlocutore senza corrispondenza in ZBP_DatiGenerali',
-     'BP', 'S_SUPPL_CONT#ZBP-AddInterlocutore', 'LIFNR(k/*)',
+     'Fornitori: chiave FK orfana nelle tabelle secondarie del flusso ZBP',
+     'BP', 'varie (tabelle secondarie flusso ZBP fornitori)', 'LIFNR(k/*)',
      'S_SUPPL_GEN#ZBP_DatiGenerali', 'Error', 'CROSS_TABLE', TRUE, NOW()),
     -- Clienti — SAP_REF
     ('CHK01_CUST',
@@ -68,13 +64,13 @@ VALUES
      NULL, 'Warning', 'EXISTENCE', TRUE, NOW()),
     -- Clienti — CROSS_TABLE
     ('CHK05_CUST',
-     'Clienti: KUNNR in ZBP_CodiciFisc senza corrispondenza in ZBP_DatiGenerali',
-     'BP', 'S_CUST_TAXNUMBERS#ZBP-CodiciFisc', 'KUNNR(k/*)',
+     'Clienti ZBP: chiave FK orfana nelle tabelle secondarie del flusso ZBP',
+     'BP', 'varie (tabelle secondarie flusso ZBP clienti)', 'KUNNR(k/*)',
      'S_CUST_GEN#ZBP-DatiGenerali', 'Error', 'CROSS_TABLE', TRUE, NOW()),
-    ('CHK06_CUST',
-     'Clienti: KUNNR in ZBP_AddInterlocutore senza corrispondenza in ZBP_DatiGenerali',
-     'BP', 'S_CUST_CONT#ZBP-AddInterlocutore', 'KUNNR(k/*)',
-     'S_CUST_GEN#ZBP-DatiGenerali', 'Error', 'CROSS_TABLE', TRUE, NOW())
+    ('CHK05_CUST_ZDM',
+     'Clienti ZDM: chiave FK orfana nelle tabelle secondarie del flusso ZDM',
+     'BP', 'varie (tabelle secondarie flusso ZDM clienti)', 'KUNNR(k/*)',
+     'S_CUST_GEN#ZDM-DatiGenerali', 'Error', 'CROSS_TABLE', TRUE, NOW())
 ON CONFLICT (check_id) DO UPDATE SET
     check_desc   = EXCLUDED.check_desc,
     category     = EXCLUDED.category,
