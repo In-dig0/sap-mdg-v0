@@ -16,7 +16,7 @@ st.set_page_config(
     layout="wide",
 )
 
-STATES_PATH = "/project/bruin/config/check_states.json"
+STATES_PATH = "/app/config/check_states.json"
 
 def get_db_params():
     return {
