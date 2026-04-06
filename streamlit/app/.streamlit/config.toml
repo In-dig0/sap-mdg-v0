@@ -1,0 +1,4 @@
+# POSIZIONE: mdg-v0/streamlit/app/.streamlit/config.toml
+
+[client]
+showSidebarNavigation = false

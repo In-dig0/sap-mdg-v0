@@ -192,6 +192,31 @@ services:
     networks:
       - mdg_network
 
+  # ---------------------------------------------------------------------------
+  # FastAPI + JWT Authentication Controller
+  # URL: http://localhost:8001
+  # ---------------------------------------------------------------------------
+  mdg_auth:
+    build:
+      context: ./auth/api
+      dockerfile: Dockerfile
+    container_name: mdg_auth
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST:        postgres
+      POSTGRES_PORT:        5432
+      POSTGRES_DB:          ${POSTGRES_DB}
+      POSTGRES_USER:        ${POSTGRES_USER}
+      POSTGRES_PASSWORD:    ${POSTGRES_PASSWORD}
+      JWT_SECRET:           ${JWT_SECRET}
+      JWT_LIFETIME_SECONDS: 28800        # 8 ore
+    networks:
+      - mdg_network
+    depends_on:
+      - postgres
+    ports:
+      - "8001:8001"    # solo sviluppo — rimuovi in produzione OCI
+
 # =============================================================================
 # Volumi
 # =============================================================================

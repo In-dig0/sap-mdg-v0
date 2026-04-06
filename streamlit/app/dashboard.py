@@ -8,12 +8,16 @@ import streamlit as st
 import pandas as pd
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from mdg_auth import require_login, render_sidebar_menu
 
 st.set_page_config(
     page_title="Dashboard",
     page_icon="🔍",
     layout="wide",
 )
+
+require_login()
+render_sidebar_menu()
 
 def get_db_params():
     return {

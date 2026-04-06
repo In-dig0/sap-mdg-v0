@@ -10,12 +10,15 @@ from pathlib import Path
 import pandas as pd
 import requests
 import streamlit as st
+from mdg_auth import require_login, render_sidebar_menu, require_role
 
 st.set_page_config(
     page_title="Pipeline Admin",
     page_icon="⚙️",
     layout="wide",
 )
+require_role("it_role")
+render_sidebar_menu()
 
 # ---------------------------------------------------------------------------
 # Configurazione
@@ -214,7 +217,6 @@ with tab_ctrl:
                 "TXT": "📝", "LOG": "📋", "DIR": "📁",
             }.get(f["type"], "📄")
             rows.append({
-                "":           icon,
                 "Nome file":  f["name"],
                 "Tipo":       f["type"],
                 "Dim. (KB)":  f["size_kb"],
@@ -232,7 +234,8 @@ with tab_ctrl:
     # ── 2. Avvia pipeline ────────────────────────────────────────────────
     st.subheader("▶️ Avvia pipeline")
 
-    force_mode = st.checkbox("Force (ignora semaforo)", value=False)
+    force_mode = st.checkbox("Ignora file semaforo", value=False,
+                             help="Avvia la pipeline solo se è presente un file semaforo nella inbox ('DATASET_READY.txt').")
     cleanup_mode = st.checkbox("Svuota inbox post-run", value=False,
                                help="Cancella tutti i file dalla cartella inbox se la pipeline termina con successo (exit code 0)")
 

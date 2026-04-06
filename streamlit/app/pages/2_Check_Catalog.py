@@ -9,12 +9,16 @@ import streamlit as st
 import pandas as pd
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from mdg_auth import require_login, render_sidebar_menu
 
 st.set_page_config(
     page_title="Check Catalog",
     page_icon="📋",
     layout="wide",
 )
+
+require_login()
+render_sidebar_menu()
 
 STATES_PATH = "/app/config/check_states.json"
 

@@ -12,6 +12,10 @@ st.set_page_config(
     layout="wide",
 )
 
+from mdg_auth import require_login, render_sidebar_menu
+require_login()
+render_sidebar_menu()
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;800&display=swap');
@@ -64,7 +68,7 @@ riducendo il rischio di dati inconsistenti nel sistema target.
 st.markdown('<div class="section-title">Architettura</div>', unsafe_allow_html=True)
 
 svg = """
-<svg viewBox="0 0 1060 470" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:1060px;display:block;margin:0 auto 1.5rem;">
+<svg viewBox="0 0 1060 530" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:1060px;display:block;margin:0 auto 1.5rem;">
   <defs>
     <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <polygon points="0 0, 8 3, 0 6" fill="#475569"/>
@@ -72,35 +76,38 @@ svg = """
     <marker id="arr-dash" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <polygon points="0 0, 8 3, 0 6" fill="#374151"/>
     </marker>
+    <marker id="arr-auth" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#6d28d9"/>
+    </marker>
     <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <polygon points="0 0, 8 3, 0 6" fill="#f97316"/>
     </marker>
   </defs>
 
   <!-- Sfondo -->
-  <rect width="1060" height="470" rx="14" fill="#0a0f1e"/>
+  <rect width="1060" height="530" rx="14" fill="#0a0f1e"/>
 
   <!-- Rete Docker -->
-  <rect x="130" y="30" width="700" height="390" rx="10" fill="none" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <rect x="130" y="30" width="700" height="450" rx="10" fill="none" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="6 3"/>
   <text x="146" y="48" font-family="JetBrains Mono,monospace" font-size="10" fill="#334155">mdg_network</text>
 
   <!-- Label Docker Containers in basso a sinistra -->
-  <text x="148" y="408" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#1e3a5f" letter-spacing="2">DOCKER CONTAINERS</text>
+  <text x="148" y="468" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#1e3a5f" letter-spacing="2">DOCKER CONTAINERS</text>
 
   <!-- ERP esterno sx -->
   <rect x="18" y="55" width="100" height="54" rx="8" fill="#0d1117" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3"/>
   <text x="68" y="78" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600" fill="#6b7280" text-anchor="middle">ERP</text>
   <text x="68" y="94" font-family="JetBrains Mono,monospace" font-size="9" fill="#4b5563" text-anchor="middle">ZIP / XLSX</text>
 
-  <!-- Browser Business user esterno dx alto -->
-  <rect x="860" y="195" width="118" height="50" rx="8" fill="#0d1117" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3"/>
-  <text x="919" y="216" font-family="JetBrains Mono,monospace" font-size="8.5" font-weight="600" fill="#6b7280" text-anchor="middle">Browser Web</text>
-  <text x="919" y="232" font-family="JetBrains Mono,monospace" font-size="8" fill="#4b5563" text-anchor="middle">Business user</text>
-
-  <!-- Browser IT user esterno dx basso -->
+  <!-- Browser Business user esterno dx —  vicino IT user -->
   <rect x="860" y="340" width="118" height="50" rx="8" fill="#0d1117" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3"/>
   <text x="919" y="361" font-family="JetBrains Mono,monospace" font-size="8.5" font-weight="600" fill="#6b7280" text-anchor="middle">Browser Web</text>
-  <text x="919" y="377" font-family="JetBrains Mono,monospace" font-size="8" fill="#4b5563" text-anchor="middle">IT user</text>
+  <text x="919" y="377" font-family="JetBrains Mono,monospace" font-size="8" fill="#4b5563" text-anchor="middle">Business user</text>
+
+  <!-- Browser IT user esterno dx basso -->
+  <rect x="860" y="400" width="118" height="50" rx="8" fill="#0d1117" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="919" y="421" font-family="JetBrains Mono,monospace" font-size="8.5" font-weight="600" fill="#6b7280" text-anchor="middle">Browser Web</text>
+  <text x="919" y="437" font-family="JetBrains Mono,monospace" font-size="8" fill="#4b5563" text-anchor="middle">IT user</text>
 
   <!-- SFTP -->
   <rect x="150" y="55" width="130" height="72" rx="8" fill="#0c1a2e" stroke="#1e4976" stroke-width="1.5"/>
@@ -120,11 +127,11 @@ svg = """
   <text x="465" y="192" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">postgres:18-alpine</text>
   <text x="465" y="208" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#64748b" text-anchor="middle">raw · ref · stg  :5432</text>
 
-  <!-- PgAdmin -->
-  <rect x="390" y="320" width="150" height="72" rx="8" fill="#0a1a10" stroke="#166534" stroke-width="1.5"/>
-  <text x="465" y="342" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#4ade80" text-anchor="middle">mdg_pgadmin</text>
-  <text x="465" y="358" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">dpage/pgadmin4</text>
-  <text x="465" y="374" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#64748b" text-anchor="middle">:8080</text>
+  <!-- PgAdmin — centro basso -->
+  <rect x="390" y="400" width="150" height="72" rx="8" fill="#0a1a10" stroke="#166534" stroke-width="1.5"/>
+  <text x="465" y="422" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#4ade80" text-anchor="middle">mdg_pgadmin</text>
+  <text x="465" y="438" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">dpage/pgadmin4</text>
+  <text x="465" y="454" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#64748b" text-anchor="middle">:8080</text>
 
   <!-- FastAPI -->
   <rect x="660" y="55" width="130" height="72" rx="8" fill="#1f0e03" stroke="#7c2d12" stroke-width="1.5"/>
@@ -150,9 +157,9 @@ svg = """
   <text x="298" y="248" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">INSERT</text>
 
   <!-- PgAdmin -> Postgres -->
-  <line x1="465" y1="320" x2="465" y2="233" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)"/>
-  <text x="472" y="280" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">DQL-DML-DDL</text>
-  <text x="472" y="291" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">commands</text>
+  <line x1="465" y1="400" x2="465" y2="233" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="471" y="325" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">DQL-DML-DDL</text>
+  <text x="471" y="336" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">commands</text>
 
   <!-- Streamlit -> Postgres -->
   <line x1="660" y1="222" x2="543" y2="205" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)"/>
@@ -170,14 +177,31 @@ svg = """
   <path d="M 660 78 Q 465 22 280 230" fill="none" stroke="#f97316" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arr-orange)"/>
   <text x="645" y="90" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#f97316" text-anchor="end">docker exec</text>
 
-  <!-- Business user -> Streamlit -->
-  <line x1="860" y1="220" x2="793" y2="235" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-dash)"/>
+  <!-- Business user -> mdg_auth -->
+  <line x1="860" y1="365" x2="793" y2="365" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-dash)"/>
 
-  <!-- IT user -> Streamlit -->
-  <line x1="860" y1="352" x2="793" y2="270" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-dash)"/>
+  <!-- Auth API -->
+  <rect x="660" y="330" width="130" height="72" rx="8" fill="#1a0e2e" stroke="#6d28d9" stroke-width="1.5"/>
+  <text x="725" y="354" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#c4b5fd" text-anchor="middle">mdg_auth</text>
+  <text x="725" y="370" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">python:3.12-slim</text>
+  <text x="725" y="386" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#64748b" text-anchor="middle">fastapi-users · JWT  :8001</text>
+
+  <!-- mdg_auth -> Streamlit (JWT) -->
+  <line x1="725" y1="327" x2="725" y2="278" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-auth)"/>
+  <text x="731" y="308" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#7c3aed">JWT</text>
+
+  <!-- mdg_auth -> Postgres (schema usr) -->
+  <line x1="660" y1="366" x2="543" y2="230" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-auth)"/>
+  <text x="577" y="315" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#7c3aed">usr schema</text>
+
+  <!-- IT user -> mdg_auth -->
+  <line x1="860" y1="425" x2="793" y2="380" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-dash)"/>
 
   <!-- IT user -> PgAdmin -->
-  <line x1="860" y1="368" x2="543" y2="358" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-dash)"/>
+  <line x1="860" y1="440" x2="543" y2="440" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-dash)"/>
+  <text x="680" y="435" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">:8080</text>
+
+
 
 </svg>
 """
@@ -188,7 +212,7 @@ components.html(f"""
 <head><style>body{{margin:0;padding:0;background:transparent;}}</style></head>
 <body>{svg}</body>
 </html>
-""", height=490)
+""", height=550)
 
 # ---------------------------------------------------------------------------
 # Schede container
@@ -231,6 +255,12 @@ containers = [
         "name": "mdg_streamlit",
         "image": "python:3.12-slim + streamlit  ·  porta 8501",
         "desc": "Dashboard interattiva per il team funzionale SAP (Business user). Mostra i risultati dei controlli di qualità, il catalogo degli asset, lo storico dei run e permette di avviare la pipeline direttamente dal browser tramite le API FastAPI. Legge i dati direttamente da PostgreSQL.",
+    },
+    {
+        "badge": "badge-api", "badge_label": "AUTH",
+        "name": "mdg_auth",
+        "image": "python:3.12-slim + fastapi-users  ·  porta 8001",
+        "desc": "Servizio di autenticazione e gestione utenti. Implementa login JWT tramite FastAPI-Users, con ruoli <code>admin</code> (IT user) e <code>user</code> (Business user). Gestisce le credenziali nello schema dedicato <code>usr</code> del database PostgreSQL. Streamlit verifica il token JWT ad ogni pagina.",
     },
 ]
 
