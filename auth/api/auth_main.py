@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, schemas
 from fastapi_users.authentication import AuthenticationBackend, BearerTransport, JWTStrategy
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID, SQLAlchemyUserDatabase
-from sqlalchemy import Column, String, text
+from sqlalchemy import Boolean, Column, String, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -59,8 +59,9 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     __tablename__ = "users"
     __table_args__ = {"schema": "usr"}
 
-    role:      str = Column(String(20),  nullable=False, default=RoleEnum.business_role)
-    full_name: str = Column(String(100), nullable=True)
+    role:                 str  = Column(String(20),  nullable=False, default=RoleEnum.business_role)
+    full_name:            str  = Column(String(100), nullable=True)
+    must_change_password: bool = Column(Boolean,     nullable=False, default=False)
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
@@ -173,11 +174,12 @@ app.include_router(
 async def get_me(user: User = Depends(current_active_user)):
     """Dati dell'utente corrente — usato da Streamlit per verificare il token."""
     return {
-        "id":        str(user.id),
-        "email":     user.email,
-        "role":      user.role,
-        "full_name": user.full_name,
-        "is_active": user.is_active,
+        "id":                   str(user.id),
+        "email":                user.email,
+        "role":                 user.role,
+        "full_name":            user.full_name,
+        "is_active":            user.is_active,
+        "must_change_password": user.must_change_password,
     }
 
 
@@ -200,11 +202,12 @@ async def list_users(
     users = result.scalars().all()
     return [
         {
-            "id":        str(u.id),
-            "email":     u.email,
-            "role":      u.role,
-            "full_name": u.full_name,
-            "is_active": u.is_active,
+            "id":                   str(u.id),
+            "email":                u.email,
+            "role":                 u.role,
+            "full_name":            u.full_name,
+            "is_active":            u.is_active,
+            "must_change_password": u.must_change_password,
         }
         for u in users
     ]
@@ -229,6 +232,15 @@ async def update_user_by_id(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Utente non trovato.")
+
+    # it_role non può modificare utenti admin_role
+    if current_user.role == "it_role" and user.role == "admin_role":
+        raise HTTPException(status_code=403, detail="Non puoi modificare un utente con ruolo admin_role.")
+
+    # it_role non può assegnare il ruolo admin_role
+    if current_user.role == "it_role" and payload.get("role") == "admin_role":
+        raise HTTPException(status_code=403, detail="Non puoi assegnare il ruolo admin_role.")
+
     if "is_active" in payload:
         user.is_active = payload["is_active"]
     if "role" in payload:
@@ -266,8 +278,33 @@ async def reset_password(
 
     ph = PasswordHelper()
     user.hashed_password = ph.hash(new_password)
+    user.must_change_password = False
     await session.commit()
     return {"detail": "Password aggiornata."}
+
+
+@app.patch("/admin/users/{user_id}/force-password-change", tags=["Utenti"])
+async def force_password_change(
+    user_id: str,
+    payload: dict,
+    session: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    """Imposta o azzera il flag must_change_password per un utente."""
+    from sqlalchemy import select as sa_select
+    from fastapi import HTTPException
+    import uuid as uuid_mod
+    if current_user.role not in ("admin_role", "it_role"):
+        raise HTTPException(status_code=403, detail="Accesso negato.")
+    result = await session.execute(
+        sa_select(User).where(User.id == uuid_mod.UUID(user_id))
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utente non trovato.")
+    user.must_change_password = payload.get("must_change_password", True)
+    await session.commit()
+    return {"detail": "Flag aggiornato.", "must_change_password": user.must_change_password}
 
 
 # ---------------------------------------------------------------------------

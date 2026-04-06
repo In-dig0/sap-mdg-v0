@@ -71,9 +71,10 @@ def _render_login_form():
             user = _login(email, password)
 
         if user:
-            st.session_state["mdg_user"]  = user
-            st.session_state["mdg_token"] = user["token"]
-            st.session_state["mdg_role"]  = user["role"]
+            st.session_state["mdg_user"]              = user
+            st.session_state["mdg_token"]             = user["token"]
+            st.session_state["mdg_role"]              = user["role"]
+            st.session_state["must_change_password"]  = user.get("must_change_password", False)
             st.rerun()
         else:
             st.error("Credenziali non valide. Riprova.")
@@ -91,6 +92,16 @@ def require_login():
     if "mdg_user" not in st.session_state:
         _render_login_form()
         st.stop()
+
+    # Se l'utente deve cambiare la password, blocca qualsiasi pagina tranne 0_Profilo
+    if st.session_state.get("must_change_password", False):
+        import streamlit as _st
+        current_page = _st.runtime.scriptrunner.get_script_run_ctx().page_script_hash
+        _st.warning(
+            "⚠️ **Primo accesso rilevato.** Devi impostare una nuova password personale prima di continuare."
+        )
+        _st.page_link("pages/0_Profilo.py", label="👉 Vai a Il mio profilo per cambiare la password")
+        _st.stop()
 
 
 def require_role(role: str):
@@ -148,6 +159,7 @@ def render_sidebar_menu():
     st.sidebar.page_link("pages/9_Info.py",               label="ℹ️ Info")
     st.sidebar.page_link("Dashboard.py",                  label="📊 Dashboard")
     st.sidebar.page_link("pages/1_Check_Results.py",      label="✅ Check Results")
+    st.sidebar.page_link("pages/0_Profilo.py",            label="👤 Il mio profilo")
 
     # Pagine riservate agli IT user (admin)
     if role in ("admin_role", "it_role"):
