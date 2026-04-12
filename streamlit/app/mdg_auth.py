@@ -54,7 +54,6 @@ def _login(email: str, password: str) -> dict | None:
 
 def _render_login_form():
     """Mostra la form di login e gestisce il submit."""
-
     st.markdown("## 🔐 MDG — Accesso")
     st.markdown("Inserisci le credenziali per accedere alla dashboard.")
 
@@ -94,15 +93,17 @@ def require_login():
         _render_login_form()
         st.stop()
 
-    # Se l'utente deve cambiare la password, blocca qualsiasi pagina tranne 0_Profilo
+    # Se l'utente deve cambiare la password, redirect automatico a 0_Profilo
     if st.session_state.get("must_change_password", False):
-        import streamlit as _st
-        current_page = _st.runtime.scriptrunner.get_script_run_ctx().page_script_hash
-        _st.warning(
-            "⚠️ **Primo accesso rilevato.** Devi impostare una nuova password personale prima di continuare."
-        )
-        _st.page_link("pages/0_Profilo.py", label="👉 Vai a Il mio profilo per cambiare la password")
-        _st.stop()
+        try:
+            ctx = st.runtime.scriptrunner.get_script_run_ctx()
+            script_path = ctx.main_script_path if ctx else ""
+            on_profilo = "0_Profilo" in script_path or "Profilo" in script_path
+        except Exception:
+            on_profilo = False
+
+        if not on_profilo:
+            st.switch_page("pages/0_Profilo.py")
 
 
 def require_role(role: str):

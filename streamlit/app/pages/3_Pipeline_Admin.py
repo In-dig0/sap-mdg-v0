@@ -106,6 +106,38 @@ def api_inbox():
     except Exception as e:
         return None, str(e)
 
+def api_delete_file(filename: str):
+    try:
+        r = requests.delete(f"{API_BASE}/files/inbox/{filename}", timeout=5)
+        r.raise_for_status()
+        return r.json(), None
+    except requests.HTTPError as e:
+        return None, e.response.json().get("detail", str(e))
+    except Exception as e:
+        return None, str(e)
+
+def api_delete_all_files():
+    try:
+        r = requests.delete(f"{API_BASE}/files/inbox", timeout=5)
+        r.raise_for_status()
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
+def api_upload_file(file_bytes: bytes, filename: str):
+    try:
+        r = requests.post(
+            f"{API_BASE}/files/inbox/upload",
+            files={"file": (filename, file_bytes)},
+            timeout=30,
+        )
+        r.raise_for_status()
+        return r.json(), None
+    except requests.HTTPError as e:
+        return None, e.response.json().get("detail", str(e))
+    except Exception as e:
+        return None, str(e)
+
 # ---------------------------------------------------------------------------
 # Helpers log
 # ---------------------------------------------------------------------------
@@ -210,24 +242,72 @@ with tab_ctrl:
         i2.metric("Dimensione tot.", f"{total_kb:.1f} KB")
         i3.metric("Semaforo",        "✅ Presente" if sem_present else "❌ Assente")
 
-        rows = []
+        # Tabella con pulsante elimina per ogni file
+        h1, h2, h3, h4, h5 = st.columns([3, 1, 1, 2, 1])
+        h1.markdown("**Nome file**"); h2.markdown("**Tipo**")
+        h3.markdown("**Dim. (KB)**"); h4.markdown("**Modificato**")
+        h5.markdown("**Elimina**")
+        st.divider()
+
         for f in files:
-            icon = "🚦" if f["is_semaphore"] else {
-                "ZIP": "🗜️", "CSV": "📊", "XLSX": "📗",
-                "TXT": "📝", "LOG": "📋", "DIR": "📁",
-            }.get(f["type"], "📄")
-            rows.append({
-                "Nome file":  f["name"],
-                "Tipo":       f["type"],
-                "Dim. (KB)":  f["size_kb"],
-                "Modificato": f["modified_at"].replace("T", " ")[:19],
-            })
+            c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 2, 1])
+            c1.write(f["name"])
+            c2.write(f["type"])
+            c3.write(f["size_kb"])
+            c4.write(f["modified_at"].replace("T", " ")[:19])
+            if c5.button("🗑️", key=f"del_{f['name']}", help=f"Elimina {f['name']}"):
+                _, e = api_delete_file(f["name"])
+                if e:
+                    st.error(f"Errore: {e}")
+                else:
+                    st.toast(f"✅ '{f['name']}' eliminato.")
+                    st.rerun()
 
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.divider()
+        # Pulsante cancella tutto
+        col_ri, col_del, _ = st.columns([1, 1, 3])
+        if col_ri.button("🔄 Aggiorna"):
+            st.rerun()
+        if col_del.button("🗑️ Svuota inbox", type="secondary",
+                          help="Elimina tutti i file dalla cartella inbound"):
+            if st.session_state.get("confirm_delete_all"):
+                _, e = api_delete_all_files()
+                if e:
+                    st.error(f"Errore: {e}")
+                else:
+                    st.toast("✅ Inbox svuotata.")
+                st.session_state.pop("confirm_delete_all", None)
+                st.rerun()
+            else:
+                st.session_state["confirm_delete_all"] = True
+                st.warning("⚠️ Clicca di nuovo **Svuota inbox** per confermare l'eliminazione di tutti i file.")
 
-    col_ri, _ = st.columns([1, 4])
-    if col_ri.button("🔄 Aggiorna inbox"):
-        st.rerun()
+    if inbox_data and inbox_data.get("count", 0) == 0:
+        col_ri, _ = st.columns([1, 4])
+        if col_ri.button("🔄 Aggiorna inbox"):
+            st.rerun()
+
+    # ── Upload manuale ────────────────────────────────────────────────────
+    with st.expander("⬆️ Upload manuale file nella inbox", expanded=False):
+        st.caption("Carica uno o più file ZIP / XLSX direttamente nella cartella inbound senza usare un client SFTP.")
+        uploaded_files = st.file_uploader(
+            "Seleziona file da caricare",
+            type=["zip", "xlsx", "csv", "txt"],
+            accept_multiple_files=True,
+            key="inbox_upload",
+        )
+        if uploaded_files:
+            if st.button("⬆️ Carica nella inbox", type="primary"):
+                ok_count = 0
+                for uf in uploaded_files:
+                    _, e = api_upload_file(uf.read(), uf.name)
+                    if e:
+                        st.error(f"Errore su '{uf.name}': {e}")
+                    else:
+                        ok_count += 1
+                if ok_count:
+                    st.success(f"✅ {ok_count} file caricati nella inbox.")
+                    st.rerun()
 
     st.divider()
 

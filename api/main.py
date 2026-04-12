@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 import psycopg2
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -447,6 +447,51 @@ def create_semaphore():
     path = Path(SEMAPHORE_PATH)
     path.touch()
     return {"message": f"Semaforo creato: {SEMAPHORE_PATH}"}
+
+
+@app.delete("/files/inbox/{filename}", tags=["File"])
+def delete_inbox_file(filename: str):
+    """Elimina un singolo file dalla cartella inbound."""
+    inbound = Path(SEMAPHORE_PATH).parent
+    target  = inbound / filename
+    if not target.resolve().is_relative_to(inbound.resolve()):
+        raise HTTPException(status_code=400, detail="Nome file non valido.")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"File non trovato: {filename}")
+    target.unlink()
+    return {"message": f"File eliminato: {filename}"}
+
+
+@app.delete("/files/inbox", tags=["File"])
+def delete_all_inbox_files():
+    """Elimina tutti i file dalla cartella inbound."""
+    inbound    = Path(SEMAPHORE_PATH).parent
+    eliminated = 0
+    errors     = 0
+    for item in inbound.iterdir():
+        try:
+            if item.is_file():
+                item.unlink()
+                eliminated += 1
+            elif item.is_dir():
+                import shutil
+                shutil.rmtree(item)
+                eliminated += 1
+        except Exception:
+            errors += 1
+    return {"message": f"Inbox svuotata: {eliminated} eliminati, {errors} errori."}
+
+
+@app.post("/files/inbox/upload", tags=["File"])
+async def upload_inbox_file(file: UploadFile):
+    """Carica un file nella cartella inbound."""
+    inbound = Path(SEMAPHORE_PATH).parent
+    dest    = inbound / file.filename
+    if not dest.resolve().is_relative_to(inbound.resolve()):
+        raise HTTPException(status_code=400, detail="Nome file non valido.")
+    content = await file.read()
+    dest.write_bytes(content)
+    return {"message": f"File caricato: {file.filename}", "size_kb": round(len(content) / 1024, 1)}
 
 
 @app.get("/files/inbox", tags=["File"])

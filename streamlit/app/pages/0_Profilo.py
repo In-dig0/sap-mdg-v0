@@ -8,11 +8,17 @@ Mostra i dati dell'utente loggato e permette il cambio password.
 import os
 import requests
 import streamlit as st
-from mdg_auth import require_login, render_sidebar_menu
+from mdg_auth import render_sidebar_menu
 
 st.set_page_config(page_title="Il mio profilo | MDG", page_icon="👤", layout="centered")
 
-require_login()
+# Controllo login manuale — NON blocca per must_change_password
+# perché questa è esattamente la pagina dove l'utente deve agire
+if "mdg_user" not in st.session_state:
+    st.warning("Sessione scaduta. Effettua di nuovo il login.")
+    st.page_link("Dashboard.py", label="👉 Vai al login")
+    st.stop()
+
 render_sidebar_menu()
 
 AUTH_API_URL = os.getenv("AUTH_API_URL", "http://mdg_auth:8001")
