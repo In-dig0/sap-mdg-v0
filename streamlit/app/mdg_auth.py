@@ -54,6 +54,7 @@ def _login(email: str, password: str) -> dict | None:
 
 def _render_login_form():
     """Mostra la form di login e gestisce il submit."""
+
     st.markdown("## 🔐 MDG — Accesso")
     st.markdown("Inserisci le credenziali per accedere alla dashboard.")
 

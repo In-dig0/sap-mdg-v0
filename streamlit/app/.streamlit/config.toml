@@ -2,3 +2,8 @@
 
 [client]
 showSidebarNavigation = false
+
+[theme]
+base = "dark"
+primaryColor = "#1a7f4b"
+

@@ -4,6 +4,7 @@ POSIZIONE: mdg-v0/streamlit/app/pages/4_Admin_Users.py
 
 import os
 import json
+import time
 import streamlit as st
 import pandas as pd
 import requests
@@ -92,7 +93,7 @@ with tab_gestione:
 
     # --- Crea nuovo utente ---
     with st.expander("➕ Crea nuovo utente", expanded=False):
-        with st.form("new_user_form"):
+        with st.form("new_user_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             new_email    = col1.text_input("Email")
             new_name     = col2.text_input("Nome completo")
@@ -129,8 +130,11 @@ with tab_gestione:
                     headers=_headers(),
                     timeout=5,
                 )
-                st.success(f"Utente **{new_email}** creato con ruolo `{new_role}`. Al primo accesso dovrà cambiare la password.")
+                st.session_state["success_msg"] = f"Utente **{new_email}** creato con ruolo `{new_role}`. Al primo accesso dovrà cambiare la password."
                 st.cache_data.clear()
+                st.success(st.session_state["success_msg"])
+                time.sleep(5)
+                st.rerun()
             else:
                 st.error(f"Errore: {r.json().get('detail', r.text)}")
 
