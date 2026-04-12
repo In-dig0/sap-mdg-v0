@@ -210,6 +210,9 @@ services:
       POSTGRES_PASSWORD:    ${POSTGRES_PASSWORD}
       JWT_SECRET:           ${JWT_SECRET}
       JWT_LIFETIME_SECONDS: 28800        # 8 ore
+      ADMIN_EMAIL:          ${ADMIN_EMAIL}       
+      ADMIN_PASSWORD:       ${ADMIN_PASSWORD}    
+      ADMIN_NAME:           ${ADMIN_NAME}              
     networks:
       - mdg_network
     depends_on:

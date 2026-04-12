@@ -20,6 +20,9 @@ from sqlalchemy import Boolean, Column, String, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
+from sqlalchemy import select as sa_select
+from fastapi_users.password import PasswordHelper
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -311,9 +314,48 @@ async def force_password_change(
 # Startup: crea schema usr e tabelle se non esistono
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Variabili seed admin (dal docker-compose via .env)
+# ---------------------------------------------------------------------------
+ADMIN_EMAIL    = os.getenv("ADMIN_EMAIL")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+ADMIN_NAME     = os.getenv("ADMIN_NAME", "Amministratore MDG")
+
+
 @app.on_event("startup")
 async def on_startup():
+    # 1. Crea schema e tabelle
     async with engine.begin() as conn:
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS usr"))
         await conn.run_sync(Base.metadata.create_all)
     print("[AUTH] Schema 'usr' e tabella 'usr.users' pronti.")
+
+    # 2. Seed admin automatico
+    if not ADMIN_EMAIL or not ADMIN_PASSWORD:
+        print("[AUTH] ⚠️  ADMIN_EMAIL/ADMIN_PASSWORD non impostati — seed saltato.")
+        return
+
+
+
+    async with async_session() as session:
+        result = await session.execute(
+            sa_select(User).where(User.email == ADMIN_EMAIL)
+        )
+        if result.scalar_one_or_none() is None:
+            ph = PasswordHelper()
+            admin = User(
+                id=uuid.uuid4(),
+                email=ADMIN_EMAIL,
+                hashed_password=ph.hash(ADMIN_PASSWORD),
+                role=RoleEnum.admin_role,
+                full_name=ADMIN_NAME,
+                is_active=True,
+                is_superuser=True,
+                is_verified=True,
+                must_change_password=False,
+            )
+            session.add(admin)
+            await session.commit()
+            print(f"[AUTH] ✅ Admin '{ADMIN_EMAIL}' creato automaticamente.")
+        else:
+            print(f"[AUTH] Admin '{ADMIN_EMAIL}' già presente — seed saltato.")
