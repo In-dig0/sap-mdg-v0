@@ -21,7 +21,7 @@ SELECT
         WHEN raw."REGION" IS NULL OR raw."REGION" = ''
             THEN 'REGION obbligatoria mancante (COUNTRY=' || COALESCE(raw."COUNTRY", 'NULL') || ')'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."EXPORT_T005S" ref
+            SELECT 1 FROM ref."SAP_EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY"
               AND ref."BLAND" = raw."REGION"
         )
@@ -31,7 +31,7 @@ SELECT
     CASE
         WHEN raw."REGION" IS NULL OR raw."REGION" = ''  THEN 'Error'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."EXPORT_T005S" ref
+            SELECT 1 FROM ref."SAP_EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY"
               AND ref."BLAND" = raw."REGION"
         )                                               THEN 'Error'

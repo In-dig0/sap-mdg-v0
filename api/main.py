@@ -23,6 +23,7 @@ from pydantic import BaseModel
 BRUIN_CONTAINER   = os.getenv("BRUIN_CONTAINER", "mdg_bruin")
 BRUIN_PIPELINE    = os.getenv("BRUIN_PIPELINE", "/project/bruin")
 SEMAPHORE_PATH    = os.getenv("SEMAPHORE_PATH", "/data/inbound/DATASET_READY.txt")
+SAP_PATH          = Path(os.getenv("SAP_PATH", "/data/from_sap"))
 LOG_DIR           = Path(os.getenv("LOG_DIR", "/logs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -521,3 +522,63 @@ def list_inbox():
         "count": len(files),
         "files": files,
     }
+
+
+@app.get("/files/sap", tags=["File"])
+def list_sap():
+    """Lista i file presenti nella cartella from_sap (volume datalake_sap)."""
+    if not SAP_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"Cartella non trovata: {SAP_PATH}")
+    files = []
+    for f in sorted(SAP_PATH.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+        stat = f.stat()
+        files.append({
+            "name":        f.name,
+            "type":        "DIR" if f.is_dir() else f.suffix.lstrip(".").upper() or "FILE",
+            "size_kb":     round(stat.st_size / 1024, 1),
+            "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "is_semaphore": False,
+        })
+    return {"path": str(SAP_PATH), "count": len(files), "files": files}
+
+
+@app.delete("/files/sap/{filename}", tags=["File"])
+def delete_sap_file(filename: str):
+    """Elimina un singolo file dalla cartella from_sap."""
+    target = SAP_PATH / filename
+    if not target.resolve().is_relative_to(SAP_PATH.resolve()):
+        raise HTTPException(status_code=400, detail="Nome file non valido.")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"File non trovato: {filename}")
+    target.unlink()
+    return {"message": f"File eliminato: {filename}"}
+
+
+@app.delete("/files/sap", tags=["File"])
+def delete_all_sap_files():
+    """Elimina tutti i file dalla cartella from_sap."""
+    eliminated = 0
+    errors     = 0
+    for item in SAP_PATH.iterdir():
+        try:
+            if item.is_file():
+                item.unlink()
+                eliminated += 1
+            elif item.is_dir():
+                import shutil
+                shutil.rmtree(item)
+                eliminated += 1
+        except Exception:
+            errors += 1
+    return {"message": f"Cartella SAP svuotata: {eliminated} eliminati, {errors} errori."}
+
+
+@app.post("/files/sap/upload", tags=["File"])
+async def upload_sap_file(file: UploadFile):
+    """Carica un file nella cartella from_sap."""
+    dest = SAP_PATH / file.filename
+    if not dest.resolve().is_relative_to(SAP_PATH.resolve()):
+        raise HTTPException(status_code=400, detail="Nome file non valido.")
+    content = await file.read()
+    dest.write_bytes(content)
+    return {"message": f"File caricato: {file.filename}", "size_kb": round(len(content) / 1024, 1)}

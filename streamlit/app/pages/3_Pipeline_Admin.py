@@ -98,17 +98,24 @@ def api_delete_semaphore():
     except Exception as e:
         return None, str(e)
 
-def api_inbox():
+
+def api_list_files(folder: str):
+    """folder: 'inbox' o 'sap'"""
+    endpoint = "inbox" if folder == "from_olderp" else "sap"
     try:
-        r = requests.get(f"{API_BASE}/files/inbox", timeout=5)
+        r = requests.get(f"{API_BASE}/files/{endpoint}", timeout=5)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
         return None, str(e)
 
-def api_delete_file(filename: str):
+def api_inbox():
+    return api_list_files("from_olderp")
+
+def api_delete_file(filename: str, folder: str = "from_olderp"):
+    endpoint = "inbox" if folder == "from_olderp" else "sap"
     try:
-        r = requests.delete(f"{API_BASE}/files/inbox/{filename}", timeout=5)
+        r = requests.delete(f"{API_BASE}/files/{endpoint}/{filename}", timeout=5)
         r.raise_for_status()
         return r.json(), None
     except requests.HTTPError as e:
@@ -116,18 +123,20 @@ def api_delete_file(filename: str):
     except Exception as e:
         return None, str(e)
 
-def api_delete_all_files():
+def api_delete_all_files(folder: str = "from_olderp"):
+    endpoint = "inbox" if folder == "from_olderp" else "sap"
     try:
-        r = requests.delete(f"{API_BASE}/files/inbox", timeout=5)
+        r = requests.delete(f"{API_BASE}/files/{endpoint}", timeout=5)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
         return None, str(e)
 
-def api_upload_file(file_bytes: bytes, filename: str):
+def api_upload_file(file_bytes: bytes, filename: str, folder: str = "from_olderp"):
+    endpoint = "inbox" if folder == "from_olderp" else "sap"
     try:
         r = requests.post(
-            f"{API_BASE}/files/inbox/upload",
+            f"{API_BASE}/files/{endpoint}/upload",
             files={"file": (filename, file_bytes)},
             timeout=30,
         )
@@ -145,6 +154,8 @@ def api_upload_file(file_bytes: bytes, filename: str):
 def colorize_line(line: str) -> str:
     if "FAIL" in line or "[ERROR]" in line or "error" in line.lower():
         color = "#e24b4a"
+    elif "done_with_errors" in line:          # ← aggiungi questa riga
+        color = "#EF9F27"           
     elif "PASS" in line:
         color = "#4ade80"
     elif "[WARNING]" in line or "[WARN]" in line or "WARN" in line:
@@ -223,26 +234,39 @@ tab_ctrl, tab_storico, tab_log_file = st.tabs([
 # ===========================================================================
 with tab_ctrl:
 
-    # ── 1. Inbox SFTP ────────────────────────────────────────────────────
-    st.subheader("📂 Inbox SFTP")
+    # ── 1. Cartelle SFTP ────────────────────────────────────────────────────
+    st.subheader("📂 Cartelle SFTP")
 
-    inbox_data, err = api_inbox()
+    sel_col, _ = st.columns([2, 4])
+    folder = sel_col.radio(
+        "Cartella",
+        options=["from_olderp", "from_sap"],
+        format_func=lambda x: "📦 from_olderp  (file ERP)" if x == "from_olderp" else "📗 from_sap  (tabelle SAP)",
+        horizontal=True,
+        key="sftp_folder_sel",
+    )
+
+    folder_data, err = api_list_files(folder)
 
     if err:
         st.warning(f"Impossibile leggere la cartella: {err}")
-    elif not inbox_data or inbox_data.get("count", 0) == 0:
-        st.info("La cartella inbox è vuota.")
+    elif not folder_data or folder_data.get("count", 0) == 0:
+        st.info(f"La cartella {folder} è vuota.")
     else:
-        files       = inbox_data["files"]
+        files       = folder_data["files"]
         total_kb    = sum(f["size_kb"] for f in files)
-        sem_present = any(f["is_semaphore"] for f in files)
+        sem_present = any(f.get("is_semaphore") for f in files)
 
-        i1, i2, i3 = st.columns(3)
-        i1.metric("File presenti",   inbox_data["count"])
-        i2.metric("Dimensione tot.", f"{total_kb:.1f} KB")
-        i3.metric("Semaforo",        "✅ Presente" if sem_present else "❌ Assente")
+        if folder == "from_olderp":
+            i1, i2, i3 = st.columns(3)
+            i1.metric("File presenti",   folder_data["count"])
+            i2.metric("Dimensione tot.", f"{total_kb:.1f} KB")
+            i3.metric("Semaforo",        "✅ Presente" if sem_present else "❌ Assente")
+        else:
+            i1, i2 = st.columns(2)
+            i1.metric("File presenti",   folder_data["count"])
+            i2.metric("Dimensione tot.", f"{total_kb:.1f} KB")
 
-        # Tabella con pulsante elimina per ogni file
         h1, h2, h3, h4, h5 = st.columns([3, 1, 1, 2, 1])
         h1.markdown("**Nome file**"); h2.markdown("**Tipo**")
         h3.markdown("**Dim. (KB)**"); h4.markdown("**Modificato**")
@@ -255,8 +279,8 @@ with tab_ctrl:
             c2.write(f["type"])
             c3.write(f["size_kb"])
             c4.write(f["modified_at"].replace("T", " ")[:19])
-            if c5.button("🗑️", key=f"del_{f['name']}", help=f"Elimina {f['name']}"):
-                _, e = api_delete_file(f["name"])
+            if c5.button("🗑️", key=f"del_{folder}_{f['name']}", help=f"Elimina {f['name']}"):
+                _, e = api_delete_file(f["name"], folder)
                 if e:
                     st.error(f"Errore: {e}")
                 else:
@@ -264,49 +288,51 @@ with tab_ctrl:
                     st.rerun()
 
         st.divider()
-        # Pulsante cancella tutto
         col_ri, col_del, _ = st.columns([1, 1, 3])
         if col_ri.button("🔄 Aggiorna"):
             st.rerun()
-        if col_del.button("🗑️ Svuota inbox", type="secondary",
-                          help="Elimina tutti i file dalla cartella inbound"):
-            if st.session_state.get("confirm_delete_all"):
-                _, e = api_delete_all_files()
+        svuota_label = "🗑️ Svuota from_olderp" if folder == "from_olderp" else "🗑️ Svuota from_sap"
+        confirm_key  = f"confirm_delete_all_{folder}"
+        if col_del.button(svuota_label, type="secondary"):
+            if st.session_state.get(confirm_key):
+                _, e = api_delete_all_files(folder)
                 if e:
                     st.error(f"Errore: {e}")
                 else:
-                    st.toast("✅ Inbox svuotata.")
-                st.session_state.pop("confirm_delete_all", None)
+                    st.toast(f"✅ {folder} svuotata.")
+                st.session_state.pop(confirm_key, None)
                 st.rerun()
             else:
-                st.session_state["confirm_delete_all"] = True
-                st.warning("⚠️ Clicca di nuovo **Svuota inbox** per confermare l'eliminazione di tutti i file.")
+                st.session_state[confirm_key] = True
+                st.warning(f"⚠️ Clicca di nuovo **{svuota_label}** per confermare.")
 
-    if inbox_data and inbox_data.get("count", 0) == 0:
+    if folder_data and folder_data.get("count", 0) == 0:
         col_ri, _ = st.columns([1, 4])
-        if col_ri.button("🔄 Aggiorna inbox"):
+        if col_ri.button("🔄 Aggiorna"):
             st.rerun()
 
     # ── Upload manuale ────────────────────────────────────────────────────
-    with st.expander("⬆️ Upload manuale file nella inbox", expanded=False):
-        st.caption("Carica uno o più file ZIP / XLSX direttamente nella cartella inbound senza usare un client SFTP.")
+    upload_label = "⬆️ Upload manuale in from_olderp" if folder == "from_olderp" else "⬆️ Upload manuale in from_sap"
+    upload_types = ["zip", "csv", "txt"] if folder == "from_olderp" else ["xlsx", "csv"]
+    with st.expander(upload_label, expanded=False):
+        st.caption(f"Carica file direttamente nella cartella **{folder}** senza usare un client SFTP.")
         uploaded_files = st.file_uploader(
             "Seleziona file da caricare",
-            type=["zip", "xlsx", "csv", "txt"],
+            type=upload_types,
             accept_multiple_files=True,
-            key="inbox_upload",
+            key=f"upload_{folder}",
         )
         if uploaded_files:
-            if st.button("⬆️ Carica nella inbox", type="primary"):
+            if st.button("⬆️ Carica", type="primary", key=f"btn_upload_{folder}"):
                 ok_count = 0
                 for uf in uploaded_files:
-                    _, e = api_upload_file(uf.read(), uf.name)
+                    _, e = api_upload_file(uf.read(), uf.name, folder)
                     if e:
                         st.error(f"Errore su '{uf.name}': {e}")
                     else:
                         ok_count += 1
                 if ok_count:
-                    st.success(f"✅ {ok_count} file caricati nella inbox.")
+                    st.success(f"✅ {ok_count} file caricati in {folder}.")
                     st.rerun()
 
     st.divider()

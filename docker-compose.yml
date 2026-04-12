@@ -26,11 +26,12 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
       TZ: ${TZ}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data      
     ports:
       - "${POSTGRES_PORT}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -171,6 +172,7 @@ services:
       BRUIN_CONTAINER:   mdg_bruin
       BRUIN_PIPELINE:    /project/bruin
       SEMAPHORE_PATH:    /data/inbound/DATASET_READY.txt
+      SAP_PATH:          /data/from_sap        # ← aggiungi qui      
       LOG_DIR:           /logs
       POSTGRES_HOST:     ${POSTGRES_HOST}
       POSTGRES_PORT:     ${POSTGRES_PORT}
@@ -183,6 +185,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Volume datalake ERP — per leggere/creare il file semaforo DATASET_READY.txt
       - datalake_olderp:/data/inbound
+      - datalake_sap:/data/from_sap        # ← aggiungi questa riga      
       # Log persistenti dei run
       - api_logs:/logs
       - ./api:/app  

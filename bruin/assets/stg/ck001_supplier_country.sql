@@ -22,7 +22,7 @@ SELECT
         WHEN raw."COUNTRY" IS NULL OR raw."COUNTRY" = ''
             THEN 'COUNTRY obbligatorio mancante'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."EXPORT_T005S" ref
+            SELECT 1 FROM ref."SAP_EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY"
         )
             THEN 'Codice paese [' || raw."COUNTRY" || '] non presente in SAP (T005S.LAND1)'
@@ -31,7 +31,7 @@ SELECT
     CASE
         WHEN raw."COUNTRY" IS NULL OR raw."COUNTRY" = ''   THEN 'Error'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."EXPORT_T005S" ref
+            SELECT 1 FROM ref."SAP_EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY"
         )                                                   THEN 'Error'
         ELSE 'Ok'
