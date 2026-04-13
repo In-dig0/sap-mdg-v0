@@ -1,11 +1,11 @@
 /* @bruin
-name: stg.ck007_customer_zterm
+name: stg.ck010_customer_zwels
 type: pg.sql
 depends:
   - stg.clean_check_results
 description: >
-  CK007 — SAP_REF: Clienti (ZBP-DatiSocieta): campo ZTERM
-  valorizzato e presente nella tabella di riferimento SAP TVZB (ZTERM).
+  CK010 — SAP_REF: Clienti (ZBP-DatiSocieta): campo ZWELS_01
+  valorizzato e presente nella tabella di riferimento SAP_Mod_Pagamento (Cod_Mod_Pag).
 connection: mdg_postgres
 @bruin */
 
@@ -17,23 +17,23 @@ SELECT
     'S_CUST_COMPANY#ZBP-DatiSocieta'             AS source_table,
     'BP'                                         AS category,
     raw."KUNNR(k/*)"                             AS object_key,
-    'CK007'                                      AS check_id,
+    'CK010'                                      AS check_id,
     CASE
-        WHEN raw."ZTERM" IS NULL OR raw."ZTERM" = ''
-            THEN 'ZTERM obbligatorio mancante'
+        WHEN raw."ZWELS_01" IS NULL OR raw."ZWELS_01" = ''
+            THEN 'ZWELS_01 obbligatorio mancante'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."SAP_EXPORT_TVZB" ref
-            WHERE ref."ZTERM" = raw."ZTERM"
+            SELECT 1 FROM ref."SAP_Mod_Pagamento" ref
+            WHERE ref."Cod_Mod_Pag" = raw."ZWELS_01"
         )
-            THEN 'Condizione pagamento [' || raw."ZTERM" || '] non presente in SAP (TVZB.ZTERM)'
-        ELSE 'Condizione pagamento [' || raw."ZTERM" || '] valida'
+            THEN 'Modalità pagamento [' || raw."ZWELS_01" || '] non presente in SAP (SAP_Mod_Pagamento)'
+        ELSE 'Modalità pagamento [' || raw."ZWELS_01" || '] valida'
     END                                          AS message,
     CASE
-        WHEN raw."ZTERM" IS NULL OR raw."ZTERM" = ''  THEN 'Error'
+        WHEN raw."ZWELS_01" IS NULL OR raw."ZWELS_01" = ''  THEN 'Error'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."SAP_EXPORT_TVZB" ref
-            WHERE ref."ZTERM" = raw."ZTERM"
-        )                                               THEN 'Error'
+            SELECT 1 FROM ref."SAP_Mod_Pagamento" ref
+            WHERE ref."Cod_Mod_Pag" = raw."ZWELS_01"
+        )                                                    THEN 'Error'
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs
@@ -44,6 +44,6 @@ SELECT
 FROM raw."S_CUST_COMPANY#ZBP-DatiSocieta" raw
 WHERE (
     SELECT COALESCE(is_active, FALSE)
-    FROM stg.check_catalog WHERE check_id = 'CK007'
+    FROM stg.check_catalog WHERE check_id = 'CK010'
 )
 ;

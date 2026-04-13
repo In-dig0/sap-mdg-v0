@@ -1,11 +1,11 @@
 /* @bruin
-name: stg.ck007_customer_zterm
+name: stg.ck012_customer_altkn
 type: pg.sql
 depends:
   - stg.clean_check_results
 description: >
-  CK007 — SAP_REF: Clienti (ZBP-DatiSocieta): campo ZTERM
-  valorizzato e presente nella tabella di riferimento SAP TVZB (ZTERM).
+  CK012 — SAP_REF: Clienti (ZBP-DatiSocieta): campo AKONT(*)
+  valorizzato e presente nella tabella SAP_Conto_Riconciliazione_Clienti (Cod_Conto).
 connection: mdg_postgres
 @bruin */
 
@@ -17,23 +17,23 @@ SELECT
     'S_CUST_COMPANY#ZBP-DatiSocieta'             AS source_table,
     'BP'                                         AS category,
     raw."KUNNR(k/*)"                             AS object_key,
-    'CK007'                                      AS check_id,
+    'CK012'                                      AS check_id,
     CASE
-        WHEN raw."ZTERM" IS NULL OR raw."ZTERM" = ''
-            THEN 'ZTERM obbligatorio mancante'
+        WHEN raw."AKONT(*)" IS NULL OR raw."AKONT(*)" = ''
+            THEN 'AKONT(*) obbligatorio mancante'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."SAP_EXPORT_TVZB" ref
-            WHERE ref."ZTERM" = raw."ZTERM"
+            SELECT 1 FROM ref."SAP_Conto_Riconciliazione_Clienti" ref
+            WHERE ref."Cod_Conto" = raw."AKONT(*)"
         )
-            THEN 'Condizione pagamento [' || raw."ZTERM" || '] non presente in SAP (TVZB.ZTERM)'
-        ELSE 'Condizione pagamento [' || raw."ZTERM" || '] valida'
+            THEN 'Conto riconciliazione [' || raw."AKONT(*)" || '] non presente in SAP (SAP_Conto_Riconciliazione_Clienti)'
+        ELSE 'Conto riconciliazione [' || raw."AKONT(*)" || '] valido'
     END                                          AS message,
     CASE
-        WHEN raw."ZTERM" IS NULL OR raw."ZTERM" = ''  THEN 'Error'
+        WHEN raw."AKONT(*)" IS NULL OR raw."AKONT(*)" = ''  THEN 'Error'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."SAP_EXPORT_TVZB" ref
-            WHERE ref."ZTERM" = raw."ZTERM"
-        )                                               THEN 'Error'
+            SELECT 1 FROM ref."SAP_Conto_Riconciliazione_Clienti" ref
+            WHERE ref."Cod_Conto" = raw."AKONT(*)"
+        )                                              THEN 'Error'
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs
@@ -44,6 +44,6 @@ SELECT
 FROM raw."S_CUST_COMPANY#ZBP-DatiSocieta" raw
 WHERE (
     SELECT COALESCE(is_active, FALSE)
-    FROM stg.check_catalog WHERE check_id = 'CK007'
+    FROM stg.check_catalog WHERE check_id = 'CK012'
 )
 ;

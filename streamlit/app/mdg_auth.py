@@ -93,17 +93,17 @@ def require_login():
         _render_login_form()
         st.stop()
 
-    # Se l'utente deve cambiare la password, redirect automatico a 0_Profilo
+    # Se l'utente deve cambiare la password, redirect automatico a 0_User_Profile
     if st.session_state.get("must_change_password", False):
         try:
             ctx = st.runtime.scriptrunner.get_script_run_ctx()
             script_path = ctx.main_script_path if ctx else ""
-            on_profilo = "0_Profilo" in script_path or "Profilo" in script_path
+            on_profilo = "0_User_Profile" in script_path or "Profilo" in script_path
         except Exception:
             on_profilo = False
 
         if not on_profilo:
-            st.switch_page("pages/0_Profilo.py")
+            st.switch_page("pages/0_User_Profile.py")
 
 
 def require_role(role: str):
@@ -161,7 +161,8 @@ def render_sidebar_menu():
     st.sidebar.page_link("pages/9_Info.py",               label="ℹ️ Info")
     st.sidebar.page_link("Dashboard.py",                  label="📊 Dashboard")
     st.sidebar.page_link("pages/1_Check_Results.py",      label="✅ Check Results")
-    st.sidebar.page_link("pages/0_Profilo.py",            label="👤 Il mio profilo")
+    st.sidebar.page_link("pages/5_View_Data.py",          label="🗄️ View Data")
+    st.sidebar.page_link("pages/0_User_Profile.py",            label="👤 My Profile")
 
     # Pagine riservate agli IT user (admin)
     if role in ("admin_role", "it_role"):
@@ -169,4 +170,4 @@ def render_sidebar_menu():
         st.sidebar.caption("IT Admin")
         st.sidebar.page_link("pages/2_Check_Catalog.py",  label="📋 Check Catalog")
         st.sidebar.page_link("pages/3_Pipeline_Admin.py", label="⚙️ Pipeline Admin")
-        st.sidebar.page_link("pages/4_Admin_Users.py",    label="👤 Gestione Utenti")
+        st.sidebar.page_link("pages/4_Admin_Users.py",    label="👥 Users")

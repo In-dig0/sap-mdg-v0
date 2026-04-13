@@ -39,20 +39,8 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
     finally:
         conn.close()
 
-CHECK_DESCRIPTIONS = {
-    "CK001": "Fornitori: codice paese (COUNTRY) presente in T005S",
-    "CK002": "Fornitori: coppia COUNTRY+REGION presente in T005S",
-    "CK003": "Clienti: codice paese COUNTRY(*) presente in T005S",
-    "CK004": "Clienti: coppia COUNTRY(*)+REGION presente in T005S",
-    "CK201": "Fornitori: partita IVA mancante per soggetti UE/ExtraUE",
-    "CK202": "Fornitori: codice fiscale duplicato tra BP diversi",
-    "CK203": "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
-    "CK204": "Clienti: codice fiscale duplicato tra BP diversi",
-    "CK401": "Orfani flusso 01-ZBP-Vettori: LIFNR assente nella master",
-    "CK402": "Orfani flusso 04-ZBP-Fornitori: LIFNR assente nella master",
-    "CK403": "Orfani flusso 02-ZDM-Clienti: KUNNR assente nella master",
-    "CK404": "Orfani flusso 03-ZBP-Clienti: KUNNR assente nella master",
-}
+
+
 
 # ---------------------------------------------------------------------------
 # Header
@@ -65,8 +53,10 @@ st.divider()
 # ---------------------------------------------------------------------------
 try:
     df_checks_available = run_query("""
-        SELECT DISTINCT cr.check_id, cr.source_table
+        SELECT DISTINCT cr.check_id, cr.source_table,
+               COALESCE(cc.check_desc, '—') AS check_desc
         FROM stg.check_results cr
+        LEFT JOIN stg.check_catalog cc ON cc.check_id = cr.check_id
         ORDER BY cr.check_id, cr.source_table
     """)
 except Exception:
@@ -117,7 +107,12 @@ st.markdown(
     f'<span style="color:#85B7EB;">{check_id}</span></h2>',
     unsafe_allow_html=True,
 )
-description = CHECK_DESCRIPTIONS.get(check_id, "—")
+description = df_checks_available.loc[
+    (df_checks_available["check_id"] == check_id) &
+    (df_checks_available["source_table"] == source_table),
+    "check_desc"
+].values
+description = description[0] if len(description) > 0 else "—"
 st.markdown(
     f'<p style="color:#EF9F27; font-size:18px; font-weight:500; margin:4px 0;">'
     f'{description}</p>',

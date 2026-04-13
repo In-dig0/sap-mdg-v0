@@ -223,8 +223,9 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Tab principali
 # ---------------------------------------------------------------------------
-tab_ctrl, tab_storico, tab_log_file = st.tabs([
+tab_ctrl, tab_sftp, tab_storico, tab_log_file = st.tabs([
     "▶️  Controllo",
+    "📂  SFTP",
     "🗂️  Storico run",
     "📄  Analisi log",
 ])
@@ -233,107 +234,6 @@ tab_ctrl, tab_storico, tab_log_file = st.tabs([
 # TAB 1 — CONTROLLO
 # ===========================================================================
 with tab_ctrl:
-
-    # ── 1. Cartelle SFTP ────────────────────────────────────────────────────
-    st.subheader("📂 Cartelle SFTP")
-
-    sel_col, _ = st.columns([2, 4])
-    folder = sel_col.radio(
-        "Cartella",
-        options=["from_olderp", "from_sap"],
-        format_func=lambda x: "📦 from_olderp  (file ERP)" if x == "from_olderp" else "📗 from_sap  (tabelle SAP)",
-        horizontal=True,
-        key="sftp_folder_sel",
-    )
-
-    folder_data, err = api_list_files(folder)
-
-    if err:
-        st.warning(f"Impossibile leggere la cartella: {err}")
-    elif not folder_data or folder_data.get("count", 0) == 0:
-        st.info(f"La cartella {folder} è vuota.")
-    else:
-        files       = folder_data["files"]
-        total_kb    = sum(f["size_kb"] for f in files)
-        sem_present = any(f.get("is_semaphore") for f in files)
-
-        if folder == "from_olderp":
-            i1, i2, i3 = st.columns(3)
-            i1.metric("File presenti",   folder_data["count"])
-            i2.metric("Dimensione tot.", f"{total_kb:.1f} KB")
-            i3.metric("Semaforo",        "✅ Presente" if sem_present else "❌ Assente")
-        else:
-            i1, i2 = st.columns(2)
-            i1.metric("File presenti",   folder_data["count"])
-            i2.metric("Dimensione tot.", f"{total_kb:.1f} KB")
-
-        h1, h2, h3, h4, h5 = st.columns([3, 1, 1, 2, 1])
-        h1.markdown("**Nome file**"); h2.markdown("**Tipo**")
-        h3.markdown("**Dim. (KB)**"); h4.markdown("**Modificato**")
-        h5.markdown("**Elimina**")
-        st.divider()
-
-        for f in files:
-            c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 2, 1])
-            c1.write(f["name"])
-            c2.write(f["type"])
-            c3.write(f["size_kb"])
-            c4.write(f["modified_at"].replace("T", " ")[:19])
-            if c5.button("🗑️", key=f"del_{folder}_{f['name']}", help=f"Elimina {f['name']}"):
-                _, e = api_delete_file(f["name"], folder)
-                if e:
-                    st.error(f"Errore: {e}")
-                else:
-                    st.toast(f"✅ '{f['name']}' eliminato.")
-                    st.rerun()
-
-        st.divider()
-        col_ri, col_del, _ = st.columns([1, 1, 3])
-        if col_ri.button("🔄 Aggiorna"):
-            st.rerun()
-        svuota_label = "🗑️ Svuota from_olderp" if folder == "from_olderp" else "🗑️ Svuota from_sap"
-        confirm_key  = f"confirm_delete_all_{folder}"
-        if col_del.button(svuota_label, type="secondary"):
-            if st.session_state.get(confirm_key):
-                _, e = api_delete_all_files(folder)
-                if e:
-                    st.error(f"Errore: {e}")
-                else:
-                    st.toast(f"✅ {folder} svuotata.")
-                st.session_state.pop(confirm_key, None)
-                st.rerun()
-            else:
-                st.session_state[confirm_key] = True
-                st.warning(f"⚠️ Clicca di nuovo **{svuota_label}** per confermare.")
-
-    if folder_data and folder_data.get("count", 0) == 0:
-        col_ri, _ = st.columns([1, 4])
-        if col_ri.button("🔄 Aggiorna"):
-            st.rerun()
-
-    # ── Upload manuale ────────────────────────────────────────────────────
-    upload_label = "⬆️ Upload manuale in from_olderp" if folder == "from_olderp" else "⬆️ Upload manuale in from_sap"
-    upload_types = ["zip", "csv", "txt"] if folder == "from_olderp" else ["xlsx", "csv"]
-    with st.expander(upload_label, expanded=False):
-        st.caption(f"Carica file direttamente nella cartella **{folder}** senza usare un client SFTP.")
-        uploaded_files = st.file_uploader(
-            "Seleziona file da caricare",
-            type=upload_types,
-            accept_multiple_files=True,
-            key=f"upload_{folder}",
-        )
-        if uploaded_files:
-            if st.button("⬆️ Carica", type="primary", key=f"btn_upload_{folder}"):
-                ok_count = 0
-                for uf in uploaded_files:
-                    _, e = api_upload_file(uf.read(), uf.name, folder)
-                    if e:
-                        st.error(f"Errore su '{uf.name}': {e}")
-                    else:
-                        ok_count += 1
-                if ok_count:
-                    st.success(f"✅ {ok_count} file caricati in {folder}.")
-                    st.rerun()
 
     st.divider()
 
@@ -389,7 +289,110 @@ with tab_ctrl:
             st.rerun()
 
 # ===========================================================================
-# TAB 2 — STORICO RUN
+# TAB 2 — SFTP
+# ===========================================================================
+with tab_sftp:
+
+    sel_col, _ = st.columns([2, 4])
+    folder = sel_col.radio(
+        "Cartella",
+        options=["from_olderp", "from_sap"],
+        format_func=lambda x: "📦 from_olderp  (file ERP)" if x == "from_olderp" else "📗 from_sap  (tabelle SAP)",
+        horizontal=True,
+        key="sftp_folder_sel",
+    )
+
+    st.divider()
+    folder_data, err = api_list_files(folder)
+
+    if err:
+        st.warning(f"Impossibile leggere la cartella: {err}")
+    elif not folder_data or folder_data.get("count", 0) == 0:
+        st.info(f"La cartella {folder} è vuota.")
+        col_ri, _ = st.columns([1, 4])
+        if col_ri.button("🔄 Aggiorna", key="sftp_refresh_empty"):
+            st.rerun()
+    else:
+        files       = folder_data["files"]
+        total_kb    = sum(f["size_kb"] for f in files)
+        sem_present = any(f.get("is_semaphore") for f in files)
+
+        if folder == "from_olderp":
+            i1, i2, i3 = st.columns(3)
+            i1.metric("File presenti",   folder_data["count"])
+            i2.metric("Dimensione tot.", f"{total_kb:.1f} KB")
+            i3.metric("Semaforo",        "✅ Presente" if sem_present else "❌ Assente")
+        else:
+            i1, i2 = st.columns(2)
+            i1.metric("File presenti",   folder_data["count"])
+            i2.metric("Dimensione tot.", f"{total_kb:.1f} KB")
+
+        st.divider()
+        h1, h2, h3, h4, h5 = st.columns([3, 1, 1, 2, 1])
+        h1.markdown("**Nome file**"); h2.markdown("**Tipo**")
+        h3.markdown("**Dim. (KB)**"); h4.markdown("**Modificato**")
+        h5.markdown("**Elimina**")
+        st.divider()
+
+        for f in files:
+            c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 2, 1])
+            c1.write(f["name"])
+            c2.write(f["type"])
+            c3.write(f["size_kb"])
+            c4.write(f["modified_at"].replace("T", " ")[:19])
+            if c5.button("🗑️", key=f"del_{folder}_{f['name']}", help=f"Elimina {f['name']}"):
+                _, e = api_delete_file(f["name"], folder)
+                if e:
+                    st.error(f"Errore: {e}")
+                else:
+                    st.toast(f"✅ '{f['name']}' eliminato.")
+                    st.rerun()
+
+        st.divider()
+        col_ri, col_del, _ = st.columns([1, 1, 3])
+        if col_ri.button("🔄 Aggiorna", key="sftp_refresh"):
+            st.rerun()
+        svuota_label = "🗑️ Svuota from_olderp" if folder == "from_olderp" else "🗑️ Svuota from_sap"
+        confirm_key  = f"confirm_delete_all_{folder}"
+        if col_del.button(svuota_label, type="secondary", key=f"svuota_{folder}"):
+            if st.session_state.get(confirm_key):
+                _, e = api_delete_all_files(folder)
+                if e:
+                    st.error(f"Errore: {e}")
+                else:
+                    st.toast(f"✅ {folder} svuotata.")
+                st.session_state.pop(confirm_key, None)
+                st.rerun()
+            else:
+                st.session_state[confirm_key] = True
+                st.warning(f"⚠️ Clicca di nuovo **{svuota_label}** per confermare.")
+
+    st.divider()
+    upload_label = "⬆️ Upload in from_olderp" if folder == "from_olderp" else "⬆️ Upload in from_sap"
+    upload_types = ["zip", "csv", "txt"] if folder == "from_olderp" else ["xlsx", "csv"]
+    with st.expander(upload_label, expanded=False):
+        st.caption(f"Carica file direttamente nella cartella **{folder}** senza usare un client SFTP.")
+        uploaded_files = st.file_uploader(
+            "Seleziona file da caricare",
+            type=upload_types,
+            accept_multiple_files=True,
+            key=f"upload_{folder}",
+        )
+        if uploaded_files:
+            if st.button("⬆️ Carica", type="primary", key=f"btn_upload_{folder}"):
+                ok_count = 0
+                for uf in uploaded_files:
+                    _, e = api_upload_file(uf.read(), uf.name, folder)
+                    if e:
+                        st.error(f"Errore su '{uf.name}': {e}")
+                    else:
+                        ok_count += 1
+                if ok_count:
+                    st.success(f"✅ {ok_count} file caricati in {folder}.")
+                    st.rerun()
+
+# ===========================================================================
+# TAB 3 — STORICO RUN
 # ===========================================================================
 with tab_storico:
 
@@ -457,7 +460,7 @@ with tab_storico:
             st.dataframe(display, use_container_width=True, hide_index=True)
 
 # ===========================================================================
-# TAB 2 — ANALISI LOG DA FILE
+# TAB 4 — ANALISI LOG DA FILE
 # ===========================================================================
 with tab_log_file:
 

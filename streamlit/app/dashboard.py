@@ -38,20 +38,8 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
     finally:
         conn.close()
 
-CHECK_DESCRIPTIONS = {
-    "CK001": "Fornitori: codice paese (COUNTRY) presente in T005S",
-    "CK002": "Fornitori: coppia COUNTRY+REGION presente in T005S",
-    "CK003": "Clienti: codice paese COUNTRY(*) presente in T005S",
-    "CK004": "Clienti: coppia COUNTRY(*)+REGION presente in T005S",
-    "CK201": "Fornitori: partita IVA mancante per soggetti UE/ExtraUE",
-    "CK202": "Fornitori: codice fiscale duplicato tra BP diversi",
-    "CK203": "Clienti: partita IVA mancante per soggetti UE/ExtraUE",
-    "CK204": "Clienti: codice fiscale duplicato tra BP diversi",
-    "CK401": "Orfani flusso 01-ZBP-Vettori: LIFNR assente nella master",
-    "CK402": "Orfani flusso 04-ZBP-Fornitori: LIFNR assente nella master",
-    "CK403": "Orfani flusso 02-ZDM-Clienti: KUNNR assente nella master",
-    "CK404": "Orfani flusso 03-ZBP-Clienti: KUNNR assente nella master",
-}
+
+
 
 # ---------------------------------------------------------------------------
 # Header
@@ -156,6 +144,7 @@ df_checks = run_query(f"""
         cr.check_id,
         cr.source_table,
         cr.category,
+        cc.check_desc,
         COUNT(*) FILTER (WHERE cr.status = 'Ok')      AS num_ok,
         COUNT(*) FILTER (WHERE cr.status = 'Warning')  AS num_warning,
         COUNT(*) FILTER (WHERE cr.status = 'Error')    AS num_error,
@@ -163,7 +152,7 @@ df_checks = run_query(f"""
     FROM stg.check_results cr
     JOIN stg.check_catalog cc ON cc.check_id = cr.check_id
     {where_active}
-    GROUP BY cr.check_id, cr.source_table, cr.category
+    GROUP BY cr.check_id, cr.source_table, cr.category, cc.check_desc
     ORDER BY cr.check_id
 """, params_cat)
 
@@ -186,7 +175,7 @@ else:
         num_error   = int(row["num_error"])
         total       = int(row["total"])
         pct_error   = round(num_error / total * 100, 1) if total > 0 else 0
-        description = CHECK_DESCRIPTIONS.get(check_id, "—")
+        description = row.get("check_desc") or "—"
 
         with st.container(border=True):
             col_info, col_ok, col_warn, col_err, col_btn = st.columns([4, 1, 1, 1, 1])
