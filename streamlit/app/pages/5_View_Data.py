@@ -114,7 +114,7 @@ else:
 with col_tab:
     selected_table = st.selectbox(
         "📋 Tabella",
-        options=tabelle_filtrate if tabelle_filtrate else ["— nessuna tabella —"],
+        options=["— Seleziona —"] + (tabelle_filtrate if tabelle_filtrate else []),
         key="table_sel",
     )
 
@@ -123,77 +123,71 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Carica e mostra dati
 # ---------------------------------------------------------------------------
-if selected_table:
+if not selected_table or selected_table == "— Seleziona —" or selected_table == "— nessuna tabella —":
+    st.info("👆 Seleziona una tabella per visualizzarne il contenuto.")
+    st.stop()
 
-    # Conteggio righe
-    try:
-        df_count = run_query(
-            f'SELECT COUNT(*) AS n FROM raw."{selected_table}"'
+# Conteggio righe
+try:
+    df_count = run_query(f'SELECT COUNT(*) AS n FROM raw."{selected_table}"')
+    n_rows = int(df_count["n"].iloc[0])
+except Exception as e:
+    st.error(f"Errore: {e}")
+    st.stop()
+
+# Metriche + controlli sulla stessa riga
+col_r, col_c, col_max, col_search = st.columns([1, 1, 1, 3])
+col_r.metric("Righe totali", n_rows)
+
+max_rows = col_max.number_input(
+    "Righe da mostrare", min_value=10, max_value=5000,
+    value=min(500, n_rows), step=100, key="max_rows"
+)
+
+search_text = col_search.text_input(
+    "🔍 Cerca nel contenuto",
+    placeholder="Testo libero su tutte le colonne...",
+    key="search_text",
+)
+
+# Carica dati
+try:
+    if selected_zip == "— Tutti —":
+        df = run_query(
+            f'SELECT * FROM raw."{selected_table}" LIMIT %s',
+            (max_rows,)
         )
-        n_rows = int(df_count["n"].iloc[0])
-    except Exception as e:
-        st.error(f"Errore: {e}")
-        st.stop()
-
-    col_info1, col_info2, col_search = st.columns([1, 1, 3])
-    col_info1.metric("Righe totali", n_rows)
-
-    # Limite visualizzazione
-    max_rows = col_info2.number_input(
-        "Righe da mostrare", min_value=10, max_value=5000,
-        value=min(500, n_rows), step=100, key="max_rows"
-    )
-
-    # Ricerca testo libero
-    search_text = col_search.text_input(
-        "🔍 Cerca nel contenuto",
-        placeholder="Testo libero su tutte le colonne...",
-        key="search_text",
-    )
-
-    # Carica dati
-    try:
-        if selected_zip == "— Tutti —":
-            df = run_query(
-                f'SELECT * FROM raw."{selected_table}" LIMIT %s',
-                (max_rows,)
-            )
-        else:
-            df = run_query(
-                f'SELECT * FROM raw."{selected_table}" WHERE "_zip_source" = %s LIMIT %s',
-                (selected_zip, max_rows)
-            )
-    except Exception as e:
-        st.error(f"Errore lettura tabella: {e}")
-        st.stop()
-
-    col_info1.metric("Colonne", len(df.columns))
-
-    # Applica filtro testo libero
-    if search_text and not df.empty:
-        mask = df.apply(
-            lambda col: col.astype(str).str.contains(search_text, case=False, na=False)
-        ).any(axis=1)
-        df_show = df[mask]
-        st.caption(f"Righe visualizzate: {len(df_show)} (filtrate da {len(df)} caricate)")
     else:
-        df_show = df
-        st.caption(f"Righe visualizzate: {len(df_show)}")
-
-    if df_show.empty:
-        st.info("Nessun record trovato con il filtro applicato.")
-    else:
-        st.dataframe(
-            df_show,
-            use_container_width=True,
-            hide_index=True,
+        df = run_query(
+            f'SELECT * FROM raw."{selected_table}" WHERE "_zip_source" = %s LIMIT %s',
+            (selected_zip, max_rows)
         )
+except Exception as e:
+    st.error(f"Errore lettura tabella: {e}")
+    st.stop()
 
-        # Download CSV
-        csv = df_show.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label=f"⬇️ Scarica CSV ({len(df_show)} righe)",
-            data=csv,
-            file_name=f"raw_{selected_table}.csv",
-            mime="text/csv",
-        )
+col_c.metric("Colonne", len(df.columns))
+
+# Applica filtro testo libero
+if search_text and not df.empty:
+    mask = df.apply(
+        lambda col: col.astype(str).str.contains(search_text, case=False, na=False)
+    ).any(axis=1)
+    df_show = df[mask]
+    st.caption(f"Righe visualizzate: {len(df_show)} (filtrate da {len(df)} caricate)")
+else:
+    df_show = df
+    st.caption(f"Righe visualizzate: {len(df_show)}")
+
+if df_show.empty:
+    st.info("Nessun record trovato con il filtro applicato.")
+else:
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+    csv = df_show.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label=f"⬇️ Scarica CSV ({len(df_show)} righe)",
+        data=csv,
+        file_name=f"raw_{selected_table}.csv",
+        mime="text/csv",
+    )
