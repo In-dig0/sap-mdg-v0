@@ -1,6 +1,8 @@
 """ @bruin
 name: ingestion.ingest_zip_to_raw
 type: python
+depends:
+  - ingestion.ingest_xlsx_to_ref
 description: >
   Legge tutti i file ZIP da /project/datalake/from_olderp/,
   estrae i CSV e li carica nello schema raw di PostgreSQL.

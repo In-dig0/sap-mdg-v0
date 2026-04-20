@@ -152,10 +152,21 @@ def api_upload_file(file_bytes: bytes, filename: str, folder: str = "from_olderp
 # ---------------------------------------------------------------------------
 
 def colorize_line(line: str) -> str:
-    if "FAIL" in line or "[ERROR]" in line or "error" in line.lower():
+    # Nome file XLSX o ZIP (=== XLSX: ... === o === ZIP: ... ===)
+    if re.search(r"===\s*(XLSX|ZIP):.+===", line):
+        escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return (
+            f'<span style="color:#60c8f5; font-weight:700; '
+            f'text-decoration:underline;">{escaped}</span>'
+        )
+    # Nome file CSV (-> S_MARA.csv)
+    elif re.search(r"->\s*\S+\.csv", line, re.IGNORECASE):
+        escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return f'<span style="color:#a78bfa;">{escaped}</span>'
+    elif "done_with_errors" in line:
+        color = "#EF9F27"
+    elif "FAIL" in line or "[ERROR]" in line or "error" in line.lower():
         color = "#e24b4a"
-    elif "done_with_errors" in line:          # ← aggiungi questa riga
-        color = "#EF9F27"           
     elif "PASS" in line:
         color = "#4ade80"
     elif "[WARNING]" in line or "[WARN]" in line or "WARN" in line:
