@@ -582,3 +582,21 @@ async def upload_sap_file(file: UploadFile):
     content = await file.read()
     dest.write_bytes(content)
     return {"message": f"File caricato: {file.filename}", "size_kb": round(len(content) / 1024, 1)}
+
+import subprocess
+
+@app.get("/system/docker-version")
+def get_docker_version():
+    """Ritorna la versione di Docker Engine letta a runtime."""
+    try:
+        result = subprocess.run(
+            ["docker", "--version"],
+            capture_output=True, text=True, timeout=5
+        )
+        # Output tipo: "Docker version 27.3.1, build ce12230"
+        raw = result.stdout.strip()
+        # Estrae solo il numero: "27.3.1"
+        version = raw.replace("Docker version ", "").split(",")[0].strip()
+        return {"version": version, "raw": raw}
+    except Exception as e:
+        return {"version": "n/a", "raw": str(e)}

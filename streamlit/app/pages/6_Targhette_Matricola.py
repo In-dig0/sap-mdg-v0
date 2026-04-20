@@ -301,28 +301,38 @@ except Exception as e:
 
 kpi_multi_art    = len(df_q2)
 kpi_loghi        = int(df_q2["N_LOGHI"].sum()) if not df_q2.empty else 0
-kpi_normalizzati = (kpi_articoli - kpi_multi_art) + kpi_loghi
+kpi_logo_singolo = kpi_articoli - kpi_multi_art
+kpi_normalizzati = kpi_logo_singolo + kpi_loghi
 
 # -----------------------------------------------------------------------------
 # KPI cards
 # -----------------------------------------------------------------------------
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric(
     "📦 Articoli in archivio",
     f"{kpi_articoli:,}".replace(",", "."),
     help="Totale articoli in A2F con i filtri selezionati (senza join vendite/loghi)",
 )
 c2.metric(
+    "1️⃣ Con logo singolo",
+    f"{kpi_logo_singolo:,}".replace(",", "."),
+    help=(
+        "Articoli che non compaiono in Q2: "
+        "hanno 0 o 1 logo associato. "
+        "Formula: articoli totali - articoli con loghi multipli"
+    ),
+)
+c3.metric(
     "🏷️ Con loghi multipli",
     f"{kpi_multi_art:,}".replace(",", "."),
     help="Articoli con N_LOGHI > 1 dopo le join con PUNTFOR e CLIM",
 )
-c3.metric(
+c4.metric(
     "🔢 Totale loghi (art. multipli)",
     f"{kpi_loghi:,}".replace(",", "."),
     help="Somma di N_LOGHI per gli articoli con loghi multipli",
 )
-c4.metric(
+c5.metric(
     "🔄 Articoli attesi post-normalizzazione",
     f"{kpi_normalizzati:,}".replace(",", "."),
     delta=f"+{kpi_normalizzati - kpi_articoli:,}".replace(",", "."),

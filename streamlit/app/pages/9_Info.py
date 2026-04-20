@@ -278,5 +278,127 @@ for i, c in enumerate(containers):
         """, unsafe_allow_html=True)
         st.markdown("")
 
+
+# ---------------------------------------------------------------------------
+# Framework versions
+# ---------------------------------------------------------------------------
+import os
+import sys
+import requests
+import importlib.metadata
+
+st.markdown('<div class="section-title">Framework versions</div>', unsafe_allow_html=True)
+
+# CSS aggiuntivo per la sezione versioni
+st.markdown("""
+<style>
+.fw-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:0.8rem; margin-bottom:1.5rem; }
+.fw-card { background:#0f172a; border:1px solid #1e293b; border-radius:10px; padding:1rem 1.2rem; }
+.fw-card .fw-label { font-family:'Syne',sans-serif; font-size:0.72rem; font-weight:600; text-transform:uppercase; letter-spacing:0.1em; color:#475569; margin-bottom:0.5rem; }
+.fw-card .fw-name  { font-family:'JetBrains Mono',monospace; font-size:0.85rem; font-weight:600; color:#f8fafc; margin-bottom:0.2rem; }
+.fw-card .fw-ver   { font-family:'JetBrains Mono',monospace; font-size:0.75rem; color:#3b82f6; }
+.fw-card .fw-sub   { font-family:'JetBrains Mono',monospace; font-size:0.68rem; color:#475569; margin-top:0.3rem; line-height:1.6; }
+</style>
+""", unsafe_allow_html=True)
+
+def _get_version(package: str) -> str:
+    """Legge la versione di un package Python installato."""
+    try:
+        return importlib.metadata.version(package)
+    except importlib.metadata.PackageNotFoundError:
+        return "n/a"
+
+def _get_docker_version() -> str:
+    """Chiama FastAPI (che ha accesso al Docker socket) per leggere la versione Docker."""
+    try:
+        fastapi_url = os.getenv("FASTAPI_URL", "http://mdg_fastapi:8000")
+        r = requests.get(f"{fastapi_url}/system/docker-version", timeout=3)
+        if r.status_code == 200:
+            return r.json().get("version", "n/a")
+        return "n/a"
+    except Exception:
+        return "n/a"
+
+# Versioni Python e librerie (dinamiche — lette a runtime)
+py_version    = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+st_version    = _get_version("streamlit")
+fa_version    = _get_version("fastapi")
+pd_version    = _get_version("pandas")
+psy_version   = _get_version("psycopg2-binary") or _get_version("psycopg2")
+req_version   = _get_version("requests")
+sql_version   = _get_version("sqlalchemy")
+
+# Versione Docker (dinamica — via FastAPI)
+docker_version = _get_docker_version()
+
+# Versioni infrastruttura (statiche — da docker-compose / immagini usate)
+fw_cards = [
+    {
+        "label": "SFTP",
+        "name":  "atmoz/sftp",
+        "ver":   "alpine",
+        "sub":   "porta: 22",
+    },
+    {
+        "label": "UX / Dashboard",
+        "name":  "Streamlit",
+        "ver":   st_version,
+        "sub":   f"porta: 8501",
+    },
+    {
+        "label": "Database",
+        "name":  "PostgreSQL",
+        "ver":   "18-alpine",
+        "sub":   "porta: 5432",
+    },
+    {
+        "label": "Database Admin",
+        "name":  "PgAdmin 4",
+        "ver":   "latest",
+        "sub":   "porta: 8080",
+    },
+    {
+        "label": "Pipeline",
+        "name":  "Bruin CLI",
+        "ver":   "custom image",
+        "sub":   "orchestratore ETL",
+    },
+    {
+        "label": "Autenticazione",
+        "name":  "FastAPI + fastapi-users",
+        "ver":   fa_version,
+        "sub":   "JWT · porta: 8001",
+    },
+    {
+        "label": "Environment",
+        "name":  "Docker Engine",
+        "ver":   docker_version,
+        "sub":   "container runtime",
+    },
+    {
+        "label": "Processing Engine",
+        "name":  "Python",
+        "ver":   py_version,
+        "sub":   (
+            f"pandas {pd_version}  ·  psycopg2 {psy_version}<br>"
+            f"requests {req_version}  ·  sqlalchemy {sql_version}"
+        ),
+    },
+]
+
+# Render griglia
+html_cards = ''
+for c in fw_cards:
+    html_cards += f"""
+    <div class="fw-card">
+        <div class="fw-label">{c["label"]}</div>
+        <div class="fw-name">{c["name"]}</div>
+        <div class="fw-ver">v {c["ver"]}</div>
+        <div class="fw-sub">{c["sub"]}</div>
+    </div>"""
+
+st.markdown(f'<div class="fw-grid">{html_cards}</div>', unsafe_allow_html=True)
+
 st.markdown("<br>", unsafe_allow_html=True)
 st.caption("MDG v0 · Sviluppo locale WSL2 · Deploy produzione: OCI VPS")
+
