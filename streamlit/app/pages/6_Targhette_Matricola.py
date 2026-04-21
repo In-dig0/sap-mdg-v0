@@ -149,9 +149,13 @@ def load_kpi_articoli(
 @st.cache_data(ttl=300)
 def load_q2(
     suffix: str, date_from: str,
-    tipo_prod: tuple, flag6: tuple, fantasma: tuple, codart: tuple
+    tipo_prod: tuple, flag6: tuple, fantasma: tuple, codart: tuple,
+    solo_multipli: bool = False,
 ) -> pd.DataFrame:
     conditions, a2f_params = build_a2f_filter(tipo_prod, flag6, fantasma, codart)
+    having = """HAVING COUNT(DISTINCT
+            COALESCE(c."CODET", 'IPH') || COALESCE(c."DESCLI", 'IPH')
+        ) > 1""" if solo_multipli else ""
     sql = f"""
         SELECT
             a."CODART",
@@ -165,7 +169,7 @@ def load_q2(
         FROM ref."A2F_{suffix}"          AS a
         LEFT JOIN ref."PUNTFOR_{suffix}" AS b ON b."CODART" = a."CODART"
         LEFT JOIN ref."CLIM_{suffix}"    AS c ON c."CODCLI" = b."CODCLI"
-        WHERE NULLIF(b."DATAV", '')::date > %s
+        WHERE (NULLIF(b."DATAV", '') IS NULL OR NULLIF(b."DATAV", '')::date > %s)
           {conditions}
         GROUP BY
             a."CODART",
@@ -173,10 +177,8 @@ def load_q2(
             a."FLAG-TIPREC",
             a."FANTASMA",
             a."FLAG6"
-        HAVING COUNT(DISTINCT
-            COALESCE(c."CODET", 'IPH') || COALESCE(c."DESCLI", 'IPH')
-        ) > 1
-        ORDER BY a."CODART"
+        {having}
+        ORDER BY "N_LOGHI" DESC, a."CODART"
     """
     params = (date_from,) + a2f_params
     return _run(sql, params)
@@ -202,7 +204,7 @@ def load_q1(
         FROM ref."A2F_{suffix}"          AS a
         LEFT JOIN ref."PUNTFOR_{suffix}" AS b ON b."CODART" = a."CODART"
         LEFT JOIN ref."CLIM_{suffix}"    AS c ON c."CODCLI" = b."CODCLI"
-        WHERE NULLIF(b."DATAV", '')::date > %s
+        WHERE (NULLIF(b."DATAV", '') IS NULL OR NULLIF(b."DATAV", '')::date > %s)
           AND a."CODART" = %s
           {conditions}
         ORDER BY a."CODART"
@@ -287,21 +289,27 @@ t_flag6     = tuple(sel_flag6)
 t_fantasma  = tuple(sel_fantasma)
 t_codart    = tuple(sel_codart)
 
+# Toggle — solo loghi multipli
+solo_multipli = st.toggle(
+    "Mostra solo articoli con loghi multipli (N_LOGHI > 1)",
+    value=False,
+    help="Attiva per vedere solo gli articoli con più loghi/etichette associati",
+)
+
 try:
     with st.spinner("Caricamento dati..."):
-        kpi_articoli = load_kpi_articoli(
-            plant_suffix, t_tipo_prod, t_flag6, t_fantasma, t_codart
-        )
         df_q2 = load_q2(
-            plant_suffix, date_from, t_tipo_prod, t_flag6, t_fantasma, t_codart
+            plant_suffix, date_from, t_tipo_prod, t_flag6, t_fantasma, t_codart,
+            solo_multipli=solo_multipli,
         )
 except Exception as e:
     st.error(f"Errore nel caricamento dati: {e}")
     st.stop()
 
-kpi_multi_art    = len(df_q2)
-kpi_loghi        = int(df_q2["N_LOGHI"].sum()) if not df_q2.empty else 0
-kpi_logo_singolo = kpi_articoli - kpi_multi_art
+kpi_articoli     = len(df_q2)
+kpi_multi_art    = len(df_q2[df_q2["N_LOGHI"] > 1]) if not df_q2.empty else 0
+kpi_logo_singolo = len(df_q2[df_q2["N_LOGHI"] <= 1]) if not df_q2.empty else 0
+kpi_loghi        = int(df_q2[df_q2["N_LOGHI"] > 1]["N_LOGHI"].sum()) if not df_q2.empty else 0
 kpi_normalizzati = kpi_logo_singolo + kpi_loghi
 
 # -----------------------------------------------------------------------------
@@ -311,7 +319,7 @@ c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric(
     "📦 Articoli in archivio",
     f"{kpi_articoli:,}".replace(",", "."),
-    help="Totale articoli in A2F con i filtri selezionati (senza join vendite/loghi)",
+    help="Totale articoli trovati con i filtri selezionati (join con PUNTFOR e CLIM)",
 )
 c2.metric(
     "1️⃣ Con logo singolo",
@@ -350,10 +358,12 @@ st.divider()
 # -----------------------------------------------------------------------------
 col_title_q2, col_export_q2 = st.columns([6, 1])
 with col_title_q2:
-    st.subheader(f"📋 Articoli con loghi multipli — Plant {plant_label}")
+    titolo = f"📋 Articoli con loghi multipli — Plant {plant_label}" if solo_multipli else f"📋 Articoli per logo — Plant {plant_label}"
+    st.subheader(titolo)
 
 if df_q2.empty:
-    st.info("✅ Nessun articolo con più loghi trovato con i filtri selezionati.")
+    msg = "✅ Nessun articolo con più loghi trovato." if solo_multipli else "✅ Nessun articolo trovato con i filtri selezionati."
+    st.info(msg)
     st.stop()
 
 st.caption(f"**{kpi_multi_art} articoli** trovati con N_LOGHI > 1")
