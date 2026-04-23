@@ -163,6 +163,7 @@ def render_sidebar_menu():
     st.sidebar.page_link("pages/1_Check_Results.py",       label="✅ Check Results")
     st.sidebar.page_link("pages/5_View_Data.py",           label="🗄️ View Data")
     st.sidebar.page_link("pages/6_Targhette_Matricola.py", label="🏷️ Targhette Matricola")
+    st.sidebar.page_link("pages/7_Targhette_Diba.py",      label="🔩 Targhette + DIBA")
     st.sidebar.page_link("pages/0_User_Profile.py",        label="👤 My Profile")
 
     # Pagine riservate agli IT user (admin)

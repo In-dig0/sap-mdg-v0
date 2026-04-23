@@ -98,15 +98,18 @@ services:
   # ---------------------------------------------------------------------------
   # Bruin — orchestratore pipeline (ingestion + quality checks)
   #
+  # Il container resta in piedi con "sleep infinity" in attesa di
+  # docker exec da FastAPI. La pipeline viene avviata on-demand.
   # Run manuale:
-  #   docker exec -it mdg_bruin bruin run /pipelines/assets/ingestion
+  #   docker exec -it mdg_bruin bruin run /project/bruin
   # ---------------------------------------------------------------------------
   bruin:
     build:
       context: ./bruin
       dockerfile: Dockerfile
     container_name: mdg_bruin
-    restart: "no"
+    restart: unless-stopped
+    entrypoint: ["sleep", "infinity"]
     working_dir: /project/bruin
     environment:
       POSTGRES_HOST:     ${POSTGRES_HOST}

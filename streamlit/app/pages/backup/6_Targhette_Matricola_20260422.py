@@ -417,25 +417,12 @@ with col_export_q2:
         help="Scarica la tabella in formato CSV (separatore: ;)",
     )
 
-# Filtro descrizione
-filtro_desc = st.text_input(
-    "🔍 Filtra per descrizione",
-    placeholder="Es. POMPA, VALVOLA, SCANIA...",
-    key="filtro_desc",
-)
-
-# Aggiunge colonna progressivo e applica filtro descrizione
+# Aggiunge colonna progressivo
 df_display = df_q2.copy()
-if filtro_desc:
-    df_display = df_display[
-        df_display["DESCART"].str.contains(filtro_desc, case=False, na=False)
-    ]
-    st.caption(f"Righe filtrate: **{len(df_display)}** su {len(df_q2)}")
-df_display = df_display.reset_index(drop=True)
 df_display.insert(0, "N", range(1, len(df_display) + 1))
 
 col_config = {
-    "N":         st.column_config.NumberColumn("#", format="%d", width=50),
+    "N":         st.column_config.NumberColumn("#", format="%d", width="small"),
     "CODART":    st.column_config.TextColumn("Cod. Articolo"),
     "DESCART":   st.column_config.TextColumn("Descrizione", width="large"),
     "TIPO_PROD": st.column_config.TextColumn("Tipo Prod."),
@@ -460,7 +447,7 @@ event = st.dataframe(
 selected_rows = event.selection.rows
 
 if selected_rows:
-    selected_codart = df_display.iloc[selected_rows[0]]["CODART"]
+    selected_codart = df_q2.iloc[selected_rows[0]]["CODART"]
 
     st.divider()
     col_title_q1, col_export_q1 = st.columns([6, 1])
