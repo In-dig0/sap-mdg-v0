@@ -209,7 +209,7 @@ def load_detail_diba(suffix: str, date_from: str, codart_sel: str) -> pd.DataFra
     """
     sql = f"""
     WITH
-    -- Loghi distinti del padre
+    -- Loghi distinti del padre: deduplicati su (codet, logo)
     loghi AS (
         SELECT DISTINCT
             COALESCE(c."CODET",  'IPH')     AS codet,
@@ -219,38 +219,46 @@ def load_detail_diba(suffix: str, date_from: str, codart_sel: str) -> pd.DataFra
         WHERE NULLIF(b."DATAV", '') IS NOT NULL
           AND b."DATAV"::date > %s
           AND b."CODART" = %s
+        GROUP BY
+            COALESCE(c."CODET",  'IPH'),
+            COALESCE(c."DESCLI", 'IPH')
     ),
-    -- Codici con matricola: padre + figli DIBA
+    -- Codici con matricola: padre + figli DIBA, deduplicati su codart_mat
     codici_mat AS (
-        -- Padre se ha FLAG6='S'
-        SELECT
-            a."CODART"      AS codart_mat,
-            a."DESCRIZIONE" AS desc_mat,
-            'padre'         AS tipo_nodo,
-            0               AS livello
-        FROM ref."A2F_{suffix}" a
-        WHERE a."CODART" = %s
-          AND a."FLAG6" = 'S'
+        SELECT DISTINCT ON (codart_mat)
+            codart_mat, desc_mat, tipo_nodo, livello
+        FROM (
+            -- Padre se ha FLAG6='S'
+            SELECT
+                a."CODART"      AS codart_mat,
+                a."DESCRIZIONE" AS desc_mat,
+                'padre'         AS tipo_nodo,
+                0               AS livello
+            FROM ref."A2F_{suffix}" a
+            WHERE a."CODART" = %s
+              AND a."FLAG6" = 'S'
 
-        UNION ALL
+            UNION ALL
 
-        -- Figli DIBA con MATRICOLA='S'
-        SELECT
-            d."CODART_F"    AS codart_mat,
-            d."CODART_F"    AS desc_mat,
-            'figlio'        AS tipo_nodo,
-            d."LIVELLO"::int AS livello
-        FROM ref."DIBA_{suffix}" d
-        WHERE d."CODART_RIF" = %s
-          AND d."MATRICOLA" = 'S'
+            -- Figli DIBA con MATRICOLA='S' — descrizione da A2F se disponibile
+            SELECT
+                d."CODART_F"                              AS codart_mat,
+                COALESCE(a2."DESCRIZIONE", d."CODART_F")  AS desc_mat,
+                'figlio'                                  AS tipo_nodo,
+                d."LIVELLO"::int                          AS livello
+            FROM ref."DIBA_{suffix}" d
+            LEFT JOIN ref."A2F_{suffix}" a2 ON a2."CODART" = d."CODART_F"
+            WHERE d."CODART_RIF" = %s
+              AND d."MATRICOLA" = 'S'
+        ) sub
+        ORDER BY codart_mat, livello
     )
-    -- Prodotto cartesiano: ogni codice con matricola × ogni logo
+    -- Prodotto cartesiano: ogni codice con matricola × ogni logo distinto
     SELECT
-        cm.codart_mat           AS "Codice matricola",
+        cm.codart_mat           AS "Codice articolo",
         cm.desc_mat             AS "Descrizione",
-        cm.tipo_nodo            AS "Tipo",
         cm.livello              AS "Livello DIBA",
-        l.codet                 AS "Cod. Etichetta",
+        l.codet                 AS "Etichetta",
         l.logo                  AS "Logo"
     FROM codici_mat cm
     CROSS JOIN loghi l
@@ -313,10 +321,17 @@ sel_codart = st.multiselect("Codice Materiale (CODART)", options=filter_vals["co
 
 st.divider()
 
-solo_multipli = st.toggle(
-    "Mostra solo articoli con N_COPPIE_DIBA > 1",
-    value=False,
+modalita = st.radio(
+    "Modalità",
+    options=["Solo A2F", "A2F + PUNTFOR + CLIM + DIBA"],
+    index=1,
+    horizontal=True,
+    help=(
+        "**Solo A2F**: tutti gli articoli dell'archivio senza join. "
+        "**+ DIBA**: articoli venduti con loghi, espansi con i componenti matricola dalla distinta base."
+    ),
 )
+solo_multipli = st.toggle("Mostra solo articoli con Tot. Etichette > 1", value=False)
 
 # Caricamento dati
 t_tipo_prod = tuple(sel_tipo_prod)
@@ -325,37 +340,72 @@ t_fantasma  = tuple(sel_fantasma)
 t_codart    = tuple(sel_codart)
 
 try:
-    with st.spinner("Caricamento dati con DIBA ricorsiva..."):
-        df = load_diba(plant_suffix, date_from, t_tipo_prod, t_flag6,
-                       t_fantasma, t_codart, solo_multipli=solo_multipli)
+    with st.spinner("Caricamento dati..."):
+        if modalita == "Solo A2F":
+            a2f_parts, a2f_params_list = [], []
+            if t_tipo_prod:
+                ph = ", ".join(["%s"] * len(t_tipo_prod))
+                a2f_parts.append(f'"FLAG-TIPREC" IN ({ph})')
+                a2f_params_list.extend(t_tipo_prod)
+            if t_flag6:
+                ph = ", ".join(["%s"] * len(t_flag6))
+                a2f_parts.append(f'"FLAG6" IN ({ph})')
+                a2f_params_list.extend(t_flag6)
+            if t_fantasma:
+                ph = ", ".join(["%s"] * len(t_fantasma))
+                a2f_parts.append(f'"FANTASMA" IN ({ph})')
+                a2f_params_list.extend(t_fantasma)
+            if t_codart:
+                ph = ", ".join(["%s"] * len(t_codart))
+                a2f_parts.append(f'"CODART" IN ({ph})')
+                a2f_params_list.extend(t_codart)
+            where = ("WHERE " + " AND ".join(a2f_parts)) if a2f_parts else ""
+            sql_a2f = f"""
+                SELECT "CODART", "DESCRIZIONE" AS "DESCART",
+                       "FLAG-TIPREC" AS "TIPO_PROD", "FANTASMA",
+                       "FLAG6" AS "MAT_PADRE",
+                       0 AS "N_LOGHI", '' AS "LOGHI",
+                       0 AS "N_COD_MATRICOLA", 0 AS "N_COPPIE_TOTALI",
+                       '' AS "LISTA_COD_MATRICOLA"
+                FROM ref."A2F_{plant_suffix}" {where} ORDER BY "CODART"
+            """
+            df = _run(sql_a2f, tuple(a2f_params_list) if a2f_params_list else None)
+        else:
+            df = load_diba(plant_suffix, date_from, t_tipo_prod, t_flag6,
+                           t_fantasma, t_codart, solo_multipli=solo_multipli)
 except Exception as e:
     st.error(f"Errore: {e}")
     st.stop()
 
 # KPI
 st.divider()
-k1, k2, k3 = st.columns(3)
-k1.metric("Articoli con cod. matricola in DIBA", len(df),
-          help="Articoli padre che hanno almeno un codice con MATRICOLA='S' (incluso se stesso)")
-k2.metric("Totale coppie articolo-logo",
-          int(df["N_LOGHI"].sum()) if not df.empty else 0,
-          help="Somma N_LOGHI per ogni articolo (logica senza DIBA)")
-k3.metric("Totale coppie con DIBA",
-          int(df["N_COPPIE_TOTALI"].sum()) if not df.empty else 0,
-          help="Somma N_LOGHI × N_COD_MATRICOLA per ogni articolo")
+k1, k2, k3, k4 = st.columns(4)
+tot_loghi    = int(df["N_LOGHI"].sum())        if not df.empty else 0
+tot_coppie   = int(df["N_COPPIE_TOTALI"].sum()) if not df.empty else 0
+delta_coppie = tot_coppie - tot_loghi
+k1.metric("Articoli con cod. matricola",  f"{len(df):,}".replace(",", "."),
+          help="Articoli padre con almeno un codice MATRICOLA='S' (incluso se stesso)")
+k2.metric("Coppie articolo-logo (base)",  f"{tot_loghi:,}".replace(",", "."),
+          help="Somma N_LOGHI — logica senza DIBA")
+k3.metric("Coppie totali con DIBA",       f"{tot_coppie:,}".replace(",", "."),
+          help="Somma N_LOGHI × N_COD_MATRICOLA")
+k4.metric("Delta coppie aggiuntive",      f"+{delta_coppie:,}".replace(",", "."),
+          help="Coppie aggiuntive grazie all'espansione DIBA")
 
 st.divider()
 
 # Tabella principale
 col_title, col_export = st.columns([6, 1])
 with col_title:
-    st.subheader(f"📋 Articoli con componenti matricola — Plant {plant_label}")
+    titolo = f"📋 Archivio articoli — Plant {plant_label}" if modalita == "Solo A2F" \
+             else f"📋 Articoli con componenti matricola — Plant {plant_label}"
+    st.subheader(titolo)
 
 if df.empty:
     st.info("✅ Nessun articolo trovato con i filtri selezionati.")
     st.stop()
 
-st.caption(f"**{len(df)} articoli** con almeno un codice con matricola")
+st.caption(f"**{len(df)} articoli**")
 
 # Filtro descrizione
 filtro_desc = st.text_input("🔍 Filtra per descrizione", placeholder="Es. POMPA, KIT...",
@@ -378,34 +428,38 @@ with col_export:
         mime="text/csv",
     )
 
+col_config_g1 = {
+    "N":               st.column_config.NumberColumn("#",               format="%d", width=50),
+    "CODART":          st.column_config.TextColumn("Cod. Articolo"),
+    "DESCART":         st.column_config.TextColumn("Descrizione",       width="large"),
+    "TIPO_PROD":       st.column_config.TextColumn("Make/Buy"),
+    "FANTASMA":        st.column_config.TextColumn("Fantasma"),
+    "MAT_PADRE":       st.column_config.TextColumn("Matricola"),
+    "N_LOGHI":         st.column_config.NumberColumn("# Etichette/Loghi", format="%d"),
+    "N_COD_MATRICOLA": st.column_config.NumberColumn("# Art. Matricola",  format="%d",
+                           help="Nr articoli DIBA con MATRICOLA='S' (padre + figli a tutti i livelli)"),
+    "N_COPPIE_TOTALI": st.column_config.NumberColumn("Tot. Etichette",    format="%d",
+                           help="# Etichette/Loghi × # Art. Matricola"),
+    "LOGHI":                None,
+    "LISTA_COD_MATRICOLA":  None,
+}
+
 event = st.dataframe(
     df_display,
     use_container_width=True,
     hide_index=True,
     on_select="rerun",
     selection_mode="single-row",
-    column_config={
-        "N":                    st.column_config.NumberColumn("#", format="%d", width=50),
-        "CODART":               st.column_config.TextColumn("Cod. Articolo"),
-        "DESCART":              st.column_config.TextColumn("Descrizione", width="large"),
-        "TIPO_PROD":            st.column_config.TextColumn("Tipo Prod."),
-        "FANTASMA":             st.column_config.TextColumn("Fantasma"),
-        "MAT_PADRE":            st.column_config.TextColumn("Mat. Padre"),
-        "N_LOGHI":              st.column_config.NumberColumn("# Loghi", format="%d"),
-        "LOGHI":                st.column_config.TextColumn("Loghi"),
-        "N_COD_MATRICOLA":      st.column_config.NumberColumn("# Cod. Matricola", format="%d",
-                                    help="Numero totale di codici con matricola (padre + figli DIBA a tutti i livelli)"),
-        "N_COPPIE_TOTALI":      st.column_config.NumberColumn("Coppie totali", format="%d",
-                                    help="N_LOGHI × N_COD_MATRICOLA"),
-        "LISTA_COD_MATRICOLA":  st.column_config.TextColumn("Codici con matricola"),
-    },
+    column_config=col_config_g1,
+    column_order=["N", "CODART", "DESCART", "TIPO_PROD", "FANTASMA", "MAT_PADRE",
+                  "N_LOGHI", "N_COD_MATRICOLA", "N_COPPIE_TOTALI"],
 )
 
 # Drill-down
 selected_rows = event.selection.rows
 if selected_rows:
     selected_codart = df_display.iloc[selected_rows[0]]["CODART"]
-    n_coppie = df_display.iloc[selected_rows[0]]["N_COPPIE_TOTALI"]
+    n_coppie        = df_display.iloc[selected_rows[0]]["N_COPPIE_TOTALI"]
     st.divider()
     col_dt, col_de = st.columns([6, 1])
     with col_dt:
@@ -428,6 +482,20 @@ if selected_rows:
                 file_name=f"diba_detail_{selected_codart}_{plant_suffix}.csv",
                 mime="text/csv",
             )
-        st.dataframe(df_detail, use_container_width=True, hide_index=True)
+        df_det_display = df_detail.copy().reset_index(drop=True)
+        df_det_display.insert(0, "N", range(1, len(df_det_display) + 1))
+        st.dataframe(
+            df_det_display,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "N":               st.column_config.NumberColumn("#",           format="%d", width=50),
+                "Codice articolo": st.column_config.TextColumn("Cod. Articolo"),
+                "Descrizione":     st.column_config.TextColumn("Descrizione",   width="large"),
+                "Livello DIBA":    st.column_config.NumberColumn("Livello DIBA", format="%d"),
+                "Etichetta":       st.column_config.TextColumn("Etichetta"),
+                "Logo":            st.column_config.TextColumn("Logo"),
+            },
+        )
 else:
     st.info("👆 Clicca su una riga per vedere il dettaglio delle coppie codice-logo.")
