@@ -86,8 +86,8 @@ services:
     volumes:
       - datalake_olderp:/home/mdg_sftp/from_olderp
       - datalake_sap:/home/mdg_sftp/from_sap
-      - /home/ubuntu/sftp-keys/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key:ro
-      - /home/ubuntu/sftp-keys/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key:ro
+      - ${SFTP_KEY_PATH}/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key:ro
+      - ${SFTP_KEY_PATH}/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key:ro
       - ./sftp/init:/etc/sftp.d:ro
     command: ${SFTP_USERS}
     environment:
