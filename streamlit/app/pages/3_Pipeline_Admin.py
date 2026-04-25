@@ -12,6 +12,10 @@ import requests
 import streamlit as st
 from mdg_auth import require_login, render_sidebar_menu, require_role
 
+def is_admin() -> bool:
+    """Ritorna True se l'utente corrente ha ruolo admin_role."""
+    return st.session_state.get("mdg_role", "") == "admin_role"
+
 st.set_page_config(
     page_title="Pipeline Admin",
     page_icon="⚙️",
@@ -84,6 +88,14 @@ def api_runs_history(limit: int = 20):
     except Exception as e:
         return None, str(e)
 
+def api_delete_all_runs():
+    try:
+        r = requests.delete(f"{API_BASE}/pipeline/runs", timeout=5)
+        r.raise_for_status()
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
 def api_create_semaphore():
     try:
         r = requests.post(f"{API_BASE}/pipeline/semaphore", timeout=3)
@@ -99,9 +111,20 @@ def api_delete_semaphore():
         return None, str(e)
 
 
-def api_list_files(folder: str):
-    """folder: 'inbox' o 'sap'"""
-    endpoint = "inbox" if folder == "from_olderp" else "sap"
+FOLDER_ENDPOINT = {}   # popolato dinamicamente da api_get_folders()
+
+def api_get_folders() -> list[dict]:
+    """Chiama GET /files/folders e ritorna la lista delle cartelle registrate in FastAPI."""
+    try:
+        r = requests.get(f"{API_BASE}/files/folders", timeout=3)
+        r.raise_for_status()
+        return r.json()          # [{endpoint, label, semaphore, exists}, ...]
+    except Exception:
+        return []
+
+
+def api_list_files(endpoint: str):
+    """endpoint: chiave del FOLDER_REGISTRY FastAPI (es. 'inbox', 'sap', 'others')"""
     try:
         r = requests.get(f"{API_BASE}/files/{endpoint}", timeout=5)
         r.raise_for_status()
@@ -110,10 +133,9 @@ def api_list_files(folder: str):
         return None, str(e)
 
 def api_inbox():
-    return api_list_files("from_olderp")
+    return api_list_files("inbox")
 
-def api_delete_file(filename: str, folder: str = "from_olderp"):
-    endpoint = "inbox" if folder == "from_olderp" else "sap"
+def api_delete_file(filename: str, endpoint: str = "inbox"):
     try:
         r = requests.delete(f"{API_BASE}/files/{endpoint}/{filename}", timeout=5)
         r.raise_for_status()
@@ -123,8 +145,7 @@ def api_delete_file(filename: str, folder: str = "from_olderp"):
     except Exception as e:
         return None, str(e)
 
-def api_delete_all_files(folder: str = "from_olderp"):
-    endpoint = "inbox" if folder == "from_olderp" else "sap"
+def api_delete_all_files(endpoint: str = "inbox"):
     try:
         r = requests.delete(f"{API_BASE}/files/{endpoint}", timeout=5)
         r.raise_for_status()
@@ -132,8 +153,7 @@ def api_delete_all_files(folder: str = "from_olderp"):
     except Exception as e:
         return None, str(e)
 
-def api_upload_file(file_bytes: bytes, filename: str, folder: str = "from_olderp"):
-    endpoint = "inbox" if folder == "from_olderp" else "sap"
+def api_upload_file(file_bytes: bytes, filename: str, endpoint: str = "inbox"):
     try:
         r = requests.post(
             f"{API_BASE}/files/{endpoint}/upload",
@@ -146,6 +166,14 @@ def api_upload_file(file_bytes: bytes, filename: str, folder: str = "from_olderp
         return None, e.response.json().get("detail", str(e))
     except Exception as e:
         return None, str(e)
+    try:
+        r = requests.get(f"{API_BASE}/files/{endpoint}", timeout=5)
+        r.raise_for_status()
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
+
 
 # ---------------------------------------------------------------------------
 # Helpers log
@@ -200,7 +228,12 @@ def format_log_label(path: Path) -> str:
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-st.title("⚙️ MDG — Pipeline Admin")
+st.markdown(
+    '<h1 style="color:#38BDF8;">⚙️ MDG — Pipeline Admin </h1>',
+    unsafe_allow_html=True,
+)
+st.caption(":yellow[Controllo pipeline e analisi log.]")
+st.divider()
 
 # ── Stato sistema (sempre visibile in cima) ───────────────────────────────
 with st.expander("🩺 Stato sistema", expanded=False):
@@ -304,22 +337,34 @@ with tab_ctrl:
 # ===========================================================================
 with tab_sftp:
 
+    # Recupera le cartelle registrate in FastAPI
+    folders = api_get_folders()
+
+    if not folders:
+        st.warning("Impossibile recuperare le cartelle SFTP dall'API. Verifica che FastAPI sia raggiungibile.")
+        st.stop()
+
+    # Dizionario label → endpoint per il radio
+    folder_options   = {f["label"]: f["endpoint"]  for f in folders}
+    folder_semaphore = {f["endpoint"]: f["semaphore"] for f in folders}
+
     sel_col, _ = st.columns([2, 4])
-    folder = sel_col.radio(
+    selected_label = sel_col.radio(
         "Cartella",
-        options=["from_olderp", "from_sap"],
-        format_func=lambda x: "📦 from_olderp  (file ERP)" if x == "from_olderp" else "📗 from_sap  (tabelle SAP)",
+        options=list(folder_options.keys()),
         horizontal=True,
         key="sftp_folder_sel",
     )
+    endpoint = folder_options[selected_label]
+    has_semaphore = folder_semaphore.get(endpoint, False)
 
     st.divider()
-    folder_data, err = api_list_files(folder)
+    folder_data, err = api_list_files(endpoint)
 
     if err:
         st.warning(f"Impossibile leggere la cartella: {err}")
     elif not folder_data or folder_data.get("count", 0) == 0:
-        st.info(f"La cartella {folder} è vuota.")
+        st.info(f"La cartella {selected_label} è vuota.")
         col_ri, _ = st.columns([1, 4])
         if col_ri.button("🔄 Aggiorna", key="sftp_refresh_empty"):
             st.rerun()
@@ -328,7 +373,7 @@ with tab_sftp:
         total_kb    = sum(f["size_kb"] for f in files)
         sem_present = any(f.get("is_semaphore") for f in files)
 
-        if folder == "from_olderp":
+        if has_semaphore:
             i1, i2, i3 = st.columns(3)
             i1.metric("File presenti",   folder_data["count"])
             i2.metric("Dimensione tot.", f"{total_kb:.1f} KB")
@@ -351,8 +396,8 @@ with tab_sftp:
             c2.write(f["type"])
             c3.write(f["size_kb"])
             c4.write(f["modified_at"].replace("T", " ")[:19])
-            if c5.button("🗑️", key=f"del_{folder}_{f['name']}", help=f"Elimina {f['name']}"):
-                _, e = api_delete_file(f["name"], folder)
+            if c5.button("🗑️", key=f"del_{endpoint}_{f['name']}", help=f"Elimina {f['name']}"):
+                _, e = api_delete_file(f["name"], endpoint)
                 if e:
                     st.error(f"Errore: {e}")
                 else:
@@ -363,15 +408,15 @@ with tab_sftp:
         col_ri, col_del, _ = st.columns([1, 1, 3])
         if col_ri.button("🔄 Aggiorna", key="sftp_refresh"):
             st.rerun()
-        svuota_label = "🗑️ Svuota from_olderp" if folder == "from_olderp" else "🗑️ Svuota from_sap"
-        confirm_key  = f"confirm_delete_all_{folder}"
-        if col_del.button(svuota_label, type="secondary", key=f"svuota_{folder}"):
+        svuota_label = f"🗑️ Svuota {selected_label}"
+        confirm_key  = f"confirm_delete_all_{endpoint}"
+        if col_del.button(svuota_label, type="secondary", key=f"svuota_{endpoint}"):
             if st.session_state.get(confirm_key):
-                _, e = api_delete_all_files(folder)
+                _, e = api_delete_all_files(endpoint)
                 if e:
                     st.error(f"Errore: {e}")
                 else:
-                    st.toast(f"✅ {folder} svuotata.")
+                    st.toast(f"✅ {selected_label} svuotata.")
                 st.session_state.pop(confirm_key, None)
                 st.rerun()
             else:
@@ -379,27 +424,26 @@ with tab_sftp:
                 st.warning(f"⚠️ Clicca di nuovo **{svuota_label}** per confermare.")
 
     st.divider()
-    upload_label = "⬆️ Upload in from_olderp" if folder == "from_olderp" else "⬆️ Upload in from_sap"
-    upload_types = ["zip", "csv", "txt"] if folder == "from_olderp" else ["xlsx", "csv"]
-    with st.expander(upload_label, expanded=False):
-        st.caption(f"Carica file direttamente nella cartella **{folder}** senza usare un client SFTP.")
+    upload_types = ["zip", "csv", "txt"] if has_semaphore else ["xlsx", "csv"]
+    with st.expander(f"⬆️ Upload in {selected_label}", expanded=False):
+        st.caption(f"Carica file direttamente nella cartella **{selected_label}** senza usare un client SFTP.")
         uploaded_files = st.file_uploader(
             "Seleziona file da caricare",
             type=upload_types,
             accept_multiple_files=True,
-            key=f"upload_{folder}",
+            key=f"upload_{endpoint}",
         )
         if uploaded_files:
-            if st.button("⬆️ Carica", type="primary", key=f"btn_upload_{folder}"):
+            if st.button("⬆️ Carica", type="primary", key=f"btn_upload_{endpoint}"):
                 ok_count = 0
                 for uf in uploaded_files:
-                    _, e = api_upload_file(uf.read(), uf.name, folder)
+                    _, e = api_upload_file(uf.read(), uf.name, endpoint)
                     if e:
                         st.error(f"Errore su '{uf.name}': {e}")
                     else:
                         ok_count += 1
                 if ok_count:
-                    st.success(f"✅ {ok_count} file caricati in {folder}.")
+                    st.success(f"✅ {ok_count} file caricati in {selected_label}.")
                     st.rerun()
 
 # ===========================================================================
@@ -469,6 +513,23 @@ with tab_storico:
                 "notes":          "Note",
             })
             st.dataframe(display, use_container_width=True, hide_index=True)
+
+    # ── Elimina storico (solo Admin) ─────────────────────────────────────
+    if is_admin():
+        st.divider()
+        st.caption("🔐 Zona Admin")
+        if st.button("🗑️ Elimina tutto lo storico run", type="secondary", key="btn_del_runs"):
+            if st.session_state.get("confirm_del_runs"):
+                _, e = api_delete_all_runs()
+                if e:
+                    st.error(f"Errore: {e}")
+                else:
+                    st.toast("✅ Storico run eliminato.")
+                st.session_state.pop("confirm_del_runs", None)
+                st.rerun()
+            else:
+                st.session_state["confirm_del_runs"] = True
+                st.warning("⚠️ Clicca di nuovo **Elimina tutto lo storico run** per confermare. Questa azione è irreversibile.")
 
 # ===========================================================================
 # TAB 4 — ANALISI LOG DA FILE
@@ -566,3 +627,26 @@ with tab_log_file:
         file_name=selected_file.name,
         mime="text/plain",
     )
+
+    # ── Elimina tutti i log (solo Admin) ─────────────────────────────────
+    if is_admin():
+        st.divider()
+        st.caption("🔐 Zona Admin")
+        if st.button("🗑️ Elimina tutti i file di log", type="secondary", key="btn_del_logs"):
+            if st.session_state.get("confirm_del_logs"):
+                deleted = errors = 0
+                for lf in log_files:
+                    try:
+                        lf.unlink()
+                        deleted += 1
+                    except Exception:
+                        errors += 1
+                if errors:
+                    st.error(f"Eliminati {deleted} file, errori su {errors}.")
+                else:
+                    st.toast(f"✅ {deleted} file di log eliminati.")
+                st.session_state.pop("confirm_del_logs", None)
+                st.rerun()
+            else:
+                st.session_state["confirm_del_logs"] = True
+                st.warning("⚠️ Clicca di nuovo **Elimina tutti i file di log** per confermare. Questa azione è irreversibile.")

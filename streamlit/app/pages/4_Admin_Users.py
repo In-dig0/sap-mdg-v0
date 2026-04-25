@@ -79,10 +79,13 @@ def validate_password(pwd: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
-
-st.title("👤 Gestione Utenti")
-st.caption("Sezione riservata agli amministratori MDG.")
+st.markdown(
+    '<h1 style="color:#38BDF8;">👤 MDG — Gestione Utenti</h1>',
+    unsafe_allow_html=True,
+)
+st.caption(":yellow[Gestione utenti per gli amministratori MDG.]")
 st.divider()
+
 
 tab_gestione, tab_backup = st.tabs(["👥 Gestione", "💾 Import / Export"])
 

@@ -44,8 +44,13 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-st.title("🔍 MDG — Data Quality Dashboard")
-st.caption("Migrazione ERP legacy → SAP S/4HANA — Risultati controlli qualità dati")
+st.markdown(
+    '<h1 style="color:#38BDF8;">📊 MDG — Data Quality Dashboard </h1>',
+    unsafe_allow_html=True,
+)
+st.caption(":yellow[Risultati dei controlli qualità dati per la migrazione ERP legacy → SAP S/4HANA.]")
+st.divider()
+
 
 try:
     df_run = run_query("""

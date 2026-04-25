@@ -48,12 +48,15 @@ def validate_password(pwd: str) -> list[str]:
 # UI
 # ---------------------------------------------------------------------------
 
-st.title("👤 Il mio profilo")
+st.markdown(
+    '<h1 style="color:#38BDF8;">👤 MDG — Il mio profilo</h1>',
+    unsafe_allow_html=True,
+)
+st.caption(":yellow[Gestione profilo personale.]")
+st.divider()
 
 if st.session_state.get("must_change_password", False):
     st.warning("⚠️ **Primo accesso.** Imposta una nuova password personale per sbloccare l'accesso alla dashboard.")
-
-st.divider()
 
 user = st.session_state.get("mdg_user", {})
 role = user.get("role", "")

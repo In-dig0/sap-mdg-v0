@@ -8,8 +8,7 @@ sftp/ssh_host_*
 db/data/
 
 # Datalake — dati sensibili
-datalake/from_olderp/*
-datalake/from_sap/*
+datalake/*
 
 # File temporanei Office
 ~$*

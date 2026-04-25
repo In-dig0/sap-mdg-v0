@@ -129,8 +129,11 @@ def upsert_catalog(records: list) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-st.title("📋 Check Catalog")
-st.caption("Elenco dei controlli di qualità configurati nella pipeline MDG")
+st.markdown(
+    '<h1 style="color:#38BDF8;">📋 MDG — Check Catalog </h1>',
+    unsafe_allow_html=True,
+)
+st.caption(":yellow[Elenco dei controlli di qualità configurati nella pipeline MDG.]")
 st.divider()
 
 # ---------------------------------------------------------------------------

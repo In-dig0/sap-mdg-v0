@@ -54,8 +54,12 @@ def _login(email: str, password: str) -> dict | None:
 
 def _render_login_form():
     """Mostra la form di login e gestisce il submit."""
-    st.markdown("## 🔐 MDG — Accesso")
-    st.markdown("Inserisci le credenziali per accedere alla dashboard.")
+    st.markdown(
+        '<h1 style="color:#38BDF8;">🔐MDG — Login Migration Data Governance</h1>',
+        unsafe_allow_html=True,
+    )
+    st.caption(":yellow[Inserisci le credenziali personali per accedere alla webapp.]")
+    st.divider()    
 
     with st.form("login_form", clear_on_submit=False):
         email    = st.text_input("Email", placeholder="admin@mdg.local")
@@ -162,14 +166,20 @@ def render_sidebar_menu():
     st.sidebar.page_link("Dashboard.py",                   label="📊 Dashboard")
     st.sidebar.page_link("pages/1_Check_Results.py",       label="✅ Check Results")
     st.sidebar.page_link("pages/5_View_Data.py",           label="🗄️ View Data")
-    st.sidebar.page_link("pages/6_Targhette_Matricola.py", label="🏷️ Targhette Matricola")
-    st.sidebar.page_link("pages/7_Targhette_Diba.py",      label="🔩 Targhette + DIBA")
     st.sidebar.page_link("pages/0_User_Profile.py",        label="👤 My Profile")
 
     # Pagine riservate agli IT user (admin)
-    if role in ("admin_role", "it_role"):
+    if role == "it_role":
         st.sidebar.divider()
-        st.sidebar.caption("IT Admin")
+        st.sidebar.caption("IT Role — Funzionalità avanzate")
         st.sidebar.page_link("pages/2_Check_Catalog.py",  label="📋 Check Catalog")
-        st.sidebar.page_link("pages/3_Pipeline_Admin.py", label="⚙️ Pipeline Admin")
+        st.sidebar.page_link("pages/3_Pipeline_Admin.py", label="⚙️ Pipeline Admin")      
         st.sidebar.page_link("pages/4_Admin_Users.py",    label="👥 Users")
+    elif role == "admin_role":
+        st.sidebar.divider()
+        st.sidebar.caption("Admin Role — Funzionalità avanzate")
+        st.sidebar.page_link("pages/2_Check_Catalog.py",  label="📋 Check Catalog")
+        st.sidebar.page_link("pages/3_Pipeline_Admin.py", label="⚙️ Pipeline Admin")      
+        st.sidebar.page_link("pages/4_Admin_Users.py",    label="👥 Users")
+        st.sidebar.page_link("pages/8_Edit_Tables.py",    label="✏️ Edit Tables")
+        st.sidebar.page_link("pages/7_Targhette_Diba.py", label="🔩 Targhette + DIBA")                                     

@@ -60,9 +60,9 @@ def main():
 
             for sec_table in secondary_tables:
                 cur.execute(f"""
-                    SELECT DISTINCT sec.{q(SECONDARY_FK)}, sec."_zip_source"
+                    SELECT DISTINCT sec.{q(SECONDARY_FK)}, sec."_source"
                     FROM raw.{q(sec_table)} sec
-                    WHERE sec."_zip_source" ILIKE %s
+                    WHERE sec."_source" ILIKE %s
                       AND sec.{q(SECONDARY_FK)} IS NOT NULL
                       AND sec.{q(SECONDARY_FK)} <> ''
                       AND NOT EXISTS (

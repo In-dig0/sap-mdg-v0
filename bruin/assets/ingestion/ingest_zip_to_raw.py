@@ -4,7 +4,7 @@ type: python
 depends:
   - ingestion.ingest_xlsx_to_ref
 description: >
-  Legge tutti i file ZIP da /project/datalake/from_olderp/,
+  Legge tutti i file ZIP da /project/datalake/in_source_pprod/,
   estrae i CSV e li carica nello schema raw di PostgreSQL.
   Nome tabella = nome file CSV senza estensione (virgolette doppie).
   Nomi colonne = intestazioni originali invariate (virgolette doppie).
@@ -12,8 +12,8 @@ description: >
   Duplicati su chiave: scartati e loggati prima dell'insert.
   Righe malformate (campi in eccesso): skippate e loggatecon numero riga.
   Caratteri non stampabili o non UTF-8: rimossi e loggati.
-  Colonne audit: _zip_source TEXT, _loaded_at TIMESTAMPTZ.
-  Strategia: DELETE selettivo per _zip_source + INSERT.
+  Colonne audit: _source TEXT, _loaded_at TIMESTAMPTZ.
+  Strategia: DELETE selettivo per _source + INSERT.
 @bruin """
 
 import os
@@ -44,7 +44,7 @@ DB_CONFIG = {
     "password": os.environ.get("POSTGRES_PASSWORD", ""),
 }
 
-INBOUND_PATH = "/project/datalake/from_olderp"
+INBOUND_PATH = "/project/datalake/in_source_pprod"
 RAW_SCHEMA   = "raw"
 
 
@@ -206,7 +206,7 @@ def ensure_table(cur, schema: str, table: str,
     cur.execute(f"""
         CREATE TABLE IF NOT EXISTS {fqt} (
             {col_defs},
-            "_zip_source" TEXT,
+            "_source" TEXT,
             "_loaded_at"  TIMESTAMPTZ
         )
     """)
@@ -221,7 +221,7 @@ def ensure_table(cur, schema: str, table: str,
         if col not in existing:
             cur.execute(f"ALTER TABLE {fqt} ADD COLUMN IF NOT EXISTS {q(col)} TEXT")
             log.info(f"    + Colonna aggiunta: {col}")
-    for col, ctype in [("_zip_source", "TEXT"), ("_loaded_at", "TIMESTAMPTZ")]:
+    for col, ctype in [("_source", "TEXT"), ("_loaded_at", "TIMESTAMPTZ")]:
         if col not in existing:
             cur.execute(f"ALTER TABLE {fqt} ADD COLUMN IF NOT EXISTS {q(col)} {ctype}")
 
@@ -231,10 +231,10 @@ def ensure_table(cur, schema: str, table: str,
         key_defs  = ", ".join(q(c) for c in key_cols)
         cur.execute(f"""
             CREATE UNIQUE INDEX IF NOT EXISTS {q(idx_name)}
-            ON {fqt} ({key_defs}, "_zip_source")
+            ON {fqt} ({key_defs}, "_source")
         """)
 
-    cur.execute(f'DELETE FROM {fqt} WHERE "_zip_source" = %s', (zip_name,))
+    cur.execute(f'DELETE FROM {fqt} WHERE "_source" = %s', (zip_name,))
     deleted = cur.rowcount
     if deleted > 0:
         log.info(f"    Rimossi {deleted} record precedenti di '{zip_name}'")
@@ -277,7 +277,7 @@ def ingest_csv(cur, schema: str, table: str,
     fqt     = f'{schema}.{q(table)}'
     now_utc = datetime.now(timezone.utc)
     df_ins  = df_clean.copy()
-    df_ins["_zip_source"] = zip_name
+    df_ins["_source"] = zip_name
     df_ins["_loaded_at"]  = now_utc
 
     col_list = ", ".join(q(c) for c in df_ins.columns)

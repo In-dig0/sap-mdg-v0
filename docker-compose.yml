@@ -16,7 +16,7 @@ services:
 
   # ---------------------------------------------------------------------------
   # PostgreSQL — database MDG
-  # Schemi: raw (dati ERP), ref (tabelle controllo SAP), stg (staging + check)
+  # Schemi: raw (dati ERP), ref (tabelle controllo SAP), stg (staging + check), prd (dati pronti)
   # ---------------------------------------------------------------------------
   postgres:
     image: ${POSTGRES_IMAGE}
@@ -70,11 +70,12 @@ services:
   # SFTP (atmoz/sftp) — punto di ingresso file ZIP e XLSX
   #
   # Volumi named (workaround WSL2/NTFS):
-  #   datalake_olderp → ZIP/CSV dall'ERP
-  #   datalake_sap    → XLSX tabelle controllo SAP
+  #   datalake_pprod  → ZIP/CSV dall'ERP (old ERP / pre-prod)
+  #   datalake_sap    → XLSX tabelle controllo SAP → schema ref
+  #   datalake_others → XLSX da altre sorgenti    → schema stg
   #
   # Deposito file:
-  #   docker cp <file.zip> mdg_sftp:/home/mdg_sftp/from_olderp/
+  #   docker cp <file.zip> mdg_sftp:/home/mdg_sftp/in_source_pprod/
   #   oppure via client SFTP: sftp -P 22 mdg_sftp@localhost
   # ---------------------------------------------------------------------------
   sftp:
@@ -84,8 +85,10 @@ services:
     ports:
       - "${SFTP_PORT}:22"
     volumes:
-      - datalake_olderp:/home/mdg_sftp/from_olderp
-      - datalake_sap:/home/mdg_sftp/from_sap
+      - datalake_pprod:/home/mdg_sftp/in_source_pprod
+      - datalake_sap:/home/mdg_sftp/in_source_sap
+      - datalake_others:/home/mdg_sftp/in_source_others
+      - datalake_out:/home/mdg_sftp/out_source_mdg      
       - ${SFTP_KEY_PATH}/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key:ro
       - ${SFTP_KEY_PATH}/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key:ro
       - ./sftp/init:/etc/sftp.d:ro
@@ -120,8 +123,10 @@ services:
       TZ:                ${TZ}
     volumes:
       - .:/project                              # tutta la cartella progetto
-      - datalake_olderp:/project/datalake/from_olderp:ro
-      - datalake_sap:/project/datalake/from_sap:ro
+      - datalake_pprod:/project/datalake/in_source_pprod:ro
+      - datalake_sap:/project/datalake/in_source_sap:ro
+      - datalake_others:/project/datalake/in_source_others:ro
+      - datalake_out:/project/datalake/out_source_mdg      
     depends_on:
       postgres:
         condition: service_healthy
@@ -175,7 +180,8 @@ services:
       BRUIN_CONTAINER:   mdg_bruin
       BRUIN_PIPELINE:    /project/bruin
       SEMAPHORE_PATH:    /data/inbound/DATASET_READY.txt
-      SAP_PATH:          /data/from_sap        # ← aggiungi qui      
+      SAP_PATH:          /data/in_source_sap 
+      OTHERS_PATH:       /data/in_source_others       
       LOG_DIR:           /logs
       POSTGRES_HOST:     ${POSTGRES_HOST}
       POSTGRES_PORT:     ${POSTGRES_PORT}
@@ -187,11 +193,13 @@ services:
       # Socket Docker — permette a FastAPI di fare 'docker exec mdg_bruin ...'
       - /var/run/docker.sock:/var/run/docker.sock
       # Volume datalake ERP — per leggere/creare il file semaforo DATASET_READY.txt
-      - datalake_olderp:/data/inbound
-      - datalake_sap:/data/from_sap        # ← aggiungi questa riga      
+      - datalake_pprod:/data/inbound
+      - datalake_sap:/data/in_source_sap
+      - datalake_others:/data/in_source_others       
       # Log persistenti dei run
       - api_logs:/logs
-      - ./api:/app  
+      - ./api:/app
+       
     depends_on:
       postgres:
         condition: service_healthy
@@ -234,13 +242,17 @@ volumes:
     name: mdg_postgres_data
   pgadmin_data:
     name: mdg_pgadmin_data
-  datalake_olderp:
-    name: mdg_datalake_olderp
+  datalake_pprod:
+    name: mdg_datalake_pprod
   datalake_sap:
     name: mdg_datalake_sap
+  datalake_others:
+    name: mdg_datalake_others
+  datalake_out:
+    name: mdg_datalake_out      
   api_logs:
     name: mdg_api_logs
-    
+  
 
 # =============================================================================
 # Rete interna

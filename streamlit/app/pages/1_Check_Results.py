@@ -45,7 +45,11 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-st.title("🔎 Check Results")
+st.markdown(
+    '<h1 style="color:#38BDF8;">🔎 MDG — Check Results</h1>',
+    unsafe_allow_html=True,
+)
+st.caption(":yellow[Visualizzazione esito controlli sui dati importati.]")
 st.divider()
 
 # ---------------------------------------------------------------------------

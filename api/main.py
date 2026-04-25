@@ -23,8 +23,17 @@ from pydantic import BaseModel
 BRUIN_CONTAINER   = os.getenv("BRUIN_CONTAINER", "mdg_bruin")
 BRUIN_PIPELINE    = os.getenv("BRUIN_PIPELINE", "/project/bruin")
 SEMAPHORE_PATH    = os.getenv("SEMAPHORE_PATH", "/data/inbound/DATASET_READY.txt")
-SAP_PATH          = Path(os.getenv("SAP_PATH", "/data/from_sap"))
+SAP_PATH          = Path(os.getenv("SAP_PATH", "/data/in_source_sap"))
+OTHERS_PATH       = Path(os.getenv("OTHERS_PATH", "/data/in_source_others"))
 LOG_DIR           = Path(os.getenv("LOG_DIR", "/logs"))
+
+# Mappa endpoint → (path, accetta_semaforo)
+# Estendibile aggiungendo nuovi volumi senza modificare il codice Streamlit.
+FOLDER_REGISTRY: dict[str, dict] = {
+    "inbox":  {"path": lambda: Path(SEMAPHORE_PATH).parent, "label": "in_source_pprod",  "semaphore": True},
+    "sap":    {"path": lambda: SAP_PATH,                    "label": "in_source_sap",     "semaphore": False},
+    "others": {"path": lambda: OTHERS_PATH,                 "label": "in_source_others",  "semaphore": False},
+}
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 POSTGRES_HOST     = os.getenv("POSTGRES_HOST", "postgres")
@@ -431,6 +440,31 @@ def pipeline_runs(limit: int = 20):
         raise HTTPException(status_code=503, detail=f"Errore DB: {e}")
 
 
+@app.delete("/pipeline/runs", tags=["Pipeline"])
+def delete_all_runs():
+    """
+    Elimina tutti i record da stg.pipeline_runs e stg.check_results.
+    Operazione riservata agli amministratori — irreversibile.
+    """
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("DELETE FROM stg.check_results")
+        n_checks = cur.rowcount
+        cur.execute("DELETE FROM stg.pipeline_runs")
+        n_runs = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {
+            "message":        f"Storico eliminato: {n_runs} run, {n_checks} check result.",
+            "runs_deleted":   n_runs,
+            "checks_deleted": n_checks,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB: {e}")
+
+
 @app.delete("/pipeline/semaphore", tags=["Pipeline"])
 def delete_semaphore():
     """Rimuove manualmente il file semaforo (utile per reset/test)."""
@@ -450,12 +484,52 @@ def create_semaphore():
     return {"message": f"Semaforo creato: {SEMAPHORE_PATH}"}
 
 
-@app.delete("/files/inbox/{filename}", tags=["File"])
-def delete_inbox_file(filename: str):
-    """Elimina un singolo file dalla cartella inbound."""
-    inbound = Path(SEMAPHORE_PATH).parent
-    target  = inbound / filename
-    if not target.resolve().is_relative_to(inbound.resolve()):
+@app.get("/files/folders", tags=["File"])
+def list_folders():
+    """
+    Restituisce la lista delle cartelle SFTP registrate con label e endpoint.
+    Streamlit usa questo endpoint per popolare il selettore cartelle dinamicamente.
+    """
+    return [
+        {
+            "endpoint": key,
+            "label":    cfg["label"],
+            "semaphore": cfg["semaphore"],
+            "exists":   cfg["path"]().exists(),
+        }
+        for key, cfg in FOLDER_REGISTRY.items()
+    ]
+
+
+def _list_folder(endpoint: str) -> dict:
+    """Helper generico: lista i file di una cartella dal registry."""
+    cfg = FOLDER_REGISTRY.get(endpoint)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"Endpoint '{endpoint}' non registrato.")
+    folder = cfg["path"]()
+    if not folder.exists():
+        raise HTTPException(status_code=404, detail=f"Cartella non trovata: {folder}")
+    files = []
+    for f in sorted(folder.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+        stat = f.stat()
+        files.append({
+            "name":         f.name,
+            "type":         "DIR" if f.is_dir() else f.suffix.lstrip(".").upper() or "FILE",
+            "size_kb":      round(stat.st_size / 1024, 1),
+            "modified_at":  datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "is_semaphore": cfg["semaphore"] and f.name == Path(SEMAPHORE_PATH).name,
+        })
+    return {"path": str(folder), "count": len(files), "files": files}
+
+
+def _delete_file(endpoint: str, filename: str):
+    """Helper generico: elimina un singolo file."""
+    cfg = FOLDER_REGISTRY.get(endpoint)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"Endpoint '{endpoint}' non registrato.")
+    folder = cfg["path"]()
+    target = folder / filename
+    if not target.resolve().is_relative_to(folder.resolve()):
         raise HTTPException(status_code=400, detail="Nome file non valido.")
     if not target.exists():
         raise HTTPException(status_code=404, detail=f"File non trovato: {filename}")
@@ -463,125 +537,98 @@ def delete_inbox_file(filename: str):
     return {"message": f"File eliminato: {filename}"}
 
 
-@app.delete("/files/inbox", tags=["File"])
-def delete_all_inbox_files():
-    """Elimina tutti i file dalla cartella inbound."""
-    inbound    = Path(SEMAPHORE_PATH).parent
-    eliminated = 0
-    errors     = 0
-    for item in inbound.iterdir():
+def _delete_all_files(endpoint: str):
+    """Helper generico: svuota una cartella."""
+    cfg = FOLDER_REGISTRY.get(endpoint)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"Endpoint '{endpoint}' non registrato.")
+    folder = cfg["path"]()
+    eliminated = errors = 0
+    for item in folder.iterdir():
         try:
             if item.is_file():
                 item.unlink()
-                eliminated += 1
-            elif item.is_dir():
+            else:
                 import shutil
                 shutil.rmtree(item)
-                eliminated += 1
+            eliminated += 1
         except Exception:
             errors += 1
-    return {"message": f"Inbox svuotata: {eliminated} eliminati, {errors} errori."}
+    return {"message": f"Cartella svuotata: {eliminated} eliminati, {errors} errori."}
 
 
-@app.post("/files/inbox/upload", tags=["File"])
-async def upload_inbox_file(file: UploadFile):
-    """Carica un file nella cartella inbound."""
-    inbound = Path(SEMAPHORE_PATH).parent
-    dest    = inbound / file.filename
-    if not dest.resolve().is_relative_to(inbound.resolve()):
+async def _upload_file(endpoint: str, file: UploadFile):
+    """Helper generico: carica un file in una cartella."""
+    cfg = FOLDER_REGISTRY.get(endpoint)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"Endpoint '{endpoint}' non registrato.")
+    folder = cfg["path"]()
+    dest = folder / file.filename
+    if not dest.resolve().is_relative_to(folder.resolve()):
         raise HTTPException(status_code=400, detail="Nome file non valido.")
     content = await file.read()
     dest.write_bytes(content)
     return {"message": f"File caricato: {file.filename}", "size_kb": round(len(content) / 1024, 1)}
 
+
+# ── Endpoints per cartella inbox (in_source_pprod) ───────────────────────────
 
 @app.get("/files/inbox", tags=["File"])
 def list_inbox():
-    """
-    Lista i file presenti nella cartella inbound (volume datalake_olderp).
-    Restituisce nome, dimensione in KB, data di modifica e tipo.
-    """
-    inbound = Path(SEMAPHORE_PATH).parent  # /data/inbound
+    """Lista i file nella cartella inbound (in_source_pprod)."""
+    return _list_folder("inbox")
 
-    if not inbound.exists():
-        raise HTTPException(status_code=404, detail=f"Cartella non trovata: {inbound}")
+@app.delete("/files/inbox/{filename}", tags=["File"])
+def delete_inbox_file(filename: str):
+    return _delete_file("inbox", filename)
 
-    files = []
-    for f in sorted(inbound.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
-        stat = f.stat()
-        files.append({
-            "name":        f.name,
-            "type":        "dir" if f.is_dir() else f.suffix.lstrip(".").upper() or "FILE",
-            "size_kb":     round(stat.st_size / 1024, 1),
-            "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            "is_semaphore": f.name == Path(SEMAPHORE_PATH).name,
-        })
+@app.delete("/files/inbox", tags=["File"])
+def delete_all_inbox_files():
+    return _delete_all_files("inbox")
 
-    return {
-        "path":  str(inbound),
-        "count": len(files),
-        "files": files,
-    }
+@app.post("/files/inbox/upload", tags=["File"])
+async def upload_inbox_file(file: UploadFile):
+    return await _upload_file("inbox", file)
 
+
+# ── Endpoints per cartella sap (in_source_sap) ───────────────────────────────
 
 @app.get("/files/sap", tags=["File"])
 def list_sap():
-    """Lista i file presenti nella cartella from_sap (volume datalake_sap)."""
-    if not SAP_PATH.exists():
-        raise HTTPException(status_code=404, detail=f"Cartella non trovata: {SAP_PATH}")
-    files = []
-    for f in sorted(SAP_PATH.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
-        stat = f.stat()
-        files.append({
-            "name":        f.name,
-            "type":        "DIR" if f.is_dir() else f.suffix.lstrip(".").upper() or "FILE",
-            "size_kb":     round(stat.st_size / 1024, 1),
-            "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            "is_semaphore": False,
-        })
-    return {"path": str(SAP_PATH), "count": len(files), "files": files}
-
+    """Lista i file nella cartella in_source_sap."""
+    return _list_folder("sap")
 
 @app.delete("/files/sap/{filename}", tags=["File"])
 def delete_sap_file(filename: str):
-    """Elimina un singolo file dalla cartella from_sap."""
-    target = SAP_PATH / filename
-    if not target.resolve().is_relative_to(SAP_PATH.resolve()):
-        raise HTTPException(status_code=400, detail="Nome file non valido.")
-    if not target.exists():
-        raise HTTPException(status_code=404, detail=f"File non trovato: {filename}")
-    target.unlink()
-    return {"message": f"File eliminato: {filename}"}
-
+    return _delete_file("sap", filename)
 
 @app.delete("/files/sap", tags=["File"])
 def delete_all_sap_files():
-    """Elimina tutti i file dalla cartella from_sap."""
-    eliminated = 0
-    errors     = 0
-    for item in SAP_PATH.iterdir():
-        try:
-            if item.is_file():
-                item.unlink()
-                eliminated += 1
-            elif item.is_dir():
-                import shutil
-                shutil.rmtree(item)
-                eliminated += 1
-        except Exception:
-            errors += 1
-    return {"message": f"Cartella SAP svuotata: {eliminated} eliminati, {errors} errori."}
-
+    return _delete_all_files("sap")
 
 @app.post("/files/sap/upload", tags=["File"])
 async def upload_sap_file(file: UploadFile):
-    """Carica un file nella cartella from_sap."""
-    dest = SAP_PATH / file.filename
-    if not dest.resolve().is_relative_to(SAP_PATH.resolve()):
-        raise HTTPException(status_code=400, detail="Nome file non valido.")
-    content = await file.read()
-    dest.write_bytes(content)
-    return {"message": f"File caricato: {file.filename}", "size_kb": round(len(content) / 1024, 1)}
+    return await _upload_file("sap", file)
+
+
+# ── Endpoints per cartella others (in_source_others) ─────────────────────────
+
+@app.get("/files/others", tags=["File"])
+def list_others():
+    """Lista i file nella cartella in_source_others."""
+    return _list_folder("others")
+
+@app.delete("/files/others/{filename}", tags=["File"])
+def delete_others_file(filename: str):
+    return _delete_file("others", filename)
+
+@app.delete("/files/others", tags=["File"])
+def delete_all_others_files():
+    return _delete_all_files("others")
+
+@app.post("/files/others/upload", tags=["File"])
+async def upload_others_file(file: UploadFile):
+    return await _upload_file("others", file)
 
 import subprocess
 

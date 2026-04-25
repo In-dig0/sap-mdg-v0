@@ -31,7 +31,7 @@ SELECT
     (SELECT run_id::integer FROM stg.pipeline_runs
      WHERE status = 'running'
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
-    gen."_zip_source"                            AS zip_source,
+    gen."_source"                            AS zip_source,
     NOW()                                        AS created_at
 FROM raw."S_CUST_GEN#ZBP-DatiGenerali" gen
 LEFT JOIN (

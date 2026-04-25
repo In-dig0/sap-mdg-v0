@@ -2,11 +2,11 @@
 name: ingestion.ingest_xlsx_to_ref
 type: python
 description: >
-  Legge tutti i file XLSX da /project/datalake/from_sap/,
+  Legge tutti i file XLSX da /project/datalake/in_source_sap/,
   carica ogni foglio nello schema ref di PostgreSQL.
   Nome tabella = nome file XLSX senza estensione.
   Nomi colonne = intestazioni originali invariate (virgolette doppie).
-  Colonne audit: _xlsx_source TEXT, _loaded_at TIMESTAMPTZ.
+  Colonne audit: _source TEXT, _loaded_at TIMESTAMPTZ.
   Strategia: TRUNCATE + INSERT (full-refresh, i dati SAP sono stabili).
 @bruin """
 
@@ -35,7 +35,7 @@ DB_CONFIG = {
     "password": os.environ.get("POSTGRES_PASSWORD", ""),
 }
 
-INBOUND_PATH = "/project/datalake/from_sap"
+INBOUND_PATH = "/project/datalake/in_source_sap"
 REF_SCHEMA   = "ref"
 
 
@@ -55,7 +55,7 @@ def ensure_table(cur, schema: str, table: str, col_names: list):
     cur.execute(f"""
         CREATE TABLE IF NOT EXISTS {fqt} (
             {col_defs},
-            "_xlsx_source" TEXT,
+            "_source" TEXT,
             "_loaded_at"   TIMESTAMPTZ
         )
     """)
@@ -71,7 +71,7 @@ def ensure_table(cur, schema: str, table: str, col_names: list):
         if col not in existing:
             cur.execute(f"ALTER TABLE {fqt} ADD COLUMN IF NOT EXISTS {q(col)} TEXT")
             log.info(f"    + Colonna aggiunta: {col}")
-    for col, ctype in [("_xlsx_source", "TEXT"), ("_loaded_at", "TIMESTAMPTZ")]:
+    for col, ctype in [("_source", "TEXT"), ("_loaded_at", "TIMESTAMPTZ")]:
         if col not in existing:
             cur.execute(f"ALTER TABLE {fqt} ADD COLUMN IF NOT EXISTS {q(col)} {ctype}")
 
@@ -89,7 +89,7 @@ def ingest_df(cur, schema: str, table: str,
     fqt     = f'{schema}.{q(table)}'
     now_utc = datetime.now(timezone.utc)
     df_ins  = df.copy()
-    df_ins["_xlsx_source"] = xlsx_name
+    df_ins["_source"] = xlsx_name
     df_ins["_loaded_at"]   = now_utc
 
     col_list = ", ".join(q(c) for c in df_ins.columns)
