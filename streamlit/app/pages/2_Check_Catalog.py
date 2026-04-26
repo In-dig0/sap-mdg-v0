@@ -87,8 +87,32 @@ def export_catalog() -> list:
     finally:
         conn.close()
 
+def get_check_types() -> list[str]:
+    """
+    Legge i tipi di controllo distinti da stg.check_catalog.
+    Restituisce la lista nell'ordine logico predefinito; i tipi non mappati
+    vengono accodati in ordine alfabetico.
+    """
+    LOGICAL_ORDER = ["SAP_REF", "EXISTENCE", "CROSS_TABLE", "EXT_REF"]
+    conn = psycopg2.connect(**get_db_params(), cursor_factory=RealDictCursor)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT check_type
+                FROM stg.check_catalog
+                WHERE check_type IS NOT NULL
+                ORDER BY check_type
+            """)
+            db_types = [r["check_type"] for r in cur.fetchall()]
+    finally:
+        conn.close()
+    # Prima i tipi con ordine logico noto, poi gli eventuali nuovi alfabeticamente
+    known   = [t for t in LOGICAL_ORDER if t in db_types]
+    unknown = sorted(t for t in db_types if t not in LOGICAL_ORDER)
+    return known + unknown
+
+
 def upsert_catalog(records: list) -> tuple[int, int]:
-    """Inserisce o aggiorna i record in stg.check_catalog. Ritorna (inseriti, aggiornati)."""
     conn = psycopg2.connect(**get_db_params())
     inserted = updated = 0
     try:
@@ -149,9 +173,10 @@ with tab_controllo:
     # Filtri
     col_type, col_sev, col_active, _ = st.columns([2, 2, 2, 2])
     with col_type:
+        check_types_db = get_check_types()
         type_filter = st.selectbox(
             "Tipo controllo",
-            options=["Tutti", "SAP_REF", "EXISTENCE", "CROSS_TABLE"],
+            options=["Tutti"] + check_types_db,
             index=0,
         )
     with col_sev:
@@ -210,35 +235,49 @@ with tab_controllo:
     st.divider()
 
     # Legenda
+    TYPE_DESCRIPTIONS_MAP = {
+        "SAP_REF":     "Coerenza con le tabelle di riferimento SAP (es. T005S per paese/regione)",
+        "EXISTENCE":   "Esistenza del dato obbligatorio o duplicazione non ammessa",
+        "CROSS_TABLE": "Coerenza referenziale tra tabelle dello stesso archivio ZIP",
+        "EXT_REF":     "Verifica tramite servizi esterni (es. VIES EU, HMRC UK)",
+    }
     with st.expander("ℹ️ Legenda tipologie controllo", expanded=False):
-        st.markdown("""
-        | Tipo | Descrizione |
-        |------|-------------|
-        | **SAP_REF** | Coerenza con le tabelle di riferimento SAP (es. T005S per paese/regione) |
-        | **EXISTENCE** | Esistenza del dato obbligatorio o duplicazione non ammessa |
-        | **CROSS_TABLE** | Coerenza referenziale tra tabelle dello stesso archivio ZIP |
-        """)
+        header = "| Tipo | Descrizione |\n|------|-------------|"
+        rows   = "\n".join(
+            f"| **{ct}** | {TYPE_DESCRIPTIONS_MAP.get(ct, 'Tipo di controllo personalizzato')} |"
+            for ct in check_types_db
+        )
+        st.markdown(f"{header}\n{rows}")
 
     # Card per ogni check con toggle
-    TYPE_COLORS = {
+    # Palette colori e label per tipo — estendibile senza modificare il codice:
+    # se arriva un tipo non mappato, viene usato il colore/label di fallback.
+    TYPE_COLORS_MAP = {
         "SAP_REF":     "#4A90D9",
         "EXISTENCE":   "#E8A838",
         "CROSS_TABLE": "#7B68EE",
+        "EXT_REF":     "#2ECC71",
     }
-    TYPE_LABELS = {
-        "SAP_REF":     "🔵 SAP_REF",
-        "EXISTENCE":   "🟡 EXISTENCE",
-        "CROSS_TABLE": "🟣 CROSS_TABLE",
+    TYPE_ICONS_MAP = {
+        "SAP_REF":     "🔵",
+        "EXISTENCE":   "🟡",
+        "CROSS_TABLE": "🟣",
+        "EXT_REF":     "🟢",
     }
+    FALLBACK_COLOR = "#AAAAAA"
+    FALLBACK_ICON  = "⚪"
 
-    for check_type in ["SAP_REF", "EXISTENCE", "CROSS_TABLE"]:
-        df_type = df[df["check_type"] == check_type]
+    for check_type in check_types_db:
+        color = TYPE_COLORS_MAP.get(check_type, FALLBACK_COLOR)
+        icon  = TYPE_ICONS_MAP.get(check_type, FALLBACK_ICON)
+        label = f"{icon} {check_type}"
+        df_type = df[df["check_type"] == check_type].sort_values("check_id")
         if df_type.empty:
             continue
 
         st.markdown(
-            f'<h3 style="color:{TYPE_COLORS[check_type]}; margin-top:16px;">'
-            f'{TYPE_LABELS[check_type]}</h3>',
+            f'<h3 style="color:{color}; margin-top:16px;">'
+            f'{label}</h3>',
             unsafe_allow_html=True,
         )
 

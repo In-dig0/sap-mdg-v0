@@ -67,34 +67,53 @@ services:
       - mdg_network
 
   # ---------------------------------------------------------------------------
-  # SFTP (atmoz/sftp) — punto di ingresso file ZIP e XLSX
+  # SFTP (SFTPGo) — punto di ingresso file ZIP e XLSX
   #
-  # Volumi named (workaround WSL2/NTFS):
-  #   datalake_pprod  → ZIP/CSV dall'ERP (old ERP / pre-prod)
-  #   datalake_sap    → XLSX tabelle controllo SAP → schema ref
-  #   datalake_others → XLSX da altre sorgenti    → schema stg
+  # Sostituisce atmoz/sftp con SFTPGo, più robusto per produzione.
+  # Volumi datalake invariati — mappati come cartelle virtuali dell'utente mdg_sftp.
   #
-  # Deposito file:
-  #   docker cp <file.zip> mdg_sftp:/home/mdg_sftp/in_source_pprod/
-  #   oppure via client SFTP: sftp -P 22 mdg_sftp@localhost
+  # WebAdmin (solo rete interna, non esposto all'esterno):
+  #   http://localhost:${SFTPGO_ADMIN_PORT}   → gestione utenti, audit log, chiavi SSH
+  #
+  # Accesso SFTP client:
+  #   sftp -P ${SFTP_PORT} mdg_sftp@localhost
+  #
+  # Primo avvio: creare l'utente mdg_sftp dal WebAdmin oppure tramite
+  #   docker exec mdg_sftp sftpgo resetpwd --config-dir /var/lib/sftpgo
   # ---------------------------------------------------------------------------
   sftp:
-    image: atmoz/sftp:alpine
+    image: drakkan/sftpgo:latest
     container_name: mdg_sftp
     restart: unless-stopped
     ports:
-      - "${SFTP_PORT}:22"
+      - "${SFTP_PORT}:2022"                        # SFTP — porta 22 esterna → 2022 interna SFTPGo
+      - "${SFTPGO_ADMIN_PORT}:8080"                # WebAdmin porta 8082 esterna → 8080 interna
     volumes:
-      - datalake_pprod:/home/mdg_sftp/in_source_pprod
-      - datalake_sap:/home/mdg_sftp/in_source_sap
-      - datalake_others:/home/mdg_sftp/in_source_others
-      - datalake_out:/home/mdg_sftp/out_source_mdg      
-      - ${SFTP_KEY_PATH}/ssh_host_ed25519_key:/etc/ssh/ssh_host_ed25519_key:ro
-      - ${SFTP_KEY_PATH}/ssh_host_rsa_key:/etc/ssh/ssh_host_rsa_key:ro
-      - ./sftp/init:/etc/sftp.d:ro
-    command: ${SFTP_USERS}
+      # Dati persistenti SFTPGo (DB SQLite, log)
+      - sftpgo_data:/var/lib/sftpgo
+      # Host keys SSH
+      - ${SFTP_KEY_PATH}/ssh_host_ed25519_key:/var/lib/sftpgo/.ssh/ssh_host_ed25519_key:ro
+      - ${SFTP_KEY_PATH}/ssh_host_rsa_key:/var/lib/sftpgo/.ssh/ssh_host_rsa_key:ro
+      # Datalake — stessi named volumes di prima
+      - datalake_pprod:/datalake/in_source_pprod
+      - datalake_sap:/datalake/in_source_sap
+      - datalake_others:/datalake/in_source_others
+      - datalake_out:/datalake/out_source_mdg
     environment:
+      SFTPGO_HTTPD__BINDINGS__0__PORT: 8080
+      SFTPGO_SFTPD__BINDINGS__0__PORT: 2022
+      SFTPGO_DATA_PROVIDER__DRIVER: sqlite
+      SFTPGO_DATA_PROVIDER__NAME: /var/lib/sftpgo/sftpgo.db
+      # Crea l'admin al primo avvio se non esiste ancora nel DB.
+      # Ai riavvii successivi questa impostazione non ha effetto.
+      SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN: "true"
+      SFTPGO_SFTPD__HOST_KEYS: /var/lib/sftpgo/.ssh/ssh_host_ed25519_key,/var/lib/sftpgo/.ssh/ssh_host_rsa_key
+      SFTPGO_DEFAULT_ADMIN_USERNAME: ${SFTPGO_ADMIN_USER}
+      SFTPGO_DEFAULT_ADMIN_PASSWORD: ${SFTPGO_ADMIN_PASSWORD}
       TZ: ${TZ}
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - mdg_network
 
@@ -242,6 +261,8 @@ volumes:
     name: mdg_postgres_data
   pgadmin_data:
     name: mdg_pgadmin_data
+  sftpgo_data:
+    name: mdg_sftpgo_data
   datalake_pprod:
     name: mdg_datalake_pprod
   datalake_sap:

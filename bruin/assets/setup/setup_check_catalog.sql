@@ -4,10 +4,11 @@ type: pg.sql
 depends:
   - setup.init_db
 description: >
-  Catalogo check MDG con nuova naming convention:
-    CK001-CK100  → SAP_REF
-    CK201-CK299  → EXISTENCE
-    CK401-CK499  → CROSS_TABLE
+  Catalogo check MDG con naming convention:
+    CK001-CK099  → SAP_REF      (coerenza tabelle di riferimento SAP)
+    CK201-CK299  → EXISTENCE    (esistenza dato obbligatorio / duplicati)
+    CK401-CK499  → CROSS_TABLE  (coerenza referenziale tra tabelle ZIP)
+    CK801-CK899  → EXT_REF      (verifiche tramite servizi esterni)
 connection: mdg_postgres
 @bruin */
 
@@ -96,7 +97,24 @@ VALUES
      'S_CUST_GEN#ZDM-DatiGenerali','Error','CROSS_TABLE',TRUE,NOW()),
     ('CK404','Orfani flusso 03-ZBP-Clienti: KUNNR assente nella master',
      'BP','varie (tabelle secondarie 03-ZBP-Clienti)','KUNNR(k/*)',
-     'S_CUST_GEN#ZBP-DatiGenerali','Error','CROSS_TABLE',TRUE,NOW())
+     'S_CUST_GEN#ZBP-DatiGenerali','Error','CROSS_TABLE',TRUE,NOW()),
+    -- EXT_REF
+    ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',
+     'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXNUM(*)',
+     'VIES (ec.europa.eu) | HMRC API v2 (api.service.hmrc.gov.uk)',
+     'Error','EXT_REF',TRUE,NOW()),
+    ('CK802','Clienti: sintesi verifica P.IVA EU/UK → stg.check_results',
+     'BP','stg.check_vat_vies','check_status',
+     'stg.check_vat_vies (output CK801)',
+     'Error','EXT_REF',TRUE,NOW()),
+    ('CK803','Fornitori: validità P.IVA EU (VIES) e UK (HMRC API v2)',
+     'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXNUM(*)',
+     'VIES (ec.europa.eu) | HMRC API v2 (api.service.hmrc.gov.uk)',
+     'Error','EXT_REF',TRUE,NOW()),
+    ('CK804','Fornitori: sintesi verifica P.IVA EU/UK → stg.check_results',
+     'BP','stg.check_vat_vies','check_status',
+     'stg.check_vat_vies (output CK803)',
+     'Error','EXT_REF',TRUE,NOW())
 ON CONFLICT (check_id) DO UPDATE SET
     check_desc   = EXCLUDED.check_desc,
     category     = EXCLUDED.category,

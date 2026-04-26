@@ -2,7 +2,7 @@
 .env
 
 # Chiavi SSH generate — mai committare
-sftp/ssh_host_*
+sftpgo/keys/ssh_host_*
 
 # Dati PostgreSQL locali
 db/data/
