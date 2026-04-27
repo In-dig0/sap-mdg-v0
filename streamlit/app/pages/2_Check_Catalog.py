@@ -236,10 +236,11 @@ with tab_controllo:
 
     # Legenda
     TYPE_DESCRIPTIONS_MAP = {
-        "SAP_REF":     "Coerenza con le tabelle di riferimento SAP (es. T005S per paese/regione)",
-        "EXISTENCE":   "Esistenza del dato obbligatorio o duplicazione non ammessa",
-        "CROSS_TABLE": "Coerenza referenziale tra tabelle dello stesso archivio ZIP",
-        "EXT_REF":     "Verifica tramite servizi esterni (es. VIES EU, HMRC UK)",
+        "SAP_REF":      "Coerenza con le tabelle di riferimento SAP (es. T005S per paese/regione)",
+        "EXISTENCE":    "Esistenza del dato obbligatorio o duplicazione non ammessa",
+        "CROSS_TABLE":  "Coerenza referenziale tra tabelle dello stesso archivio ZIP",
+        "CROSS_SOURCE": "Coerenza referenziale tra tabelle di archivi ZIP o sorgenti diversi",
+        "EXT_REF":      "Verifica tramite servizi esterni (es. VIES EU, HMRC UK)",
     }
     with st.expander("ℹ️ Legenda tipologie controllo", expanded=False):
         header = "| Tipo | Descrizione |\n|------|-------------|"
@@ -253,16 +254,18 @@ with tab_controllo:
     # Palette colori e label per tipo — estendibile senza modificare il codice:
     # se arriva un tipo non mappato, viene usato il colore/label di fallback.
     TYPE_COLORS_MAP = {
-        "SAP_REF":     "#4A90D9",
-        "EXISTENCE":   "#E8A838",
-        "CROSS_TABLE": "#7B68EE",
-        "EXT_REF":     "#2ECC71",
+        "SAP_REF":      "#4A90D9",
+        "EXISTENCE":    "#E8A838",
+        "CROSS_TABLE":  "#7B68EE",
+        "CROSS_SOURCE": "#E05252",
+        "EXT_REF":      "#2ECC71",
     }
     TYPE_ICONS_MAP = {
-        "SAP_REF":     "🔵",
-        "EXISTENCE":   "🟡",
-        "CROSS_TABLE": "🟣",
-        "EXT_REF":     "🟢",
+        "SAP_REF":      "🔵",
+        "EXISTENCE":    "🟡",
+        "CROSS_TABLE":  "🟣",
+        "CROSS_SOURCE": "🔴",
+        "EXT_REF":      "🟢",
     }
     FALLBACK_COLOR = "#AAAAAA"
     FALLBACK_ICON  = "⚪"

@@ -71,8 +71,6 @@ def load_diba(
     suffix: str, date_from: str,
     tipo_prod: tuple, flag6: tuple, fantasma: tuple, codart: tuple,
     solo_multipli: bool = False,
-    logo: tuple = (),
-    attivo: str = "",
 ) -> pd.DataFrame:
     """
     Per ogni articolo venduto (A2F × PUNTFOR × CLIM) espande la gerarchia
@@ -104,28 +102,7 @@ def load_diba(
         a2f_params.extend(codart)
 
     a2f_conditions = (" AND " + " AND ".join(a2f_parts)) if a2f_parts else ""
-    having = "AND lp.n_loghi > 1" if solo_multipli else ""
-
-    # Filtro logo: esclusione coppie CODET — DESCLI (AND NOT per ogni coppia)
-    logo_condition = ""
-    logo_params: list = []
-    if logo:
-        clauses = []
-        for entry in logo:
-            if " — " in entry:
-                codet, descli = entry.split(" — ", 1)
-                clauses.append(
-                    "NOT (COALESCE(c.\"CODET\", \'\') = %s AND COALESCE(c.\"DESCLI\", \'IPH\') = %s)"
-                )
-                logo_params.extend([codet, descli])
-            else:
-                clauses.append("COALESCE(c.\"DESCLI\", \'IPH\') <> %s")
-                logo_params.append(entry)
-        logo_condition = "AND " + " AND ".join(clauses)
-
-    # Filtro ATTIVO su CLIM
-    attivo_condition = "AND COALESCE(c.\"ATTIVO\", \'\') = %s" if attivo else ""
-    attivo_params: list = [attivo] if attivo else []
+    having = "HAVING COUNT(DISTINCT logo) > 1" if solo_multipli else ""
 
     sql = f"""
     WITH
@@ -146,8 +123,6 @@ def load_diba(
         WHERE NULLIF(b."DATAV", '') IS NOT NULL
           AND b."DATAV"::date > %s
           {a2f_conditions}
-          {logo_condition}
-          {attivo_condition}
     ),
 
     -- Step 2: loghi distinti per articolo padre
@@ -221,12 +196,12 @@ def load_diba(
     ORDER BY "N_COPPIE_TOTALI" DESC, "CODART"
     """
 
-    params = (date_from,) + tuple(a2f_params) + tuple(logo_params) + tuple(attivo_params)
+    params = (date_from,) + tuple(a2f_params)
     return _run(sql, params)
 
 
 @st.cache_data(ttl=300)
-def load_detail_diba(suffix: str, date_from: str, codart_sel: str, attivo: str = "") -> pd.DataFrame:
+def load_detail_diba(suffix: str, date_from: str, codart_sel: str) -> pd.DataFrame:
     """
     Dettaglio drill-down: una riga per ogni coppia
     (codice con matricola × logo distinto del padre).
@@ -242,7 +217,6 @@ def load_detail_diba(suffix: str, date_from: str, codart_sel: str, attivo: str =
         FROM ref."PUNTFOR_{suffix}" b
         LEFT JOIN ref."CLIM_{suffix}" c ON c."CODCLI" = b."CODCLI"
         WHERE NULLIF(b."DATAV", '') IS NOT NULL
-          AND (%s = '' OR COALESCE(c."ATTIVO", '') = %s)
           AND b."DATAV"::date > %s
           AND b."CODART" = %s
         GROUP BY
@@ -290,7 +264,7 @@ def load_detail_diba(suffix: str, date_from: str, codart_sel: str, attivo: str =
     CROSS JOIN loghi l
     ORDER BY cm.livello, cm.codart_mat, l.logo
     """
-    params = (attivo, attivo, date_from, codart_sel, codart_sel, codart_sel)
+    params = (date_from, codart_sel, codart_sel, codart_sel)
     return _run(sql, params)
 
 
@@ -331,25 +305,6 @@ def load_filter_values(suffix: str) -> dict:
 
 filter_vals = load_filter_values(plant_suffix)
 
-@st.cache_data(ttl=300)
-def load_logo_values(suffix: str) -> list:
-    """Valori distinti CODET — DESCLI da ref.CLIM_{suffix} (solo ATTIVO=S)."""
-    try:
-        df = _run(
-            f'SELECT DISTINCT "CODET", "DESCLI" FROM ref."CLIM_{suffix}" '
-            f'WHERE "DESCLI" IS NOT NULL AND "ATTIVO" = \'S\' ORDER BY "CODET", "DESCLI"'
-        )
-        if df.empty:
-            return []
-        return [
-            f'{row["CODET"]} — {row["DESCLI"]}' if row["CODET"] else row["DESCLI"]
-            for _, row in df.iterrows()
-        ]
-    except Exception:
-        return []
-
-logo_values = load_logo_values(plant_suffix)
-
 col_tipo, col_flag6, col_fantasma = st.columns(3)
 with col_tipo:
     sel_tipo_prod = st.multiselect("Tipo Produzione", options=filter_vals["tipo_prod"],
@@ -378,30 +333,11 @@ modalita = st.radio(
 )
 solo_multipli = st.toggle("Mostra solo articoli con Tot. Etichette > 1", value=False)
 
-col_logo, col_attivo = st.columns([4, 1])
-with col_logo:
-    sel_logo = st.multiselect(
-        "Escludi Logo Targhetta (CODET — DESCLI)",
-        options=logo_values,
-        default=[],
-        placeholder="Nessuna esclusione — seleziona i loghi da escludere",
-        help="I loghi selezionati verranno **esclusi** dal calcolo (es. loghi obsoleti).",
-    )
-with col_attivo:
-    sel_attivo = st.selectbox(
-        "Stato CLIM",
-        options=["Tutti", "S", "N"],
-        index=0,
-        help="Filtra i clienti della tabella CLIM per valore del campo ATTIVO.",
-    )
-
 # Caricamento dati
 t_tipo_prod = tuple(sel_tipo_prod)
 t_flag6     = tuple(sel_flag6)
 t_fantasma  = tuple(sel_fantasma)
 t_codart    = tuple(sel_codart)
-t_logo      = tuple(sel_logo)
-t_attivo    = "" if sel_attivo == "Tutti" else sel_attivo
 
 try:
     with st.spinner("Caricamento dati..."):
@@ -436,8 +372,7 @@ try:
             df = _run(sql_a2f, tuple(a2f_params_list) if a2f_params_list else None)
         else:
             df = load_diba(plant_suffix, date_from, t_tipo_prod, t_flag6,
-                           t_fantasma, t_codart, solo_multipli=solo_multipli,
-                           logo=t_logo, attivo=t_attivo)
+                           t_fantasma, t_codart, solo_multipli=solo_multipli)
 except Exception as e:
     st.error(f"Errore: {e}")
     st.stop()
@@ -531,7 +466,7 @@ if selected_rows:
         st.subheader(f"🔍 Coppie codice-matricola × logo — `{selected_codart}`")
     try:
         with st.spinner("Caricamento dettaglio..."):
-            df_detail = load_detail_diba(plant_suffix, date_from, selected_codart, attivo=t_attivo)
+            df_detail = load_detail_diba(plant_suffix, date_from, selected_codart)
     except Exception as e:
         st.error(f"Errore: {e}")
         st.stop()

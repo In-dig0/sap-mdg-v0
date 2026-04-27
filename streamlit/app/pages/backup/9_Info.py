@@ -72,135 +72,141 @@ riducendo il rischio di dati inconsistenti nel sistema target.
 st.markdown('<div class="section-title">Architettura container</div>', unsafe_allow_html=True)
 
 svg = """
-<svg viewBox="0 0 1360 760" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:1360px;display:block;margin:0 auto;">
+<svg viewBox="0 0 1060 530" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:1060px;display:block;margin:0 auto 1.5rem;">
   <defs>
-    <marker id="arr"        markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" fill="#94a3b8"/></marker>
-    <marker id="arr-orange" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" fill="#fb923c"/></marker>
-    <marker id="arr-green"  markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" fill="#4ade80"/></marker>
-    <marker id="arr-purple" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" fill="#c084fc"/></marker>
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#475569"/>
+    </marker>
+    <marker id="arr-dash" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#374151"/>
+    </marker>
+    <marker id="arr-auth" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#6d28d9"/>
+    </marker>
+    <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#f97316"/>
+    </marker>
   </defs>
 
-  <rect width="1360" height="760" rx="14" fill="#060c18"/>
+  <!-- Sfondo -->
+  <rect width="1060" height="530" rx="14" fill="#0a0f1e"/>
 
-  <!-- mdg_network box: col B..D, x=210 → x=1010, w=800 -->
-  <rect x="210" y="20" width="800" height="700" rx="12" fill="none" stroke="#334155" stroke-width="1.5" stroke-dasharray="7 4"/>
-  <rect x="230" y="12" width="140" height="20" rx="4" fill="#060c18"/>
-  <text x="300" y="27" font-family="JetBrains Mono,monospace" font-size="12" font-weight="600" fill="#475569" text-anchor="middle" letter-spacing="1">mdg_network</text>
-  <text x="300" y="708" font-family="JetBrains Mono,monospace" font-size="10" fill="#1e293b" text-anchor="middle" letter-spacing="2">DOCKER CONTAINERS</text>
+  <!-- Rete Docker -->
+  <rect x="130" y="30" width="700" height="450" rx="10" fill="none" stroke="#1e293b" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <text x="146" y="48" font-family="JetBrains Mono,monospace" font-size="10" fill="#334155">mdg_network</text>
 
-  <!-- ERP esterno (col A) -->
-  <rect x="40" y="200" width="130" height="68" rx="8" fill="#0f172a" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 3"/>
-  <text x="105" y="228" font-family="JetBrains Mono,monospace" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="middle">ERP</text>
-  <text x="105" y="250" font-family="JetBrains Mono,monospace" font-size="11" fill="#64748b" text-anchor="middle">ZIP / XLSX</text>
+  <!-- Label Docker Containers in basso a sinistra -->
+  <text x="148" y="468" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#1e3a5f" letter-spacing="2">DOCKER CONTAINERS</text>
 
-  <!-- mdg_sftp (col B, top) -->
-  <rect x="228" y="60" width="190" height="110" rx="9" fill="#0c1e38" stroke="#3b82f6" stroke-width="2.2"/>
-  <text x="323" y="92" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#93c5fd" text-anchor="middle">mdg_sftp</text>
-  <line x1="238" y1="102" x2="408" y2="102" stroke="#1d4ed8" stroke-width="1"/>
-  <text x="323" y="122" font-family="JetBrains Mono,monospace" font-size="11" fill="#7dd3fc" text-anchor="middle">SFTP Server</text>
-  <text x="323" y="142" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">volumi datalake  ·  :22 e :8082</text>
+  <!-- ERP esterno sx -->
+  <rect x="18" y="55" width="100" height="54" rx="8" fill="#0d1117" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="68" y="78" font-family="JetBrains Mono,monospace" font-size="10" font-weight="600" fill="#6b7280" text-anchor="middle">ERP</text>
+  <text x="68" y="94" font-family="JetBrains Mono,monospace" font-size="9" fill="#4b5563" text-anchor="middle">ZIP / XLSX</text>
 
-  <!-- mdg_bruin (col B, bottom) -->
-  <rect x="228" y="300" width="190" height="110" rx="9" fill="#1a0b38" stroke="#7c3aed" stroke-width="2.2"/>
-  <text x="323" y="332" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#c084fc" text-anchor="middle">mdg_bruin</text>
-  <line x1="238" y1="342" x2="408" y2="342" stroke="#4c1d95" stroke-width="1"/>
-  <text x="323" y="362" font-family="JetBrains Mono,monospace" font-size="11" fill="#a78bfa" text-anchor="middle">pipeline ETL</text>
-  <text x="323" y="382" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">bruin run</text>
+  <!-- Browser Business user esterno dx —  vicino IT user -->
+  <rect x="860" y="340" width="118" height="50" rx="8" fill="#0d1117" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="919" y="361" font-family="JetBrains Mono,monospace" font-size="8.5" font-weight="600" fill="#6b7280" text-anchor="middle">Browser Web</text>
+  <text x="919" y="377" font-family="JetBrains Mono,monospace" font-size="8" fill="#4b5563" text-anchor="middle">Business user</text>
 
-  <!-- mdg_postgres (col C, top) -->
-  <rect x="500" y="180" width="210" height="130" rx="9" fill="#051a10" stroke="#22c55e" stroke-width="2.2"/>
-  <text x="605" y="212" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#4ade80" text-anchor="middle">mdg_postgres</text>
-  <line x1="510" y1="222" x2="700" y2="222" stroke="#16a34a" stroke-width="1"/>
-  <text x="605" y="244" font-family="JetBrains Mono,monospace" font-size="11" fill="#86efac" text-anchor="middle">Database PostgreSQL</text>
-  <text x="605" y="264" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">raw · ref · stg · prd</text>
-  <text x="605" y="282" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#334155" text-anchor="middle">:5432</text>
+  <!-- Browser IT user esterno dx basso -->
+  <rect x="860" y="400" width="118" height="50" rx="8" fill="#0d1117" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="919" y="421" font-family="JetBrains Mono,monospace" font-size="8.5" font-weight="600" fill="#6b7280" text-anchor="middle">Browser Web</text>
+  <text x="919" y="437" font-family="JetBrains Mono,monospace" font-size="8" fill="#4b5563" text-anchor="middle">IT user</text>
 
-  <!-- mdg_pgadmin (col C, bottom) -->
-  <rect x="500" y="500" width="210" height="110" rx="9" fill="#0a1a10" stroke="#16a34a" stroke-width="2.2"/>
-  <text x="605" y="532" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#4ade80" text-anchor="middle">mdg_pgadmin</text>
-  <line x1="510" y1="542" x2="700" y2="542" stroke="#14532d" stroke-width="1"/>
-  <text x="605" y="562" font-family="JetBrains Mono,monospace" font-size="11" fill="#86efac" text-anchor="middle">PostgreSQL Mgmt</text>
-  <text x="605" y="582" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">:8080</text>
+  <!-- SFTP -->
+  <rect x="150" y="55" width="130" height="72" rx="8" fill="#0c1a2e" stroke="#1e4976" stroke-width="1.5"/>
+  <text x="215" y="78" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#93c5fd" text-anchor="middle">mdg_sftp</text>
+  <text x="215" y="94" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">drakkan/sftpgo:latest</text>
+  <text x="215" y="110" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155" text-anchor="middle">SFTP :22 · WebAdmin :8082</text>
+  
 
-  <!-- mdg_fastapi (col D, top) -->
-  <rect x="790" y="60" width="200" height="110" rx="9" fill="#1f0e03" stroke="#f97316" stroke-width="2.2"/>
-  <text x="890" y="92" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#fb923c" text-anchor="middle">mdg_fastapi</text>
-  <line x1="800" y1="102" x2="980" y2="102" stroke="#7c2d12" stroke-width="1"/>
-  <text x="890" y="122" font-family="JetBrains Mono,monospace" font-size="11" fill="#fdba74" text-anchor="middle">Pipeline Controller</text>
-  <text x="890" y="142" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">:8000 · docker.sock</text>
+  <!-- Bruin -->
+  <rect x="150" y="210" width="130" height="80" rx="8" fill="#160b2e" stroke="#4c1d95" stroke-width="1.5"/>
+  <text x="215" y="235" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#d8b4fe" text-anchor="middle">mdg_bruin</text>
+  <text x="215" y="251" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">custom image</text>
+  <text x="215" y="267" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#64748b" text-anchor="middle">bruin run</text>
 
-  <!-- mdg_streamlit (col D, mid) -->
-  <rect x="790" y="240" width="200" height="110" rx="9" fill="#0e1a0e" stroke="#22c55e" stroke-width="2.2"/>
-  <text x="890" y="272" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#4ade80" text-anchor="middle">mdg_streamlit</text>
-  <line x1="800" y1="282" x2="980" y2="282" stroke="#15803d" stroke-width="1"/>
-  <text x="890" y="302" font-family="JetBrains Mono,monospace" font-size="11" fill="#86efac" text-anchor="middle">Dashboard MDG</text>
-  <text x="890" y="322" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">:8501</text>
+  <!-- Postgres -->
+  <rect x="390" y="150" width="150" height="80" rx="8" fill="#051a10" stroke="#14532d" stroke-width="1.5"/>
+  <text x="465" y="176" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#86efac" text-anchor="middle">mdg_postgres</text>
+  <text x="465" y="192" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">postgres:18-alpine</text>
+  <text x="465" y="208" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#64748b" text-anchor="middle">raw · ref · stg · prd</text>
 
-  <!-- mdg_auth (col D, bottom) -->
-  <rect x="790" y="430" width="200" height="110" rx="9" fill="#1a0a1a" stroke="#9333ea" stroke-width="2.2"/>
-  <text x="890" y="462" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#d8b4fe" text-anchor="middle">mdg_auth</text>
-  <line x1="800" y1="472" x2="980" y2="472" stroke="#6b21a8" stroke-width="1"/>
-  <text x="890" y="492" font-family="JetBrains Mono,monospace" font-size="11" fill="#c4b5fd" text-anchor="middle">fastapi-users · JWT</text>
-  <text x="890" y="512" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">:8001</text>
+  <!-- PgAdmin — centro basso -->
+  <rect x="390" y="400" width="150" height="72" rx="8" fill="#0a1a10" stroke="#166534" stroke-width="1.5"/>
+  <text x="465" y="422" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#4ade80" text-anchor="middle">mdg_pgadmin</text>
+  <text x="465" y="438" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">dpage/pgadmin4</text>
+  
 
-  <!-- Browser Web Business (col E, fuori network) -->
-  <rect x="1070" y="260" width="160" height="68" rx="8" fill="#0f172a" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 3"/>
-  <text x="1150" y="288" font-family="JetBrains Mono,monospace" font-size="12" font-weight="700" fill="#94a3b8" text-anchor="middle">Browser Web</text>
-  <text x="1150" y="310" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#64748b" text-anchor="middle">Business user</text>
+  <!-- FastAPI -->
+  <rect x="660" y="55" width="130" height="72" rx="8" fill="#1f0e03" stroke="#7c2d12" stroke-width="1.5"/>
+  <text x="725" y="78" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#fdba74" text-anchor="middle">mdg_fastapi</text>
+  <text x="725" y="94" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">python:3.12-slim</text>
+  
 
-  <!-- Browser Web IT (col E, fuori network) -->
-  <rect x="1070" y="560" width="160" height="68" rx="8" fill="#0f172a" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 3"/>
-  <text x="1150" y="588" font-family="JetBrains Mono,monospace" font-size="12" font-weight="700" fill="#94a3b8" text-anchor="middle">Browser Web</text>
-  <text x="1150" y="608" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#64748b" text-anchor="middle">IT user</text>
+  <!-- Streamlit -->
+  <rect x="660" y="195" width="130" height="80" rx="8" fill="#0e1a0e" stroke="#15803d" stroke-width="1.5"/>
+  <text x="725" y="220" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#86efac" text-anchor="middle">mdg_streamlit</text>
+  <text x="725" y="236" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">python:3.12-slim</text>
+  
 
-  <!-- ==== FRECCE ==== -->
+  <!-- ERP -> SFTP -->
+  <line x1="118" y1="82" x2="147" y2="82" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-dash)"/>
 
-  <!-- ERP → mdg_sftp -->
-  <line x1="170" y1="220" x2="226" y2="140" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arr)"/>
+  <!-- SFTP -> Bruin -->
+  <line x1="215" y1="127" x2="215" y2="207" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="222" y="172" font-family="JetBrains Mono,monospace" font-size="8" fill="#334155">volume</text>
 
-  <!-- mdg_sftp → mdg_bruin (volume) -->
-  <line x1="323" y1="170" x2="323" y2="298" stroke="#c084fc" stroke-width="1.8" marker-end="url(#arr-purple)"/>
-  <text x="348" y="238" font-family="JetBrains Mono,monospace" font-size="11" fill="#7c3aed" text-anchor="start">volume</text>
+  <!-- Bruin -> Postgres — parte dal basso del box Bruin per evitare la curva arancione -->
+  <line x1="280" y1="270" x2="387" y2="225" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="298" y="248" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">INSERT</text>
 
-  <!-- mdg_bruin → mdg_postgres (INSERT) -->
-  <line x1="418" y1="345" x2="498" y2="275" stroke="#4ade80" stroke-width="1.8" marker-end="url(#arr-green)"/>
-  <text x="452" y="296" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#4ade80" text-anchor="middle">INSERT</text>
+  <!-- PgAdmin -> Postgres -->
+  <line x1="465" y1="400" x2="465" y2="233" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="471" y="325" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">DQL-DML-DDL</text>
+  <text x="471" y="336" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">commands</text>
 
-  <!-- mdg_fastapi → mdg_bruin (docker exec, curva) -->
-  <path d="M 790 115 Q 600 40 420 330" fill="none" stroke="#fb923c" stroke-width="1.8" stroke-dasharray="6 3" marker-end="url(#arr-orange)"/>
-  <text x="600" y="52" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#fb923c" text-anchor="middle">docker exec</text>
+  <!-- Streamlit -> Postgres -->
+  <line x1="660" y1="222" x2="543" y2="205" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="612" y="220" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">SELECT</text>
 
-  <!-- mdg_fastapi → mdg_postgres (log run) -->
-  <line x1="790" y1="125" x2="712" y2="222" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
-  <text x="764" y="166" font-family="JetBrains Mono,monospace" font-size="11" fill="#64748b" text-anchor="middle">log run</text>
+  <!-- Streamlit -> FastAPI -->
+  <line x1="725" y1="195" x2="725" y2="130" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="731" y="167" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">REST</text>
 
-  <!-- mdg_streamlit → mdg_postgres (SELECT) -->
-  <line x1="790" y1="295" x2="712" y2="265" stroke="#4ade80" stroke-width="1.8" marker-end="url(#arr-green)"/>
-  <text x="754" y="268" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#4ade80" text-anchor="middle">SELECT</text>
+  <!-- FastAPI -> Postgres log run -->
+  <line x1="660" y1="95" x2="543" y2="158" stroke="#475569" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="563" y="115" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#334155">log run</text>
 
-  <!-- mdg_streamlit → mdg_fastapi (REST) -->
-  <line x1="890" y1="240" x2="890" y2="172" stroke="#fb923c" stroke-width="1.8" marker-end="url(#arr-orange)"/>
-  <text x="918" y="210" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#fb923c" text-anchor="start">REST</text>
+  <!-- FastAPI -> Bruin docker exec — curva alta, label SOTTO la curva vicino a FastAPI -->
+  <path d="M 660 78 Q 465 22 280 230" fill="none" stroke="#f97316" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arr-orange)"/>
+  <text x="645" y="90" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#f97316" text-anchor="end">docker exec</text>
 
-  <!-- mdg_auth → mdg_streamlit (JWT risposta) -->
-  <line x1="890" y1="428" x2="890" y2="352" stroke="#c084fc" stroke-width="1.8" stroke-dasharray="4 2" marker-end="url(#arr-purple)"/>
-  <text x="918" y="394" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#c084fc" text-anchor="start">JWT</text>
+  <!-- Business user -> mdg_auth -->
+  <line x1="860" y1="365" x2="793" y2="365" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-dash)"/>
 
-  <!-- mdg_pgadmin → mdg_postgres -->
-  <line x1="605" y1="500" x2="605" y2="312" stroke="#4ade80" stroke-width="1.8" marker-end="url(#arr-green)"/>
+  <!-- Auth API -->
+  <rect x="660" y="330" width="130" height="72" rx="8" fill="#1a0e2e" stroke="#6d28d9" stroke-width="1.5"/>
+  <text x="725" y="354" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#c4b5fd" text-anchor="middle">mdg_auth</text>
+  <text x="725" y="370" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#475569" text-anchor="middle">python:3.12-slim</text>
+  <text x="725" y="386" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#64748b" text-anchor="middle">fastapi-users · JWT</text>
 
-  <!-- mdg_auth → mdg_postgres (usr schema) -->
-  <line x1="790" y1="475" x2="712" y2="295" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
-  <text x="742" y="400" font-family="JetBrains Mono,monospace" font-size="11" fill="#64748b" text-anchor="middle">usr schema</text>
+  <!-- mdg_auth -> Streamlit (JWT) -->
+  <line x1="725" y1="327" x2="725" y2="278" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-auth)"/>
+  <text x="731" y="308" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#7c3aed">JWT</text>
 
-  <!-- Browser Business → mdg_auth -->
-  <line x1="1068" y1="290" x2="992" y2="462" stroke="#94a3b8" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#arr)"/>
+  <!-- mdg_auth -> Postgres (schema usr) -->
+  <line x1="660" y1="366" x2="543" y2="230" stroke="#6d28d9" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-auth)"/>
+  <text x="577" y="315" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#7c3aed">usr schema</text>
 
-  <!-- Browser IT → mdg_auth -->
-  <line x1="1068" y1="594" x2="992" y2="485" stroke="#94a3b8" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#arr)"/>
+  <!-- IT user -> mdg_auth -->
+  <line x1="860" y1="425" x2="793" y2="380" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-dash)"/>
 
-  <!-- Browser IT → mdg_pgadmin (orizzontale diretta) -->
-  <line x1="1068" y1="594" x2="712" y2="555" stroke="#94a3b8" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#arr)"/>
+  <!-- IT user -> PgAdmin -->
+  <line x1="860" y1="440" x2="543" y2="440" stroke="#374151" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#arr-dash)"/>
+  
+
+
 
 </svg>
 """
@@ -211,7 +217,7 @@ components.html(f"""
 <head><style>body{{margin:0;padding:0;background:transparent;}}</style></head>
 <body>{svg}</body>
 </html>
-""", height=760)
+""", height=550)
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +239,7 @@ pipeline_svg = """
 
   <rect width="1440" height="540" rx="14" fill="#060c18"/>
 
-  <!-- -- SORGENTI (x=20) -- -->
+  <!-- ── SORGENTI (x=20) ── -->
   <rect x="20" y="80"  width="120" height="58" rx="8" fill="#0f172a" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 3"/>
   <text x="80" y="105" font-family="JetBrains Mono,monospace" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="middle">ERP Legacy</text>
   <text x="80" y="127" font-family="JetBrains Mono,monospace" font-size="11" fill="#64748b" text-anchor="middle">ZIP / CSV</text>
@@ -246,7 +252,7 @@ pipeline_svg = """
   <text x="80" y="269" font-family="JetBrains Mono,monospace" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="middle">Altre sorgenti</text>
   <text x="80" y="291" font-family="JetBrains Mono,monospace" font-size="11" fill="#64748b" text-anchor="middle">XLSX</text>
 
-  <!-- -- SFTP INPUT (x=240, gap=100 dalle sorgenti) -- -->
+  <!-- ── SFTP INPUT (x=240, gap=100 dalle sorgenti) ── -->
   <rect x="240" y="118" width="150" height="126" rx="8" fill="#0c1e38" stroke="#3b82f6" stroke-width="2.2"/>
   <text x="315" y="150" font-family="JetBrains Mono,monospace" font-size="15" font-weight="700" fill="#93c5fd" text-anchor="middle">SFTPGo</text>
   <line x1="248" y1="162" x2="382" y2="162" stroke="#1d4ed8" stroke-width="1"/>
@@ -259,12 +265,12 @@ pipeline_svg = """
   <line x1="140" y1="191" x2="238" y2="191" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#parr)"/>
   <line x1="140" y1="273" x2="238" y2="232" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#parr)"/>
 
-  <!-- -- RIQUADRO DB PostgreSQL (x=470, copre RAW+STG+PRD) -- -->
+  <!-- ── RIQUADRO DB PostgreSQL (x=470, copre RAW+STG+PRD) ── -->
   <rect x="468" y="14" width="732" height="428" rx="12" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="8 4"/>
   <rect x="490" y="6" width="168" height="20" rx="4" fill="#060c18"/>
   <text x="574" y="21" font-family="JetBrains Mono,monospace" font-size="12" font-weight="700" fill="#f59e0b" text-anchor="middle" letter-spacing="1">DB PostgreSQL</text>
 
-  <!-- -- SCHEMA RAW (x=490) -- -->
+  <!-- ── SCHEMA RAW (x=490) ── -->
   <rect x="490" y="26" width="180" height="196" rx="9" fill="#0d1f3c" stroke="#3b82f6" stroke-width="2.2"/>
   <text x="580" y="52"  font-family="JetBrains Mono,monospace" font-size="13" font-weight="700" fill="#60a5fa" text-anchor="middle" letter-spacing="2">SCHEMA RAW</text>
   <line x1="500" y1="62" x2="660" y2="62" stroke="#1d4ed8" stroke-width="1"/>
@@ -275,7 +281,7 @@ pipeline_svg = """
   <text x="580" y="162" font-family="JetBrains Mono,monospace" font-size="12" fill="#93c5fd" text-anchor="middle">S_MBEW · S_MVKE</text>
   <text x="580" y="202" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#64748b" text-anchor="middle">dati grezzi ERP</text>
 
-  <!-- -- SCHEMA REF (x=490, y=244) -- -->
+  <!-- ── SCHEMA REF (x=490, y=244) ── -->
   <rect x="490" y="244" width="180" height="178" rx="9" fill="#0a2010" stroke="#22c55e" stroke-width="2.2"/>
   <text x="580" y="272" font-family="JetBrains Mono,monospace" font-size="13" font-weight="700" fill="#4ade80" text-anchor="middle" letter-spacing="2">SCHEMA REF</text>
   <line x1="500" y1="282" x2="660" y2="282" stroke="#16a34a" stroke-width="1"/>
@@ -289,7 +295,7 @@ pipeline_svg = """
   <line x1="390" y1="202" x2="488" y2="296" stroke="#4ade80" stroke-width="2" marker-end="url(#parr-green)"/>
   <text x="432" y="278" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#4ade80" text-anchor="middle">ingestion</text>
 
-  <!-- -- SCHEMA STG (x=730) -- -->
+  <!-- ── SCHEMA STG (x=730) ── -->
   <rect x="730" y="26" width="210" height="386" rx="9" fill="#1a0b38" stroke="#9333ea" stroke-width="2.2"/>
   <text x="835" y="54"  font-family="JetBrains Mono,monospace" font-size="13" font-weight="700" fill="#c084fc" text-anchor="middle" letter-spacing="2">SCHEMA STG</text>
   <line x1="740" y1="64" x2="930" y2="64" stroke="#6b21a8" stroke-width="1"/>
@@ -314,7 +320,7 @@ pipeline_svg = """
   <line x1="670" y1="320" x2="728" y2="264" stroke="#c084fc" stroke-width="2" marker-end="url(#parr-purple)"/>
   <text x="696" y="198" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#c084fc" text-anchor="middle">checks</text>
 
-  <!-- -- SCHEMA PRD (x=1000) -- -->
+  <!-- ── SCHEMA PRD (x=1000) ── -->
   <rect x="1000" y="90" width="178" height="234" rx="9" fill="#191400" stroke="#facc15" stroke-width="2.2"/>
   <text x="1089" y="120" font-family="JetBrains Mono,monospace" font-size="13" font-weight="700" fill="#fde047" text-anchor="middle" letter-spacing="2">SCHEMA PRD</text>
   <line x1="1010" y1="132" x2="1168" y2="132" stroke="#ca8a04" stroke-width="1"/>
@@ -327,7 +333,7 @@ pipeline_svg = """
   <line x1="940" y1="207" x2="998" y2="207" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#parr-amber)"/>
   <text x="969" y="197" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#fbbf24" text-anchor="middle">promote</text>
 
-  <!-- -- SFTP OUTPUT (x=1260) -- -->
+  <!-- ── SFTP OUTPUT (x=1260) ── -->
   <rect x="1260" y="130" width="150" height="78" rx="8" fill="#0c1e38" stroke="#2dd4bf" stroke-width="2.2"/>
   <text x="1335" y="158" font-family="JetBrains Mono,monospace" font-size="13" font-weight="700" fill="#93c5fd" text-anchor="middle">SFTPGo</text>
   <line x1="1268" y1="168" x2="1402" y2="168" stroke="#0e7490" stroke-width="1"/>
@@ -337,7 +343,7 @@ pipeline_svg = """
   <line x1="1178" y1="190" x2="1258" y2="176" stroke="#2dd4bf" stroke-width="2.2" marker-end="url(#parr-teal)"/>
   <text x="1218" y="208" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600" fill="#2dd4bf" text-anchor="middle">ZIP normalizzati</text>
 
-  <!-- -- SAP S/4HANA (x=1260, y=340) -- -->
+  <!-- ── SAP S/4HANA (x=1260, y=340) ── -->
   <rect x="1260" y="340" width="150" height="78" rx="8" fill="#0f172a" stroke="#f87171" stroke-width="2" stroke-dasharray="5 3"/>
   <text x="1335" y="372" font-family="JetBrains Mono,monospace" font-size="13" font-weight="700" fill="#fca5a5" text-anchor="middle">SAP S/4HANA</text>
   <text x="1335" y="396" font-family="JetBrains Mono,monospace" font-size="11" fill="#64748b" text-anchor="middle">target</text>
@@ -352,9 +358,6 @@ pipeline_svg = """
   <line x1="580" y1="466" x2="580" y2="424" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 2" marker-end="url(#parr-purple)"/>
   <line x1="835" y1="466" x2="835" y2="414" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 2" marker-end="url(#parr-purple)"/>
   <line x1="1089" y1="466" x2="1089" y2="326" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 2" marker-end="url(#parr-purple)"/>
-  <!-- Browser IT → mdg_pgadmin (orizzontale diretta) -->
-  <line x1="1068" y1="594" x2="712" y2="555" stroke="#94a3b8" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#arr)"/>
-
 </svg>
 """
 

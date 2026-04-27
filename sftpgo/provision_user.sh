@@ -18,6 +18,14 @@
 
 set -e
 
+# Verifica che lo script venga eseguito dalla root del progetto
+if [ ! -f ".env" ]; then
+    echo "ERRORE: file .env non trovato."
+    echo "Eseguire lo script dalla root del progetto:"
+    echo "  bash sftpgo/provision_user.sh"
+    exit 1
+fi
+
 # Carica .env se presente
 if [ -f ".env" ]; then
   export $(grep -v '^#' .env | xargs)

@@ -4,6 +4,7 @@ Check Results — dettaglio completo per un check
 """
 
 import os
+import io
 import streamlit as st
 import pandas as pd
 import psycopg2
@@ -40,6 +41,18 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
         conn.close()
 
 
+def df_to_xlsx(df, sheet_name: str = "Risultati") -> bytes:
+    buf = io.BytesIO()
+    with __import__("pandas").ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        ws = writer.sheets[sheet_name]
+        for col in ws.columns:
+            max_len = max(
+                len(str(cell.value)) if cell.value is not None else 0
+                for cell in col
+            )
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 80)
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -71,9 +84,9 @@ if df_checks_available.empty:
     st.info("Nessun risultato disponibile. Avvia la pipeline Bruin.")
     st.stop()
 
-# Costruisci opzioni dropdown: "CHK01_SUPPL — S_SUPPL_GEN#ZBP_DatiGenerali"
+# Costruisci opzioni dropdown: "CK016  —  S_MARA  —  Descrizione check"
 options = [
-    f"{row['check_id']}  —  {row['source_table']}"
+    f"{row['check_id']}  —  {row['source_table']}  —  {row['check_desc']}"
     for _, row in df_checks_available.iterrows()
 ]
 
@@ -83,9 +96,11 @@ ss_check_id     = st.session_state.get("detail_check_id", None)
 ss_source_table = st.session_state.get("detail_source_table", None)
 
 if ss_check_id and ss_source_table:
-    target = f"{ss_check_id}  —  {ss_source_table}"
-    if target in options:
-        default_idx = options.index(target)
+    prefix = f"{ss_check_id}  —  {ss_source_table}"
+    for i, opt in enumerate(options):
+        if opt.startswith(prefix):
+            default_idx = i
+            break
 
 selected = st.selectbox(
     "Seleziona il controllo",
@@ -94,8 +109,10 @@ selected = st.selectbox(
     key="check_selector",
 )
 
-# Estrai check_id e source_table dalla selezione
-check_id, source_table = [s.strip() for s in selected.split("  —  ", 1)]
+# Estrai check_id e source_table dalla selezione (formato: "CK016  —  S_MARA  —  Desc")
+parts = [s.strip() for s in selected.split("  —  ", 2)]
+check_id     = parts[0]
+source_table = parts[1]
 
 # Aggiorna session_state
 st.session_state["detail_check_id"]     = check_id
@@ -263,22 +280,12 @@ else:
         }
     )
 
-    col_exp1, col_exp2, _ = st.columns([2, 2, 4])
-    with col_exp1:
-        csv_all = df_detail.to_csv(index=False).encode("utf-8")
+    df_issues = df_detail[df_detail["Stato"].isin(["Error", "Warning"])]
+    if not df_issues.empty:
+        xlsx_data = df_to_xlsx(df_issues, sheet_name="Error+Warning")
         st.download_button(
-            label="⬇️ Scarica tutti CSV",
-            data=csv_all,
-            file_name=f"{check_id}_tutti.csv",
-            mime="text/csv",
+            label="⬇️ Esporta errori in Excel",
+            data=xlsx_data,
+            file_name=f"{check_id}_issues.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-    with col_exp2:
-        df_issues = df_detail[df_detail["Stato"].isin(["Error", "Warning"])]
-        if not df_issues.empty:
-            csv_issues = df_issues.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="⬇️ Scarica Error+Warning CSV",
-                data=csv_issues,
-                file_name=f"{check_id}_issues.csv",
-                mime="text/csv",
-            )

@@ -7,7 +7,8 @@ description: >
   Catalogo check MDG con naming convention:
     CK001-CK099  → SAP_REF      (coerenza tabelle di riferimento SAP)
     CK201-CK299  → EXISTENCE    (esistenza dato obbligatorio / duplicati)
-    CK401-CK499  → CROSS_TABLE  (coerenza referenziale tra tabelle ZIP)
+    CK401-CK499  → CROSS_TABLE  (coerenza referenziale tra tabelle dello stesso ZIP)
+    CK501-CK599  → CROSS_SOURCE (coerenza referenziale tra tabelle di ZIP/sorgenti diversi)
     CK801-CK899  → EXT_REF      (verifiche tramite servizi esterni)
 connection: mdg_postgres
 @bruin */
@@ -72,6 +73,18 @@ VALUES
     ('CK028','Materiali (S_MARC): tipo fabbisogno MTVFP obbligatorio e presente in SAP_EXPORT_TMVF',
      'MAT','S_MARC','MTVFP',
      'ref.SAP_EXPORT_TMVF (MTVFP)','Error','SAP_REF',TRUE,NOW()),
+    ('CK029','Fornitori (S_SUPPL_COMPANY): condizione pagamento ZTERM1 obbligatoria e presente in SAP_EXPORT_T052',
+     'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','ZTERM1',
+     'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
+    ('CK030','Clienti (S_CUST_COMPANY#ZBP-DatiSocieta): condizione pagamento ZTERM obbligatoria e presente in SAP_EXPORT_T052',
+     'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZTERM',
+     'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
+    ('CK031','Fornitori (S_SUPPL_COMPANY#ZBP_DatiSocieta): modalità pagamento ZWELS_01 obbligatoria e presente in SAP_EXPORT_T042Z',
+     'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','ZWELS_01',
+     'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',TRUE,NOW()),
+    ('CK032','Clienti (S_CUST_COMPANY#ZBP-DatiSocieta): modalità pagamento ZWELS_01 obbligatoria e presente in SAP_EXPORT_T042Z',
+     'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZWELS_01',
+     'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',TRUE,NOW()),
     -- EXISTENCE
     ('CK201','Fornitori: partita IVA mancante per soggetti UE/ExtraUE',
      'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXNUM(*)',
@@ -98,23 +111,19 @@ VALUES
     ('CK404','Orfani flusso 03-ZBP-Clienti: KUNNR assente nella master',
      'BP','varie (tabelle secondarie 03-ZBP-Clienti)','KUNNR(k/*)',
      'S_CUST_GEN#ZBP-DatiGenerali','Error','CROSS_TABLE',TRUE,NOW()),
-    -- EXT_REF
-    ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',
-     'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXNUM(*)',
-     'VIES (ec.europa.eu) | HMRC API v2 (api.service.hmrc.gov.uk)',
-     'Error','EXT_REF',TRUE,NOW()),
-    ('CK802','Clienti: sintesi verifica P.IVA EU/UK → stg.check_results',
-     'BP','stg.check_vat_vies','check_status',
-     'stg.check_vat_vies (output CK801)',
-     'Error','EXT_REF',TRUE,NOW()),
-    ('CK803','Fornitori: validità P.IVA EU (VIES) e UK (HMRC API v2)',
-     'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXNUM(*)',
-     'VIES (ec.europa.eu) | HMRC API v2 (api.service.hmrc.gov.uk)',
-     'Error','EXT_REF',TRUE,NOW()),
-    ('CK804','Fornitori: sintesi verifica P.IVA EU/UK → stg.check_results',
-     'BP','stg.check_vat_vies','check_status',
-     'stg.check_vat_vies (output CK803)',
-     'Error','EXT_REF',TRUE,NOW())
+    -- CROSS_SOURCE
+    ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X)',
+     'MAT','S_MARC','BESKZ',
+     'S_BOM_HEADER (MATNR)','Error','CROSS_SOURCE',TRUE,NOW()),
+    ('CK502','Materiali: ciclo di lavoro standard (PLNAL=01) obbligatorio per produzione interna o mista (BESKZ in E, X)',
+     'MAT','S_MARC','BESKZ',
+     'S_MAPL (MATNR + WERKS_MAT + PLNAL)','Error','CROSS_SOURCE',TRUE,NOW()),
+    ('CK503','Materiali: inforecord acquisti obbligatorio per acquisto esterno puro (BESKZ=F e SOBSL vuoto)',
+     'MAT','S_MARC','BESKZ + SOBSL',
+     'S_EINA#INFORMATFOR (MATNR)','Error','CROSS_SOURCE',TRUE,NOW()),
+    ('CK504','Materiali S_MARC devono essere presenti in A2F a parità di articolo e divisione (IT11→A2F_BO, IT12→A2F_FA)',
+     'MAT','S_MARC','PRODUCT(k/*) + WERKS(k/*)',
+     'A2F_BO / A2F_FA (CODART)','Error','CROSS_SOURCE',TRUE,NOW())
 ON CONFLICT (check_id) DO UPDATE SET
     check_desc   = EXCLUDED.check_desc,
     category     = EXCLUDED.category,

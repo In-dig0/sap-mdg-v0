@@ -85,6 +85,11 @@ services:
     image: drakkan/sftpgo:latest
     container_name: mdg_sftp
     restart: unless-stopped
+    # SFTPGo gira come root per gestire i permessi dei named volumes Docker
+    # (creati con owner root). Il processo SFTP interno rimane sicuro perché
+    # SFTPGo esegue il chroot per ogni utente indipendentemente dall'utente
+    # di sistema con cui gira il demone.
+    user: "0:0"
     ports:
       - "${SFTP_PORT}:2022"                        # SFTP — porta 22 esterna → 2022 interna SFTPGo
       - "${SFTPGO_ADMIN_PORT}:8080"                # WebAdmin porta 8082 esterna → 8080 interna

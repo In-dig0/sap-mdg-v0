@@ -281,10 +281,16 @@ def ingest_csv(cur, schema: str, table: str,
     df_ins["_loaded_at"]  = now_utc
 
     col_list = ", ".join(q(c) for c in df_ins.columns)
-    sql      = f"INSERT INTO {fqt} ({col_list}) VALUES %s"
+    # execute_values interpreta % come format character psycopg2.
+    # Se nomi di tabella/colonna contengono %, vanno escaped come %%.
+    # Sostituiamo tutti i % nel template TRANNE il segnaposto %s finale.
+    sql_raw  = f"INSERT INTO {fqt} ({col_list}) VALUES %s"
+    # Escapa i % che non sono seguiti da 's' (il placeholder VALUES %s)
+    import re as _re
+    sql_safe = _re.sub(r'%(?!s(?:\s|$))', '%%', sql_raw)
     rows     = [tuple(r) for r in df_ins.itertuples(index=False, name=None)]
 
-    execute_values(cur, sql, rows, page_size=500)
+    execute_values(cur, sql_safe, rows, page_size=500)
     return len(rows), discarded
 
 

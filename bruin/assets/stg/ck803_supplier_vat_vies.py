@@ -387,6 +387,18 @@ def main():
             cur.execute(DDL_CHECK_VAT_VIES)
             conn.commit()
 
+            # 2b. Pulizia selettiva: rimuove solo i record vendor
+            #     per il run corrente, lasciando intatti i record customer (CK801).
+            cur.execute("""
+                DELETE FROM stg.check_vat_vies
+                WHERE entity_type = 'vendor'
+                  AND run_id = %s
+            """, (run_id,))
+            deleted = cur.rowcount
+            conn.commit()
+            if deleted:
+                log.info(f"Rimossi {deleted} record vendor precedenti per run_id={run_id}.")
+
             # 3. Leggi VAT supplier da raw
             cur.execute("""
                 SELECT
@@ -402,15 +414,73 @@ def main():
             raw_rows = cur.fetchall()
             log.info(f"Record VAT supplier da elaborare: {len(raw_rows)}")
 
-        # 4. Inizializza client esterni
+            # 4. Carica cache: per ogni (entity_id, vat_number) cerca l'ultimo
+            #    risultato valido in stg.check_vat_vies (qualsiasi run precedente).
+            #    Sono esclusi gli ERROR perché potrebbero essere transitori
+            #    (es. SOAP Fault: MS_MAX_CONCURRENT_REQ) e vanno riverificati.
+            #    Sono esclusi anche PENDING (non dovrebbero esserci ma per sicurezza).
+            cur.execute("""
+                SELECT DISTINCT ON (entity_id, vat_number)
+                    entity_id,
+                    vat_number,
+                    check_status,
+                    vies_valid,
+                    vies_name,
+                    vies_address,
+                    vies_request_date,
+                    country_code,
+                    vat_local,
+                    is_eu,
+                    is_gb,
+                    zip_source
+                FROM stg.check_vat_vies
+                WHERE entity_type = 'vendor'
+                  AND check_status NOT IN ('ERROR', 'PENDING')
+                ORDER BY entity_id, vat_number, created_at DESC
+            """)
+            cache = {
+                (r[0], r[1]): r
+                for r in cur.fetchall()
+            }
+            log.info(f"Cache VIES vendor: {len(cache)} risultati riusabili.")
+
+        # 4b. Inizializza client esterni
         vies = ViesClient()
         hmrc = HmrcClient()
 
         # 5. Esegui check su ogni record
         results = []
+        cached_count = 0
         for i, (entity_id, taxtype, taxnum, zip_source) in enumerate(raw_rows, 1):
             vat_normalized = normalize_taxnum(taxtype, taxnum)
             log.debug(f"[{i}/{len(raw_rows)}] supplier:{entity_id} — {vat_normalized}")
+
+            # Controlla cache: (entity_id, vat_number) già verificato con successo?
+            cache_key = (entity_id, vat_normalized)
+            if cache_key in cache:
+                cached = cache[cache_key]
+                results.append({
+                    "run_id":            run_id,
+                    "check_id":          CHECK_ID,
+                    "entity_type":       "vendor",
+                    "entity_id":         entity_id,
+                    "vat_number":        vat_normalized,
+                    "country_code":      cached[7],
+                    "vat_local":         cached[8],
+                    "is_eu":             cached[9],
+                    "is_gb":             cached[10],
+                    "vies_valid":        cached[3],
+                    "vies_name":         cached[4],
+                    "vies_address":      cached[5],
+                    "vies_request_date": cached[6],
+                    "check_status":      "CACHED",
+                    "error_message":     f"Risultato riusato da run precedente: {cached[2]}",
+                    "zip_source":        zip_source,
+                    "created_at":        datetime.now(timezone.utc),
+                })
+                cached_count += 1
+                log.debug(f"  [supplier:{entity_id}] {vat_normalized} → CACHED ({cached[2]})")
+                continue
 
             result = check_single(
                 vies=vies,
@@ -423,8 +493,10 @@ def main():
             results.append(result)
 
             # Rate limiting: pausa dopo ogni chiamata reale
-            if result["check_status"] not in ("NOT_EU", "GB_NO_CREDENTIALS"):
+            if result["check_status"] not in ("NOT_EU", "GB_NO_CREDENTIALS", "CACHED"):
                 time.sleep(INTER_CALL_DELAY)
+
+        log.info(f"CACHED: {cached_count} | Da verificare: {len(raw_rows) - cached_count}")
 
         # 6. Scrivi risultati in stg.check_vat_vies
         if results:
@@ -468,6 +540,10 @@ def main():
         gb_pending = [r for r in results if r["check_status"] == "GB_NO_CREDENTIALS"]
         if gb_pending:
             print(f"[WARN] {CHECK_ID} — {len(gb_pending)} VAT GB non verificate (credenziali HMRC mancanti)")
+
+        cached = [r for r in results if r["check_status"] == "CACHED"]
+        if cached:
+            print(f"[INFO] {CHECK_ID} — {len(cached)} record riusati dalla cache (nessuna chiamata VIES/HMRC)")
 
     finally:
         conn.close()

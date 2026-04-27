@@ -59,6 +59,7 @@ def main():
             total_orphans = 0
 
             for sec_table in secondary_tables:
+                # Errori: SECONDARY_FK non presente nella master
                 cur.execute(f"""
                     SELECT DISTINCT sec.{q(SECONDARY_FK)}, sec."_source"
                     FROM raw.{q(sec_table)} sec
@@ -71,24 +72,54 @@ def main():
                       )
                 """, (f"{ZIP_PREFIX}%",))
 
-                rows = []
+                rows_err = []
                 for rec in cur.fetchall():
-                    rows.append((
+                    rows_err.append((
                         sec_table, 'BP', rec[0], CHECK_ID,
                         f"[{SECONDARY_FK.split('(')[0]}={rec[0]}] presente in {sec_table} "
                         f"ma assente nella master {MASTER_TABLE}",
                         'Error', run_id, rec[1], now,
                     ))
 
-                if rows:
+                if rows_err:
                     execute_values(cur, """
                         INSERT INTO stg.check_results (
                             source_table, category, object_key, check_id,
                             message, status, run_id, zip_source, created_at
                         ) VALUES %s
-                    """, rows, page_size=500)
-                    total_orphans += len(rows)
-                    print(f"[WARN] {CHECK_ID} — {sec_table}: {len(rows)} orfani")
+                    """, rows_err, page_size=500)
+                    total_orphans += len(rows_err)
+                    print(f"[WARN] {CHECK_ID} — {sec_table}: {len(rows_err)} orfani")
+
+                # Ok: SECONDARY_FK presente nella master
+                cur.execute(f"""
+                    SELECT DISTINCT sec.{q(SECONDARY_FK)}, sec."_source"
+                    FROM raw.{q(sec_table)} sec
+                    WHERE sec."_source" ILIKE %s
+                      AND sec.{q(SECONDARY_FK)} IS NOT NULL
+                      AND sec.{q(SECONDARY_FK)} <> ''
+                      AND EXISTS (
+                          SELECT 1 FROM raw.{q(MASTER_TABLE)} mst
+                          WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
+                      )
+                """, (f"{ZIP_PREFIX}%",))
+
+                rows_ok = []
+                for rec in cur.fetchall():
+                    rows_ok.append((
+                        sec_table, 'BP', rec[0], CHECK_ID,
+                        'Ok',
+                        'Ok', run_id, rec[1], now,
+                    ))
+
+                if rows_ok:
+                    execute_values(cur, """
+                        INSERT INTO stg.check_results (
+                            source_table, category, object_key, check_id,
+                            message, status, run_id, zip_source, created_at
+                        ) VALUES %s
+                    """, rows_ok, page_size=500)
+                    print(f"[OK] {CHECK_ID} — {sec_table}: {len(rows_ok)} record ok")
 
         conn.commit()
         if total_orphans == 0:
