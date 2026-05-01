@@ -1,34 +1,56 @@
-# Configurazione locale — mai committare
+# =============================================================================
+# MDG - Migration Data Governance | .gitignore
+# =============================================================================
+
+# --- Variabili d'ambiente — MAI committare ---
 .env
+.env.local
+.env.*.local
 
-# Chiavi SSH generate — mai committare
+# --- Chiavi SSH generate — mai committare ---
 sftpgo/keys/ssh_host_*
+*.pem
+*.key
+*_rsa
+*_ed25519
 
-# Dati PostgreSQL locali
+# --- Dati PostgreSQL locali ---
 db/data/
 
-# Datalake — dati sensibili
+# --- Datalake — dati sensibili ---
 datalake/*
 
-# File temporanei Office
+# --- Override locale Docker Compose ---
+# Contiene port mapping di sviluppo. Decommentare se non si vuole
+# committarlo (ogni sviluppatore avrà il suo).
+# docker-compose.override.yml
+
+# --- Log ---
+logs/runs
+logs/*.log
+*.log
+
+# --- Bruin ---
+.bruin.yml
+
+# --- File temporanei Office ---
 ~$*
 
-# Artefatti Python
+# --- Artefatti Python ---
 __pycache__/
 *.pyc
 *.pyo
+*.py[cod]
 .venv/
 venv/
 
-# Editor
+# --- Editor ---
 .vscode/
 .idea/
 *.swp
 
-# macOS
+# --- macOS ---
 .DS_Store
 
-.bruin.yml
-logs/runs
-logs/*.log
-*.py[cod]
+# --- Windows ---
+Thumbs.db
