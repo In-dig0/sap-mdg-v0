@@ -19,21 +19,21 @@ SELECT
     raw."PRODUCT(k/*)"                           AS object_key,
     'CK033'                                      AS check_id,
     CASE
-        WHEN raw."PRDHA" IS NULL OR raw."PRDHA" = ''
-            THEN 'PRDHA obbligatorio mancante'
+        WHEN raw."PRODH" IS NULL OR raw."PRODH" = ''
+            THEN 'PRODH obbligatorio mancante'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_PRDHA" ref
-            WHERE ref."PRDHA" = raw."PRDHA"
+            WHERE ref."PRDHA" = raw."PRODH"
         )
-            THEN 'Gerarchia prodotto [' || raw."PRDHA" || '] non presente in SAP (SAP_EXPORT_PRDHA.PRDHA)'
-        ELSE 'Gerarchia prodotto [' || raw."PRDHA" || '] valida'
+            THEN 'Gerarchia prodotto [' || raw."PRODH" || '] non presente in SAP (SAP_EXPORT_PRDHA.PRDHA)'
+        ELSE 'Gerarchia prodotto [' || raw."PRODH" || '] valida'
     END                                          AS message,
     CASE
-        WHEN raw."PRDHA" IS NULL OR raw."PRDHA" = ''
+        WHEN raw."PRODH" IS NULL OR raw."PRODH" = ''
             THEN 'Error'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_PRDHA" ref
-            WHERE ref."PRDHA" = raw."PRDHA"
+            WHERE ref."PRDHA" = raw."PRODH"
         )
             THEN 'Error'
         ELSE 'Ok'

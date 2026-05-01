@@ -5,7 +5,7 @@ depends:
   - stg.clean_check_results
 description: >
   CK007 — SAP_REF: Clienti (ZBP-DatiSocieta): campo ZTERM
-  valorizzato e presente nella tabella di riferimento SAP TVZB (ZTERM).
+  valorizzato e presente nella tabella di riferimento SAP T052 (ZTERM).
 connection: mdg_postgres
 @bruin */
 
@@ -22,16 +22,16 @@ SELECT
         WHEN raw."ZTERM" IS NULL OR raw."ZTERM" = ''
             THEN 'ZTERM obbligatorio mancante'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."SAP_EXPORT_TVZB" ref
+            SELECT 1 FROM ref."SAP_EXPORT_T052" ref
             WHERE ref."ZTERM" = raw."ZTERM"
         )
-            THEN 'Condizione pagamento [' || raw."ZTERM" || '] non presente in SAP (TVZB.ZTERM)'
+            THEN 'Condizione pagamento [' || raw."ZTERM" || '] non presente in SAP (T052.ZTERM)'
         ELSE 'Condizione pagamento [' || raw."ZTERM" || '] valida'
     END                                          AS message,
     CASE
         WHEN raw."ZTERM" IS NULL OR raw."ZTERM" = ''  THEN 'Error'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."SAP_EXPORT_TVZB" ref
+            SELECT 1 FROM ref."SAP_EXPORT_T052" ref
             WHERE ref."ZTERM" = raw."ZTERM"
         )                                               THEN 'Error'
         ELSE 'Ok'
