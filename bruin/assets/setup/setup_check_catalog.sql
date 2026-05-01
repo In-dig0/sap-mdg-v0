@@ -85,6 +85,12 @@ VALUES
     ('CK032','Clienti (S_CUST_COMPANY#ZBP-DatiSocieta): modalità pagamento ZWELS_01 obbligatoria e presente in SAP_EXPORT_T042Z',
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZWELS_01',
      'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',TRUE,NOW()),
+    ('CK033','Materiali (S_MVKE): gerarchia prodotto PRDHA obbligatoria e presente in SAP_EXPORT_PRDHA',
+     'MAT','S_MVKE','PRDHA',
+     'ref.SAP_EXPORT_PRDHA (PRDHA)','Error','SAP_REF',TRUE,NOW()),
+    ('CK034','Materiali (S_MARITC): codice nomenclatura doganale COMCO(k/*) obbligatorio e presente in SAP_CommodityCodesEU01',
+     'MAT','S_MARITC','COMCO(k/*)',
+     'ref.SAP_CommodityCodesEU01 (codice)','Error','SAP_REF',TRUE,NOW()),
     -- EXISTENCE
     ('CK201','Fornitori: partita IVA mancante per soggetti UE/ExtraUE',
      'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXNUM(*)',
@@ -111,6 +117,9 @@ VALUES
     ('CK404','Orfani flusso 03-ZBP-Clienti: KUNNR assente nella master',
      'BP','varie (tabelle secondarie 03-ZBP-Clienti)','KUNNR(k/*)',
      'S_CUST_GEN#ZBP-DatiGenerali','Error','CROSS_TABLE',TRUE,NOW()),
+    ('CK405','Materiali: PRODUCT(k/*) in S_MAKT, S_MARC, S_MARD, S_MARM, S_MBEW, S_MLAN, S_MVKE, S_QMAT deve essere presente nella master S_MARA',
+     'MAT','varie (tabelle secondarie archivio materiali)','PRODUCT(k/*)',
+     'raw.S_MARA (PRODUCT(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
     -- CROSS_SOURCE
     ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X)',
      'MAT','S_MARC','BESKZ',
@@ -123,7 +132,13 @@ VALUES
      'S_EINA#INFORMATFOR (MATNR)','Error','CROSS_SOURCE',TRUE,NOW()),
     ('CK504','Materiali S_MARC devono essere presenti in A2F a parità di articolo e divisione (IT11→A2F_BO, IT12→A2F_FA)',
      'MAT','S_MARC','PRODUCT(k/*) + WERKS(k/*)',
-     'A2F_BO / A2F_FA (CODART)','Error','CROSS_SOURCE',TRUE,NOW())
+     'A2F_BO / A2F_FA (CODART)','Error','CROSS_SOURCE',TRUE,NOW()),
+    ('CK505','BOM (S_BOM_ITEM): componente IDNRK+WERKS deve essere presente in S_MARC come coppia PRODUCT(k/*)+WERKS(k/*)',
+     'MAT','S_BOM_ITEM','IDNRK + WERKS(k)',
+     'raw.S_MARC (PRODUCT(k/*) + WERKS(k/*))','Error','CROSS_SOURCE',TRUE,NOW()),
+    ('CK506','Codici doganali (S_MARITC): coppia MATNR(k/*)+PLANT(k/*) deve essere presente in S_MARC come coppia PRODUCT(k/*)+WERKS(k/*)',
+     'MAT','S_MARITC','MATNR(k/*) + PLANT(k/*)',
+     'raw.S_MARC (PRODUCT(k/*) + WERKS(k/*))','Error','CROSS_SOURCE',TRUE,NOW())
 ON CONFLICT (check_id) DO UPDATE SET
     check_desc   = EXCLUDED.check_desc,
     category     = EXCLUDED.category,
