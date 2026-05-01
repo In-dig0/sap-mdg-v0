@@ -1,0 +1,60 @@
+# =============================================================================
+# MDG - Migration Data Governance | docker-compose.prod.yml
+# Ambiente: PRODUZIONE (OCI VPS)
+#
+# Da usare SEMPRE insieme al file base:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Strategia porte:
+#   - Postgres:       nessun mapping (solo rete interna)
+#   - PgAdmin:        solo 127.0.0.1 (raggiungibile da Nginx, non da internet)
+#   - SFTPGo SFTP:    esposto su porta non standard, da limitare via OCI Security List
+#   - SFTPGo WebAdmin:solo 127.0.0.1 (raggiungibile da Nginx, non da internet)
+#   - Streamlit:      solo 127.0.0.1
+#   - FastAPI:        solo 127.0.0.1
+#   - mdg_auth:       solo 127.0.0.1
+# =============================================================================
+
+services:
+
+  # Postgres: nessuna porta esposta — solo rete Docker interna
+  postgres: {}
+
+  # PgAdmin: solo localhost, Nginx fa da proxy
+  # Accesso: https://pgadmin.tuodominio.com (configurare in Nginx PM)
+  # Consiglio: aggiungere HTTP Basic Auth in Nginx come secondo livello
+  pgadmin:
+    ports:
+      - "127.0.0.1:${PGADMIN_PORT}:80"
+
+  # SFTP: unico servizio esposto direttamente su internet
+  # - Porta SFTP su indirizzo pubblico (cambia SFTP_PORT in una porta non standard, es. 2222)
+  # - WebAdmin solo su localhost
+  # Ricorda: nella OCI Security List aprire SOLO la porta SFTP e ristretta agli IP autorizzati
+  sftp:
+    ports:
+      - "${SFTP_PORT}:2022"
+      - "127.0.0.1:${SFTPGO_ADMIN_PORT}:8080"
+
+  # Streamlit: solo localhost, Nginx fa da proxy
+  # Accesso: https://mdg.tuodominio.com
+  streamlit:
+    ports:
+      - "127.0.0.1:${STREAMLIT_PORT}:8501"
+
+  # FastAPI: solo localhost, Nginx fa da proxy
+  # Accesso: https://api.mdg.tuodominio.com
+  fastapi:
+    ports:
+      - "127.0.0.1:${FASTAPI_PORT:-8000}:8000"
+
+  # mdg_auth: solo localhost, Nginx fa da proxy
+  # Accesso: https://auth.mdg.tuodominio.com
+  mdg_auth:
+    ports:
+      - "127.0.0.1:8001:8001"
+    # In produzione puoi aggiungere limiti di risorse:
+    deploy:
+      resources:
+        limits:
+          memory: 256M

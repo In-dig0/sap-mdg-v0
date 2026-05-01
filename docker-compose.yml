@@ -1,37 +1,36 @@
 # =============================================================================
 # MDG - Migration Data Governance | docker-compose.yml
-# Versione: v0 (sviluppo locale WSL2)
-# Servizi: PostgreSQL · PgAdmin · SFTP (atmoz) · Bruin · Streamlit
+# Versione: v1 (base — comune a tutti gli ambienti)
 #
-# NOTA WSL2: i volumi datalake sono named (non bind-mount su /mnt/d/)
-# per evitare problemi di permessi NTFS. In produzione OCI tornare
-# a bind-mount diretti.
+# NON usare direttamente: questo file va sempre affiancato da un override.
 #
-# Uso:
-#   docker compose down && docker compose up -d
-#   docker cp <file.zip> mdg_sftp:/home/mdg_sftp/from_olderp/
+#   Sviluppo locale WSL2:
+#     docker compose up -d
+#     (applica automaticamente docker-compose.override.yml)
+#
+#   Produzione OCI:
+#     docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Schemi PostgreSQL: raw · ref · stg · prd
 # =============================================================================
 
 services:
 
   # ---------------------------------------------------------------------------
   # PostgreSQL — database MDG
-  # Schemi: raw (dati ERP), ref (tabelle controllo SAP), stg (staging + check), prd (dati pronti)
   # ---------------------------------------------------------------------------
   postgres:
     image: ${POSTGRES_IMAGE}
     container_name: mdg_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      PGDATA: /var/lib/postgresql/data/pgdata
-      TZ: ${TZ}
+      PGDATA:            /var/lib/postgresql/data/pgdata
+      TZ:                ${TZ}
     volumes:
-      - postgres_data:/var/lib/postgresql/data      
-    ports:
-      - "${POSTGRES_PORT}:5432"
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -43,20 +42,17 @@ services:
 
   # ---------------------------------------------------------------------------
   # PgAdmin — interfaccia web per PostgreSQL
-  # URL: http://localhost:8080
   # ---------------------------------------------------------------------------
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: mdg_pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
-      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_DEFAULT_EMAIL:              ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD:           ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE:         "False"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
-      TZ: ${TZ}
-    ports:
-      - "${PGADMIN_PORT}:80"
+      TZ:                                 ${TZ}
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
@@ -68,54 +64,30 @@ services:
 
   # ---------------------------------------------------------------------------
   # SFTP (SFTPGo) — punto di ingresso file ZIP e XLSX
-  #
-  # Sostituisce atmoz/sftp con SFTPGo, più robusto per produzione.
-  # Volumi datalake invariati — mappati come cartelle virtuali dell'utente mdg_sftp.
-  #
-  # WebAdmin (solo rete interna, non esposto all'esterno):
-  #   http://localhost:${SFTPGO_ADMIN_PORT}   → gestione utenti, audit log, chiavi SSH
-  #
-  # Accesso SFTP client:
-  #   sftp -P ${SFTP_PORT} mdg_sftp@localhost
-  #
-  # Primo avvio: creare l'utente mdg_sftp dal WebAdmin oppure tramite
-  #   docker exec mdg_sftp sftpgo resetpwd --config-dir /var/lib/sftpgo
   # ---------------------------------------------------------------------------
   sftp:
     image: drakkan/sftpgo:latest
     container_name: mdg_sftp
     restart: unless-stopped
-    # SFTPGo gira come root per gestire i permessi dei named volumes Docker
-    # (creati con owner root). Il processo SFTP interno rimane sicuro perché
-    # SFTPGo esegue il chroot per ogni utente indipendentemente dall'utente
-    # di sistema con cui gira il demone.
     user: "0:0"
-    ports:
-      - "${SFTP_PORT}:2022"                        # SFTP — porta 22 esterna → 2022 interna SFTPGo
-      - "${SFTPGO_ADMIN_PORT}:8080"                # WebAdmin porta 8082 esterna → 8080 interna
     volumes:
-      # Dati persistenti SFTPGo (DB SQLite, log)
       - sftpgo_data:/var/lib/sftpgo
-      # Host keys SSH
       - ${SFTP_KEY_PATH}/ssh_host_ed25519_key:/var/lib/sftpgo/.ssh/ssh_host_ed25519_key:ro
       - ${SFTP_KEY_PATH}/ssh_host_rsa_key:/var/lib/sftpgo/.ssh/ssh_host_rsa_key:ro
-      # Datalake — stessi named volumes di prima
       - datalake_pprod:/datalake/in_source_pprod
       - datalake_sap:/datalake/in_source_sap
       - datalake_others:/datalake/in_source_others
       - datalake_out:/datalake/out_source_mdg
     environment:
-      SFTPGO_HTTPD__BINDINGS__0__PORT: 8080
-      SFTPGO_SFTPD__BINDINGS__0__PORT: 2022
-      SFTPGO_DATA_PROVIDER__DRIVER: sqlite
-      SFTPGO_DATA_PROVIDER__NAME: /var/lib/sftpgo/sftpgo.db
-      # Crea l'admin al primo avvio se non esiste ancora nel DB.
-      # Ai riavvii successivi questa impostazione non ha effetto.
+      SFTPGO_HTTPD__BINDINGS__0__PORT:          8080
+      SFTPGO_SFTPD__BINDINGS__0__PORT:          2022
+      SFTPGO_DATA_PROVIDER__DRIVER:             sqlite
+      SFTPGO_DATA_PROVIDER__NAME:               /var/lib/sftpgo/sftpgo.db
       SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN: "true"
-      SFTPGO_SFTPD__HOST_KEYS: /var/lib/sftpgo/.ssh/ssh_host_ed25519_key,/var/lib/sftpgo/.ssh/ssh_host_rsa_key
-      SFTPGO_DEFAULT_ADMIN_USERNAME: ${SFTPGO_ADMIN_USER}
-      SFTPGO_DEFAULT_ADMIN_PASSWORD: ${SFTPGO_ADMIN_PASSWORD}
-      TZ: ${TZ}
+      SFTPGO_SFTPD__HOST_KEYS:                  /var/lib/sftpgo/.ssh/ssh_host_ed25519_key,/var/lib/sftpgo/.ssh/ssh_host_rsa_key
+      SFTPGO_DEFAULT_ADMIN_USERNAME:            ${SFTPGO_ADMIN_USER}
+      SFTPGO_DEFAULT_ADMIN_PASSWORD:            ${SFTPGO_ADMIN_PASSWORD}
+      TZ:                                       ${TZ}
     depends_on:
       postgres:
         condition: service_healthy
@@ -124,11 +96,7 @@ services:
 
   # ---------------------------------------------------------------------------
   # Bruin — orchestratore pipeline (ingestion + quality checks)
-  #
-  # Il container resta in piedi con "sleep infinity" in attesa di
-  # docker exec da FastAPI. La pipeline viene avviata on-demand.
-  # Run manuale:
-  #   docker exec -it mdg_bruin bruin run /project/bruin
+  # Run manuale: docker exec -it mdg_bruin bruin run /project/bruin
   # ---------------------------------------------------------------------------
   bruin:
     build:
@@ -146,11 +114,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       TZ:                ${TZ}
     volumes:
-      - .:/project                              # tutta la cartella progetto
+      - .:/project
       - datalake_pprod:/project/datalake/in_source_pprod:ro
       - datalake_sap:/project/datalake/in_source_sap:ro
       - datalake_others:/project/datalake/in_source_others:ro
-      - datalake_out:/project/datalake/out_source_mdg      
+      - datalake_out:/project/datalake/out_source_mdg
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,7 +127,6 @@ services:
 
   # ---------------------------------------------------------------------------
   # Streamlit — dashboard qualità dati MDG
-  # URL: http://localhost:8501
   # ---------------------------------------------------------------------------
   streamlit:
     build:
@@ -167,19 +134,17 @@ services:
       dockerfile: Dockerfile
     container_name: mdg_streamlit
     restart: unless-stopped
-    ports:
-      - "${STREAMLIT_PORT}:8501"
     environment:
       POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_PORT: ${POSTGRES_PORT}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_DB:   ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       TZ: ${TZ}
     volumes:
       - ./streamlit/app:/app
       - ./bruin/config:/app/config
-      - ./logs:/app/logs         
+      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -188,9 +153,7 @@ services:
 
   # ---------------------------------------------------------------------------
   # FastAPI — Pipeline Controller
-  # URL: http://localhost:8000
-  # Docs Swagger: http://localhost:8000/docs
-  # Docs ReDoc:   http://localhost:8000/redoc
+  # Docs: /docs (Swagger) · /redoc (ReDoc)
   # ---------------------------------------------------------------------------
   fastapi:
     build:
@@ -198,14 +161,12 @@ services:
       dockerfile: Dockerfile
     container_name: mdg_fastapi
     restart: unless-stopped
-    ports:
-      - "${FASTAPI_PORT:-8000}:8000"
     environment:
       BRUIN_CONTAINER:   mdg_bruin
       BRUIN_PIPELINE:    /project/bruin
       SEMAPHORE_PATH:    /data/inbound/DATASET_READY.txt
-      SAP_PATH:          /data/in_source_sap 
-      OTHERS_PATH:       /data/in_source_others       
+      SAP_PATH:          /data/in_source_sap
+      OTHERS_PATH:       /data/in_source_others
       LOG_DIR:           /logs
       POSTGRES_HOST:     ${POSTGRES_HOST}
       POSTGRES_PORT:     ${POSTGRES_PORT}
@@ -214,16 +175,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       TZ:                ${TZ}
     volumes:
-      # Socket Docker — permette a FastAPI di fare 'docker exec mdg_bruin ...'
       - /var/run/docker.sock:/var/run/docker.sock
-      # Volume datalake ERP — per leggere/creare il file semaforo DATASET_READY.txt
       - datalake_pprod:/data/inbound
       - datalake_sap:/data/in_source_sap
-      - datalake_others:/data/in_source_others       
-      # Log persistenti dei run
+      - datalake_others:/data/in_source_others
       - api_logs:/logs
       - ./api:/app
-       
     depends_on:
       postgres:
         condition: service_healthy
@@ -231,8 +188,7 @@ services:
       - mdg_network
 
   # ---------------------------------------------------------------------------
-  # FastAPI + JWT Authentication Controller
-  # URL: http://localhost:8001
+  # mdg_auth — FastAPI + JWT Authentication Controller
   # ---------------------------------------------------------------------------
   mdg_auth:
     build:
@@ -247,16 +203,15 @@ services:
       POSTGRES_USER:        ${POSTGRES_USER}
       POSTGRES_PASSWORD:    ${POSTGRES_PASSWORD}
       JWT_SECRET:           ${JWT_SECRET}
-      JWT_LIFETIME_SECONDS: 28800        # 8 ore
-      ADMIN_EMAIL:          ${ADMIN_EMAIL}       
-      ADMIN_PASSWORD:       ${ADMIN_PASSWORD}    
-      ADMIN_NAME:           ${ADMIN_NAME}              
+      JWT_LIFETIME_SECONDS: 28800
+      ADMIN_EMAIL:          ${ADMIN_EMAIL}
+      ADMIN_PASSWORD:       ${ADMIN_PASSWORD}
+      ADMIN_NAME:           ${ADMIN_NAME}
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - mdg_network
-    depends_on:
-      - postgres
-    ports:
-      - "8001:8001"    # solo sviluppo — rimuovi in produzione OCI
 
 # =============================================================================
 # Volumi
@@ -275,10 +230,9 @@ volumes:
   datalake_others:
     name: mdg_datalake_others
   datalake_out:
-    name: mdg_datalake_out      
+    name: mdg_datalake_out
   api_logs:
     name: mdg_api_logs
-  
 
 # =============================================================================
 # Rete interna
