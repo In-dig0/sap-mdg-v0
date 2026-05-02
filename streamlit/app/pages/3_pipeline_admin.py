@@ -1,5 +1,7 @@
 """
 MDG — Migration Data Governance
+POSIZIONE: mdg-v0/streamlit/app/pages/3_pipeline_admin.py
+
 Pipeline Admin — Controllo pipeline e analisi log
 """
 

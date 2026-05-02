@@ -1,4 +1,5 @@
 """
+MDG — Migration Data Governance
 POSIZIONE: mdg-v0/streamlit/app/pages/5_View_Data.py
 
 View Data — visualizzazione tabelle per schema DB

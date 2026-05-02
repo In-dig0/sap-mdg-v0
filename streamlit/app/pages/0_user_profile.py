@@ -1,8 +1,9 @@
 """
-POSIZIONE: mdg-v0/streamlit/app/pages/0_Profilo.py
+MDG — Migration Data Governance
+POSIZIONE: mdg-v0/streamlit/app/pages/0_user_profile.py
 
+Profilo utente — gestione dati personali e cambio password
 Pagina profilo utente — accessibile a tutti i ruoli.
-Mostra i dati dell'utente loggato e permette il cambio password.
 """
 
 import os

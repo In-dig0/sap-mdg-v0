@@ -1,5 +1,7 @@
 """
 MDG — Migration Data Governance
+POSIZIONE: mdg-v0/streamlit/app/pages/8_edit_tables.py
+
 Edit Tables — Visualizzazione e modifica delle tabelle schema stg
 """
 

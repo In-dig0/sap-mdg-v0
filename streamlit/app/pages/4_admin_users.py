@@ -1,4 +1,8 @@
 """
+MDG — Migration Data Governance
+Admin Users — gestione utenti e ruoli per gli amministratori
+Pagina di gestione utenti — accessibile solo a IT Admin.
+
 POSIZIONE: mdg-v0/streamlit/app/pages/4_Admin_Users.py
 """
 

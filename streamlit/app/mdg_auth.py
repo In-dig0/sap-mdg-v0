@@ -162,24 +162,24 @@ def render_sidebar_menu():
     role = st.session_state.get("mdg_role", "business_role")
 
     # Pagine comuni a tutti i ruoli
-    st.sidebar.page_link("pages/9_Info.py",                label="ℹ️ Info")
-    st.sidebar.page_link("Dashboard.py",                   label="📊 Dashboard")
-    st.sidebar.page_link("pages/1_Check_Results.py",       label="✅ Check Results")
-    st.sidebar.page_link("pages/5_View_Data.py",           label="🗄️ View Data")
-    st.sidebar.page_link("pages/0_User_Profile.py",        label="👤 My Profile")
+    st.sidebar.page_link("pages/9_info.py",                label="ℹ️ Info")
+    st.sidebar.page_link("dashboard.py",                   label="📊 Riepilogo esito controlli")
+    st.sidebar.page_link("pages/1_check_results.py",       label="✅ Dettaglio esito controlli")
+    st.sidebar.page_link("pages/5_view_data.py",           label="🗄️ Visualizza Dati")
+    st.sidebar.page_link("pages/0_user_profile.py",        label="👤 Il mio profilo")
 
-    # Pagine riservate agli IT user (admin)
+    # Pagine riservate agli IT user o Admin user
     if role == "it_role":
         st.sidebar.divider()
         st.sidebar.caption("IT Role — Funzionalità avanzate")
-        st.sidebar.page_link("pages/2_Check_Catalog.py",  label="📋 Check Catalog")
-        st.sidebar.page_link("pages/3_Pipeline_Admin.py", label="⚙️ Pipeline Admin")      
-        st.sidebar.page_link("pages/4_Admin_Users.py",    label="👥 Users")
+        st.sidebar.page_link("pages/2_check_catalog.py",  label="📋 Catalogo controlli")
+        st.sidebar.page_link("pages/3_pipeline_admin.py", label="⚙️ Gestion Pipeline")      
+        st.sidebar.page_link("pages/4_admin_Users.py",    label="👥 Utenti")
     elif role == "admin_role":
         st.sidebar.divider()
         st.sidebar.caption("Admin Role — Funzionalità avanzate")
-        st.sidebar.page_link("pages/2_Check_Catalog.py",  label="📋 Check Catalog")
-        st.sidebar.page_link("pages/3_Pipeline_Admin.py", label="⚙️ Pipeline Admin")      
-        st.sidebar.page_link("pages/4_Admin_Users.py",    label="👥 Users")
-        st.sidebar.page_link("pages/8_Edit_Tables.py",    label="✏️ Edit Tables")
-        st.sidebar.page_link("pages/7_Targhette_Diba.py", label="🔩 Targhette + DIBA")                                     
+        st.sidebar.page_link("pages/2_check_catalog.py",  label="📋 Catalogo controlli")
+        st.sidebar.page_link("pages/3_pipeline_admin.py", label="⚙️ Gestion Pipeline")      
+        st.sidebar.page_link("pages/4_admin_users.py",    label="👥 Utenti")
+        st.sidebar.page_link("pages/8_edit_tables.py",    label="✏️ Modifica Tabelle")
+        st.sidebar.page_link("pages/7_targhette_diba.py", label="🔩 Targhette + DIBA")                                     

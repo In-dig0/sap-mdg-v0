@@ -1,5 +1,7 @@
 """
 MDG — Migration Data Governance
+POSIZIONE: mdg-v0/streamlit/app/pages/9_info.py
+
 Info — Scopo della pipeline e architettura dei container
 """
 

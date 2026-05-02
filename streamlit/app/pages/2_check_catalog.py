@@ -1,5 +1,7 @@
 """
 MDG — Migration Data Governance
+POSIZIONE: mdg-v0/streamlit/app/pages/2_check_catalog.py
+
 Check Catalog — visualizza e gestisce i controlli attivi della pipeline
 """
 
