@@ -9,7 +9,19 @@ set -euo pipefail
 echo "🔧 MDG v0 — Setup iniziale"
 echo "================================="
 
-# 1. Copia .env se non esiste
+# 1. Configura Git per non convertire i fine riga (critico su Windows)
+#    Evita che i file .sh vengano salvati con CRLF e non funzionino su Linux
+git config core.autocrlf false
+echo "✅ Git configurato per LF (core.autocrlf=false)"
+
+# 2. Normalizza i fine riga di tutti gli script .sh già presenti nel repo
+#    (necessario se il clone è avvenuto prima di questa impostazione)
+if command -v sed &>/dev/null; then
+    find . -name "*.sh" -not -path "./.git/*" -exec sed -i 's/\r//' {} \;
+    echo "✅ Fine riga normalizzati (CRLF → LF) su tutti i file .sh"
+fi
+
+# 3. Copia .env se non esiste
 if [ ! -f .env ]; then
     cp .env.example .env 2>/dev/null || true
     echo "✅ File .env creato — personalizza le password prima di procedere!"
@@ -17,7 +29,7 @@ else
     echo "ℹ️  File .env già presente, non sovrascritto."
 fi
 
-# 2. Genera chiavi SSH host per il container SFTP (SFTPGo)
+# 4. Genera chiavi SSH host per il container SFTP (SFTPGo)
 mkdir -p sftpgo/keys
 if [ ! -f sftpgo/keys/ssh_host_ed25519_key ]; then
     ssh-keygen -t ed25519 -f sftpgo/keys/ssh_host_ed25519_key -N "" -q
@@ -35,11 +47,11 @@ else
     echo "ℹ️  Chiave SSH RSA già presente."
 fi
 
-# 3. Rende eseguibile lo script di provisioning utente SFTPGo
+# 5. Rende eseguibile lo script di provisioning utente SFTPGo
 chmod +x sftpgo/provision_user.sh
 echo "✅ sftpgo/provision_user.sh pronto."
 
-# 4. Crea le directory necessarie
+# 6. Crea le directory necessarie
 mkdir -p pgadmin streamlit/app logs
 echo "✅ Directory struttura progetto verificate."
 
@@ -49,12 +61,14 @@ echo "✅ Setup completato!"
 echo ""
 echo "Prossimi passi:"
 echo "  1. Modifica le password in .env"
-echo "  2. docker compose up -d"
+echo "     (vedi .env.example per la struttura)"
+echo "  2. Avvia lo stack:"
+echo "     docker compose up -d"
 echo "  3. Crea l'utente SFTP (solo al primo avvio):"
-echo "     ./sftpgo/provision_user.sh"
-echo "  4. Verifica i servizi:"
-echo "     • PgAdmin:        http://localhost:8080"
-echo "     • Streamlit:      http://localhost:8501"
-echo "     • SFTPGo WebAdmin:http://localhost:8082"
-echo "     • SFTP client:    sftp -P 22 mdg_sftp@localhost"
+echo "     bash sftpgo/provision_user.sh"
+echo "  4. Verifica i servizi (porte da .env):"
+echo "     • PgAdmin:         http://localhost:<PGADMIN_PORT>"
+echo "     • Streamlit:       http://localhost:<STREAMLIT_PORT>"
+echo "     • SFTPGo WebAdmin: http://localhost:<SFTPGO_ADMIN_PORT>"
+echo "     • SFTP client:     sftp -P <SFTP_PORT> mdg_sftp@localhost"
 echo ""
