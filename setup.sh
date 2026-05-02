@@ -55,6 +55,35 @@ echo "✅ sftpgo/provision_user.sh pronto."
 mkdir -p pgadmin streamlit/app logs
 echo "✅ Directory struttura progetto verificate."
 
+# 7. Genera .bruin.yml dal .env
+#    Bruin non espande variabili d'ambiente — questo step sostituisce i
+#    placeholder con i valori reali letti dal .env.
+if [ -f ".env" ]; then
+    # Carica le variabili del .env (ignora righe vuote e commenti)
+    set +u  # disabilita temporaneamente il controllo variabili non definite
+    export $(grep -v '^#' .env | grep -v '^$' | xargs)
+    set -u
+
+    cat > .bruin.yml << EOF
+default_environment: default
+environments:
+  default:
+    connections:
+      postgres:
+        - name: "mdg_postgres"
+          username: "${POSTGRES_USER}"
+          password: "${POSTGRES_PASSWORD}"
+          host: "${POSTGRES_HOST}"
+          port: ${POSTGRES_PORT}
+          database: "${POSTGRES_DB}"
+          ssl_mode: "disable"
+          schema: "raw"
+EOF
+    echo "✅ .bruin.yml generato dal .env"
+else
+    echo "⚠️  .env non trovato — .bruin.yml non generato. Esegui setup.sh dopo aver creato .env."
+fi
+
 echo ""
 echo "================================="
 echo "✅ Setup completato!"
