@@ -59,10 +59,14 @@ echo "✅ Directory struttura progetto verificate."
 #    Bruin non espande variabili d'ambiente — questo step sostituisce i
 #    placeholder con i valori reali letti dal .env.
 if [ -f ".env" ]; then
-    # Carica le variabili del .env (ignora righe vuote e commenti)
-    set +u  # disabilita temporaneamente il controllo variabili non definite
+    set +u
     export $(grep -v '^#' .env | grep -v '^$' | xargs)
     set -u
+
+    # Assicura che il file sia scrivibile dall'utente corrente
+    if [ -f ".bruin.yml" ]; then
+        sudo chown "$(whoami):$(whoami)" .bruin.yml 2>/dev/null || true
+    fi
 
     cat > .bruin.yml << EOF
 default_environment: default
