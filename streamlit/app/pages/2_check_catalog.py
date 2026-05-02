@@ -108,7 +108,6 @@ def get_check_types() -> list[str]:
             db_types = [r["check_type"] for r in cur.fetchall()]
     finally:
         conn.close()
-    # Prima i tipi con ordine logico noto, poi gli eventuali nuovi alfabeticamente
     known   = [t for t in LOGICAL_ORDER if t in db_types]
     unknown = sorted(t for t in db_types if t not in LOGICAL_ORDER)
     return known + unknown
@@ -172,10 +171,16 @@ tab_controllo, tab_backup = st.tabs(["📋 Controllo", "💾 Import / Export"])
 # ===========================================================================
 with tab_controllo:
 
+    # Verifica anticipata che la tabella esista — evita crash sulla riga dei filtri
+    try:
+        check_types_db = get_check_types()
+    except Exception:
+        st.info("⚠️ Nessun dato disponibile. Avvia la pipeline Bruin per inizializzare il database.")
+        st.stop()
+
     # Filtri
     col_type, col_sev, col_active, _ = st.columns([2, 2, 2, 2])
     with col_type:
-        check_types_db = get_check_types()
         type_filter = st.selectbox(
             "Tipo controllo",
             options=["Tutti"] + check_types_db,
@@ -253,8 +258,6 @@ with tab_controllo:
         st.markdown(f"{header}\n{rows}")
 
     # Card per ogni check con toggle
-    # Palette colori e label per tipo — estendibile senza modificare il codice:
-    # se arriva un tipo non mappato, viene usato il colore/label di fallback.
     TYPE_COLORS_MAP = {
         "SAP_REF":      "#4A90D9",
         "EXISTENCE":    "#E8A838",
@@ -349,7 +352,6 @@ with tab_backup:
             records = export_catalog()
             json_bytes = json.dumps(records, indent=2, default=str).encode("utf-8")
 
-            # Mostra anteprima dettagliata
             st.success(f"✅ {len(records)} record pronti per il download.")
             df_export = pd.DataFrame(records)[
                 ["check_id", "category", "check_type", "severity", "check_desc",
@@ -388,7 +390,6 @@ with tab_backup:
         try:
             records = json.loads(uploaded.read().decode("utf-8"))
 
-            # Recupera i check_id già presenti nel DB per distinguere insert da update
             try:
                 df_existing = run_query("SELECT check_id FROM stg.check_catalog")
                 existing_ids = set(df_existing["check_id"].tolist()) if not df_existing.empty else set()
@@ -400,7 +401,6 @@ with tab_backup:
 
             st.info(f"File caricato: **{len(records)} record** — 🟢 {len(new_records)} nuovi, 🟡 {len(upd_records)} da aggiornare.")
 
-            # Anteprima con evidenza nuovi vs aggiornati
             rows_preview = []
             for r in records:
                 rows_preview.append({
