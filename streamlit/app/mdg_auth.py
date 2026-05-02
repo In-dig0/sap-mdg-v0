@@ -107,7 +107,7 @@ def require_login():
             on_profilo = False
 
         if not on_profilo:
-            st.switch_page("pages/0_User_Profile.py")
+            st.switch_page("pages/0_user_profile.py")
 
 
 def require_role(role: str):
