@@ -174,7 +174,7 @@ def render_sidebar_menu():
         st.sidebar.caption("IT Role — Funzionalità avanzate")
         st.sidebar.page_link("pages/2_check_catalog.py",  label="📋 Catalogo controlli")
         st.sidebar.page_link("pages/3_pipeline_admin.py", label="⚙️ Gestion Pipeline")      
-        st.sidebar.page_link("pages/4_admin_Users.py",    label="👥 Utenti")
+        st.sidebar.page_link("pages/4_admin_users.py",    label="👥 Utenti")
     elif role == "admin_role":
         st.sidebar.divider()
         st.sidebar.caption("Admin Role — Funzionalità avanzate")

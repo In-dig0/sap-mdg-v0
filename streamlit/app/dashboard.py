@@ -234,4 +234,4 @@ else:
                 ):
                     st.session_state["detail_check_id"]     = check_id
                     st.session_state["detail_source_table"] = source_table
-                    st.switch_page("pages/1_Check_Results.py")
+                    st.switch_page("pages/1_check_results.py")
