@@ -436,6 +436,8 @@ def pipeline_runs(limit: int = 20):
             }
             for r in rows
         ]
+    except psycopg2.errors.UndefinedTable:
+        return []   # tabella non ancora creata — pipeline mai lanciata    
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Errore DB: {e}")
 
