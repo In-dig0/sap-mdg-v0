@@ -82,13 +82,16 @@ try:
           AND table_type = 'BASE TABLE'
         ORDER BY table_name
     """, (selected_schema,))
-    tabelle = [t for t in df_tables["table_name"].tolist() if t not in SYSTEM_TABLES]
+    if df_tables.empty or "table_name" not in df_tables.columns:
+        tabelle = []
+    else:
+        tabelle = [t for t in df_tables["table_name"].tolist() if t not in SYSTEM_TABLES]
 except Exception as e:
     st.error(f"Errore connessione DB: {e}")
     st.stop()
 
 if not tabelle:
-    st.info(f"Nessuna tabella trovata nello schema **{selected_schema}**.")
+    st.info(f"Nessuna tabella trovata nello schema **{selected_schema}**. Avvia la pipeline Bruin per inizializzare il database.")
     st.stop()
 
 with col_tab:
@@ -107,7 +110,7 @@ if not selected_table or selected_table == "— Seleziona —":
     st.info("👆 Seleziona una tabella per visualizzarne il contenuto.")
     st.stop()
 
-# Conteggio righe (aggiornato dopo che filter_col e filter_values sono noti)
+# Conteggio righe
 try:
     df_count = run_query(f'SELECT COUNT(*) AS n FROM {selected_schema}."{selected_table}"')
     n_rows = int(df_count["n"].iloc[0])
@@ -123,7 +126,7 @@ try:
         WHERE table_schema = %s AND table_name = %s
         ORDER BY ordinal_position
     """, (selected_schema, selected_table))
-    available_columns = df_cols["column_name"].tolist()
+    available_columns = df_cols["column_name"].tolist() if not df_cols.empty else []
 except Exception:
     available_columns = []
 
@@ -159,7 +162,6 @@ with st.expander("🔎 Filtro per colonna", expanded=False):
     filter_mode = "include"
 
     if filter_col and filter_col != "— nessun filtro —":
-        # Legge i valori distinti della colonna dal DB
         try:
             df_vals = run_query(
                 f'SELECT DISTINCT "{filter_col}" AS val '
@@ -168,7 +170,7 @@ with st.expander("🔎 Filtro per colonna", expanded=False):
                 f'ORDER BY 1 '
                 f'LIMIT 500',
             )
-            distinct_values = df_vals["val"].astype(str).tolist()
+            distinct_values = df_vals["val"].astype(str).tolist() if not df_vals.empty else []
         except Exception:
             distinct_values = []
 
@@ -180,7 +182,6 @@ with st.expander("🔎 Filtro per colonna", expanded=False):
                 key="filter_values_ms",
                 placeholder="Seleziona uno o più valori...",
             )
-            # Se l'utente sceglie "(tutti)" oppure non sceglie nulla → nessun filtro
             if "(tutti)" in selected_values or not selected_values:
                 filter_values = []
             else:
@@ -203,8 +204,7 @@ with st.expander("🔎 Filtro per colonna", expanded=False):
                 + (f" ... +{len(filter_values)-10} altri" if len(filter_values) > 10 else "")
             )
 
-# Carica dati — il filtro colonna viene applicato direttamente nella query SQL
-# per evitare che il LIMIT tagli i record prima del filtro stesso.
+# Carica dati
 try:
     where_clause = ""
     query_params: list = [max_rows]
@@ -227,7 +227,7 @@ except Exception as e:
 
 col_c.metric("Colonne", len(df.columns))
 
-# Applica filtro testo libero (sempre su DataFrame, è una ricerca full-text)
+# Applica filtro testo libero
 if search_text and not df.empty:
     mask = df.apply(
         lambda col: col.astype(str).str.contains(search_text, case=False, na=False)
@@ -242,7 +242,7 @@ if df_show.empty:
     st.info("Nessun record trovato con il filtro applicato.")
 else:
     df_show = df_show.reset_index(drop=True)
-    df_show.index = df_show.index + 1  # parte da 1
+    df_show.index = df_show.index + 1
     st.dataframe(df_show, use_container_width=True, hide_index=False)
 
     csv = df_show.to_csv(index=False).encode("utf-8")
