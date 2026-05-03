@@ -118,6 +118,10 @@ except Exception as e:
     st.error(f"Errore: {e}")
     st.stop()
 
+if n_rows == 0:
+    st.info(f"La tabella **{selected_table}** è vuota.")
+    st.stop()
+
 # Carica colonne disponibili per il filtro dinamico
 try:
     df_cols = run_query("""
