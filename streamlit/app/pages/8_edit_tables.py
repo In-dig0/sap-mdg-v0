@@ -237,17 +237,21 @@ st.divider()
 all_cols = get_table_columns(selected_table)
 key_cols = get_key_columns(all_cols)
 
-# Resetta stato se cambia tabella
-if st.session_state.get("_last_table") != selected_table:
-    st.session_state["_last_table"]    = selected_table
-    st.session_state["_orig_df"]       = None
-    st.session_state["_selected_row"]  = None
+# Resetta stato se cambia tabella o filtri
+filter_key = f"{selected_table}_{status_filter}_{search_text}"
+if st.session_state.get("_last_filter_key") != filter_key:
+    st.session_state["_last_filter_key"] = filter_key
+    st.session_state["_orig_df"]         = None
+    st.session_state["_selected_row"]    = None
 
 df = load_table(selected_table, status_filter, search_text)
 
 if df.empty:
     st.info("Nessun record trovato con i filtri selezionati.")
     st.stop()
+
+# Aggiunge colonna indice visibile (da 1)
+df.insert(0, "#", range(1, len(df) + 1))
 
 # Salva df originale
 if st.session_state.get("_orig_df") is None:
@@ -277,6 +281,16 @@ gb.configure_default_column(
     minWidth=100,
 )
 gb.configure_selection(selection_mode="single", use_checkbox=False)
+
+# Colonna indice — non editabile, pinned a sinistra, larghezza fissa
+gb.configure_column(
+    "#",
+    editable=False,
+    pinned="left",
+    width=60,
+    maxWidth=60,
+    cellStyle={"backgroundColor": "#1e293b", "color": "#64748b", "textAlign": "center"},
+)
 
 # Colonne non editabili
 for col in key_present + audit_present:
@@ -344,11 +358,11 @@ if "save_msg" in st.session_state:
 # ── Salvataggio ──────────────────────────────────────────────────────────────
 if save_clicked:
     updated_df  = grid_response["data"]
-    # Rimuove colonne interne aggiunte da AG Grid
-    internal_cols = [c for c in updated_df.columns if c.startswith("[::")]
+    # Rimuove colonne interne aggiunte da AG Grid e la colonna indice
+    internal_cols = [c for c in updated_df.columns if c.startswith("[::") or c == "#"]
     if internal_cols:
         updated_df = updated_df.drop(columns=internal_cols)
-    original_df = st.session_state["_orig_df"]
+    original_df = st.session_state["_orig_df"].drop(columns=["#"], errors="ignore")
     n_saved = 0
 
     for i in range(min(len(updated_df), len(original_df))):
@@ -381,7 +395,7 @@ if delete_clicked:
 st.markdown("<br>", unsafe_allow_html=True)
 with st.expander("⬇️ Esporta dati correnti", expanded=False):
     returned_df = grid_response["data"]
-    export_cols = [c for c in df.columns if c not in {"_status", "_source", "_loaded_at"} and c in returned_df.columns]
+    export_cols = [c for c in df.columns if c not in {"#", "_status", "_source", "_loaded_at"} and c in returned_df.columns]
     df_export   = returned_df[export_cols].reset_index(drop=True)
 
     buf = io.BytesIO()
