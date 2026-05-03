@@ -104,7 +104,7 @@ def load_table(table: str, status_filter: str, search: str) -> pd.DataFrame:
             params.append(status_filter)
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        query = f'SELECT * FROM {fqt} {where} ORDER BY 1 LIMIT 2000'
+        query = f'SELECT * FROM {fqt} {where} ORDER BY 1'
 
         df = pd.read_sql(query, conn, params=params if params else None)
         conn.close()
