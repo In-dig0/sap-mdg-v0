@@ -3,6 +3,7 @@ name: stg.ck041_supplier_country_stg
 type: pg.sql
 depends:
   - stg.clean_check_results
+  - stg.detect_new_records
 description: >
   CK041 — SAP_REF: Fornitori STG: codice paese (COUNTRY) valorizzato
   e presente nella tabella di riferimento SAP T005S (LAND1).

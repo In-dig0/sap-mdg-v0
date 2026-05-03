@@ -128,9 +128,31 @@ def load_table(table: str, status_filter: str, search: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def truncate_table(table: str) -> bool:
+    """Svuota completamente una tabella STG."""
+    fqt  = f'{STG_SCHEMA}.{q(table)}'
+    conn = get_connection()
+    cur  = conn.cursor()
+    try:
+        cur.execute(f'TRUNCATE TABLE {fqt}')
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        st.error(f"Errore TRUNCATE: {e}")
+        return False
+    finally:
+        cur.close()
+        conn.close()
+
+
 def save_row(table: str, original_row: dict, updated_row: dict,
              key_cols: list[str]) -> bool:
-    """Salva una singola riga modificata con UPDATE."""
+    """
+    Salva una singola riga modificata con UPDATE.
+    Il WHERE usa le colonne chiave del record ORIGINALE per identificare
+    univocamente la riga — sicuro anche dopo sort/filter nella griglia.
+    """
     if not key_cols:
         st.warning("⚠️ Tabella senza colonne chiave — UPDATE non supportato.")
         return False
@@ -140,7 +162,7 @@ def save_row(table: str, original_row: dict, updated_row: dict,
     cur  = conn.cursor()
 
     try:
-        # Determina le colonne cambiate
+        # Colonne effettivamente cambiate (escludi audit e chiavi)
         changed = {
             col: updated_row[col]
             for col in updated_row
@@ -153,6 +175,8 @@ def save_row(table: str, original_row: dict, updated_row: dict,
         set_clause   = ", ".join(f'{q(c)} = %s' for c in changed)
         set_vals     = list(changed.values())
         set_vals.append(pd.Timestamp.now(tz="UTC"))
+
+        # WHERE costruito sui valori chiave ORIGINALI
         where_clause = " AND ".join(f'{q(k)} = %s' for k in key_cols)
         where_vals   = [original_row[k] for k in key_cols]
 
@@ -347,6 +371,27 @@ with col_reset:
         st.session_state["_orig_df"] = None
         st.rerun()
 
+# ── Zona pericolosa — TRUNCATE ───────────────────────────────────────────────
+with st.expander("⚠️ Zona Admin — operazioni irreversibili", expanded=False):
+    st.warning(f"**TRUNCATE** svuota completamente la tabella `stg.{selected_table}`. L'operazione è irreversibile.")
+    col_trunc, col_confirm = st.columns([2, 3])
+    with col_trunc:
+        trunc_clicked = st.button("🗑️ Svuota tabella", type="secondary", use_container_width=True)
+    with col_confirm:
+        trunc_confirm = st.text_input(
+            "Digita il nome della tabella per confermare",
+            placeholder=selected_table,
+            key="trunc_confirm",
+        )
+    if trunc_clicked:
+        if trunc_confirm == selected_table:
+            if truncate_table(selected_table):
+                st.session_state["save_msg"] = (f"🗑️ Tabella `{selected_table}` svuotata.", "success")
+                st.session_state["_orig_df"] = None
+                st.rerun()
+        else:
+            st.error("Nome tabella non corretto — operazione annullata.")
+
 # ── Messaggio di ritorno dopo rerun ─────────────────────────────────────────
 if "save_msg" in st.session_state:
     msg, msg_type = st.session_state.pop("save_msg")
@@ -363,20 +408,30 @@ if save_clicked:
     if internal_cols:
         updated_df = updated_df.drop(columns=internal_cols)
     original_df = st.session_state["_orig_df"].drop(columns=["#"], errors="ignore")
-    n_saved = 0
 
-    for i in range(min(len(updated_df), len(original_df))):
-        orig = original_df.iloc[i].to_dict()
-        upd  = updated_df.iloc[i].to_dict()
-        if orig != upd:
-            if save_row(selected_table, orig, upd, key_cols):
-                n_saved += 1
-
-    if n_saved:
-        st.session_state["save_msg"] = (f"✅ {n_saved} righe salvate.", "success")
-        st.session_state["_orig_df"] = None
+    if not key_cols:
+        st.warning("⚠️ Questa tabella non ha colonne chiave — salvataggio non supportato.")
     else:
-        st.session_state["save_msg"] = ("Nessuna modifica rilevata.", "info")
+        # Confronto sicuro per chiave, non per posizione
+        # Costruisce un dizionario {chiave_tuple: riga_originale}
+        def make_key(row):
+            return tuple(str(row.get(k, "")) for k in key_cols)
+
+        orig_by_key = {make_key(r): r for r in original_df.to_dict("records")}
+        n_saved = 0
+
+        for upd in updated_df.to_dict("records"):
+            key = make_key(upd)
+            orig = orig_by_key.get(key)
+            if orig and orig != upd:
+                if save_row(selected_table, orig, upd, key_cols):
+                    n_saved += 1
+
+        if n_saved:
+            st.session_state["save_msg"] = (f"✅ {n_saved} righe salvate.", "success")
+            st.session_state["_orig_df"] = None
+        else:
+            st.session_state["save_msg"] = ("Nessuna modifica rilevata.", "info")
     st.rerun()
 
 # ── Eliminazione riga selezionata ────────────────────────────────────────────

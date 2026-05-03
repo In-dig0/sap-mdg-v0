@@ -3,6 +3,7 @@ name: stg.ck044_customer_country_region_stg
 type: pg.sql
 depends:
   - stg.clean_check_results
+  - stg.detect_new_records  
 description: >
   CK044 — SAP_REF: Clienti STG: coppia COUNTRY(*)+REGION presente in T005S.
 connection: mdg_postgres

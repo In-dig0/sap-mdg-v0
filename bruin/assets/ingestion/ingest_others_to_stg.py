@@ -8,7 +8,8 @@ description: >
   - Nomi colonne = intestazioni originali invariate (virgolette doppie).
   - _status forzato a 'EXISTS' indipendentemente dal valore nel file.
   - UNIQUE index sulla colonna chiave (k) per prevenire duplicati.
-  - Se la tabella esiste già → skip (gestita da detect_new_records).
+  - Se la tabella esiste ed è popolata → skip (gestita da detect_new_records).
+  - Se la tabella esiste ma è vuota (es. dopo TRUNCATE) → ricarica i dati.
   - Colonne audit: _status TEXT, _source TEXT, _loaded_at TIMESTAMPTZ.
 depends:
   - ingestion.ingest_zip_to_raw
@@ -50,21 +51,31 @@ def table_exists(cur, schema: str, table: str) -> bool:
     return cur.fetchone() is not None
 
 
+def table_has_rows(cur, schema: str, table: str) -> bool:
+    """Restituisce True se la tabella contiene almeno una riga."""
+    cur.execute(f'SELECT EXISTS (SELECT 1 FROM {schema}."{table}" LIMIT 1)')
+    return cur.fetchone()[0]
+
+
 def get_key_columns(col_names: list[str]) -> list[str]:
     return [c for c in col_names if re.search(r"\(.*?k.*?\)", c)]
 
 
 def load_xlsx(cur, xlsx_path: str, loaded_at: str) -> tuple[int, bool]:
     """
-    Carica un singolo file XLSX in stg solo se la tabella non esiste ancora.
-    - _status forzato a 'EXISTS' (ignora il valore nel file)
-    - UNIQUE index sulla chiave per bloccare duplicati da detect_new_records
+    Carica un singolo file XLSX in stg.
+    - Skip solo se la tabella esiste ED è popolata (gestita da detect_new_records).
+    - Se la tabella esiste ma è vuota (dopo TRUNCATE) → reinserisce i dati.
+    - _status forzato a 'EXISTS' (ignora il valore nel file).
+    - UNIQUE index sulla chiave per bloccare duplicati da detect_new_records.
     """
-    table = os.path.splitext(os.path.basename(xlsx_path))[0]
-    fqt   = f'{SCHEMA}."{table}"'
+    table      = os.path.splitext(os.path.basename(xlsx_path))[0]
+    fqt        = f'{SCHEMA}."{table}"'
+    exists     = table_exists(cur, SCHEMA, table)
+    has_rows   = table_has_rows(cur, SCHEMA, table) if exists else False
 
-    if table_exists(cur, SCHEMA, table):
-        print(f'  SKIP  stg."{table}" — tabella già esistente, gestita da detect_new_records.')
+    if exists and has_rows:
+        print(f'  SKIP  stg."{table}" — tabella popolata, gestita da detect_new_records.')
         return 0, True
 
     df = pd.read_excel(xlsx_path, dtype=str, keep_default_na=False, na_values=[])
@@ -76,26 +87,28 @@ def load_xlsx(cur, xlsx_path: str, loaded_at: str) -> tuple[int, bool]:
 
     # Rimuove _status dal file: lo gestiamo noi con valore fisso 'EXISTS'
     data_cols = [c for c in df.columns if c != "_status"]
-    df = df[data_cols]
-    key_cols = get_key_columns(data_cols)
+    df        = df[data_cols]
+    key_cols  = get_key_columns(data_cols)
 
-    # Crea tabella
-    col_defs = ", ".join([f'"{c}" TEXT' for c in data_cols])
-    cur.execute(f"""
-        CREATE TABLE {fqt} (
-            {col_defs},
-            "_status"    TEXT DEFAULT 'EXISTS',
-            "_source"    TEXT,
-            "_loaded_at" TIMESTAMPTZ
-        )
-    """)
-
-    # UNIQUE index sulla chiave
-    if key_cols:
-        key_def  = ", ".join(f'"{k}"' for k in key_cols)
-        idx_name = re.sub(r"[^a-z0-9]", "_", table.lower())[:40]
-        cur.execute(f'CREATE UNIQUE INDEX "uidx_{idx_name}" ON {fqt} ({key_def})')
-        print(f'  UNIQUE index su: {key_cols}')
+    if not exists:
+        # Crea tabella e indice (primo caricamento)
+        col_defs = ", ".join([f'"{c}" TEXT' for c in data_cols])
+        cur.execute(f"""
+            CREATE TABLE {fqt} (
+                {col_defs},
+                "_status"    TEXT DEFAULT 'EXISTS',
+                "_source"    TEXT,
+                "_loaded_at" TIMESTAMPTZ
+            )
+        """)
+        if key_cols:
+            key_def  = ", ".join(f'"{k}"' for k in key_cols)
+            idx_name = re.sub(r"[^a-z0-9]", "_", table.lower())[:40]
+            cur.execute(f'CREATE UNIQUE INDEX "uidx_{idx_name}" ON {fqt} ({key_def})')
+            print(f'  UNIQUE index su: {key_cols}')
+    else:
+        # Tabella vuota dopo TRUNCATE — reinserisce senza ricreare struttura
+        print(f'  RELOAD stg."{table}" — tabella vuota, ricarico i dati.')
 
     placeholders = ", ".join(["%s"] * (len(data_cols) + 3))
     insert_sql   = f'INSERT INTO {fqt} VALUES ({placeholders}) ON CONFLICT DO NOTHING'

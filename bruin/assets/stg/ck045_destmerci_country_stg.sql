@@ -3,6 +3,7 @@ name: stg.ck045_destmerci_country_stg
 type: pg.sql
 depends:
   - stg.clean_check_results
+  - stg.detect_new_records  
 description: >
   CK045 — SAP_REF: Destinatari Merci STG: codice paese COUNTRY(*) presente in T005S.
 connection: mdg_postgres

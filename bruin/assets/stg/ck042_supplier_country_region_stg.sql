@@ -3,6 +3,7 @@ name: stg.ck042_supplier_country_region_stg
 type: pg.sql
 depends:
   - stg.clean_check_results
+  - stg.detect_new_records  
 description: >
   CK042 — SAP_REF: Fornitori STG: coppia COUNTRY+REGION presente in T005S.
 connection: mdg_postgres

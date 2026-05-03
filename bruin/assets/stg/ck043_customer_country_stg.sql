@@ -3,6 +3,7 @@ name: stg.ck043_customer_country_stg
 type: pg.sql
 depends:
   - stg.clean_check_results
+  - stg.detect_new_records 
 description: >
   CK043 — SAP_REF: Clienti STG: codice paese COUNTRY(*) presente in T005S.
 connection: mdg_postgres
