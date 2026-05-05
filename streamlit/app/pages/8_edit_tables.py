@@ -195,6 +195,70 @@ def save_row(table: str, original_row: dict, updated_row: dict,
         conn.close()
 
 
+
+def get_user_schemas() -> list[str]:
+    """Restituisce tutti gli schemi utente (esclusi schemi di sistema)."""
+    EXCLUDED_SCHEMAS = {"pg_catalog", "information_schema", "pg_toast"}
+    try:
+        conn = get_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT schema_name FROM information_schema.schemata
+            WHERE schema_name NOT IN %s
+              AND schema_name NOT LIKE 'pg_%%'
+            ORDER BY schema_name
+        """, (tuple(EXCLUDED_SCHEMAS),))
+        schemas = [r[0] for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return schemas
+    except Exception as e:
+        st.error(f"Errore lettura schemi: {e}")
+        return []
+
+
+def truncate_schema_tables(schema: str) -> tuple[int, list[str]]:
+    """Esegue TRUNCATE CASCADE su tutte le tabelle di uno schema specifico."""
+    try:
+        conn = get_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+        """, (schema,))
+        tables = [r[0] for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+    except Exception as e:
+        return 0, [str(e)]
+
+    if not tables:
+        return 0, []
+
+    conn = get_connection()
+    cur  = conn.cursor()
+    errors = []
+    count  = 0
+    try:
+        for table in tables:
+            fqt = f'"{schema}"."{table}"'
+            try:
+                cur.execute(f'TRUNCATE TABLE {fqt} CASCADE')
+                count += 1
+            except Exception as e:
+                errors.append(f"{fqt}: {e}")
+                conn.rollback()
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        errors.append(str(e))
+    finally:
+        cur.close()
+        conn.close()
+    return count, errors
+
+
 def delete_row(table: str, row: dict, key_cols: list[str]) -> bool:
     """Elimina una singola riga."""
     if not key_cols:
@@ -391,6 +455,37 @@ with st.expander("⚠️ Zona Admin — operazioni irreversibili", expanded=Fals
                 st.rerun()
         else:
             st.error("Nome tabella non corretto — operazione annullata.")
+
+    st.divider()
+    st.warning("**TRUNCATE SCHEMA** svuota tutte le tabelle di uno schema selezionato. Operazione irreversibile.")
+    user_schemas = get_user_schemas()
+    col_schema_sel, col_trunc_all, col_confirm_all = st.columns([2, 2, 3])
+    with col_schema_sel:
+        selected_schema_trunc = st.selectbox(
+            "Schema da svuotare",
+            options=user_schemas,
+            key="trunc_schema_sel",
+        )
+    with col_trunc_all:
+        trunc_all_clicked = st.button("🗑️ Svuota schema", type="secondary", use_container_width=True)
+    with col_confirm_all:
+        trunc_all_confirm = st.text_input(
+            "Digita il nome dello schema per confermare",
+            placeholder=selected_schema_trunc if user_schemas else "",
+            key="trunc_all_confirm",
+        )
+    if trunc_all_clicked:
+        if trunc_all_confirm == selected_schema_trunc:
+            with st.spinner(f"Truncate schema '{selected_schema_trunc}' in corso..."):
+                n, errs = truncate_schema_tables(selected_schema_trunc)
+            if errs:
+                st.warning(f"Completato con {len(errs)} errori: {'; '.join(errs)}")
+            else:
+                st.session_state["save_msg"] = (f"🗑️ {n} tabelle svuotate nello schema `{selected_schema_trunc}`.", "success")
+                st.session_state["_orig_df"] = None
+                st.rerun()
+        else:
+            st.error("Nome schema non corretto — operazione annullata.")
 
 # ── Messaggio di ritorno dopo rerun ─────────────────────────────────────────
 if "save_msg" in st.session_state:
