@@ -7,6 +7,8 @@ description: >
   CK034 — SAP_REF: Materiali (S_MARITC): codice nomenclatura doganale
   COMCO(k/*) obbligatorio e presente nella tabella di riferimento
   SAP_CommodityCodesEU01 (codice).
+  Il messaggio include il WERKS ricavato da S_MARC a parità di MATNR(k/*).
+  In caso di più plant per lo stesso articolo, viene preso il primo in ordine alfabetico.
 connection: mdg_postgres
 @bruin */
 
@@ -21,13 +23,13 @@ SELECT
     'CK034'                                      AS check_id,
     CASE
         WHEN raw."COMCO(k/*)" IS NULL OR raw."COMCO(k/*)" = ''
-            THEN 'COMCO(k/*) obbligatorio mancante'
+            THEN '[' || COALESCE(marc."WERKS(k/*)", '?') || '] COMCO(k/*) obbligatorio mancante'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_CommodityCodesEU01" ref
             WHERE ref."codice" = raw."COMCO(k/*)"
         )
-            THEN 'Codice doganale [' || raw."COMCO(k/*)" || '] non presente in SAP (SAP_CommodityCodesEU01.codice)'
-        ELSE 'Codice doganale [' || raw."COMCO(k/*)" || '] valido'
+            THEN '[' || COALESCE(marc."WERKS(k/*)", '?') || '] Codice doganale [' || raw."COMCO(k/*)" || '] non presente in SAP (SAP_CommodityCodesEU01.codice)'
+        ELSE '[' || COALESCE(marc."WERKS(k/*)", '?') || '] Codice doganale [' || raw."COMCO(k/*)" || '] valido'
     END                                          AS message,
     CASE
         WHEN raw."COMCO(k/*)" IS NULL OR raw."COMCO(k/*)" = ''
@@ -45,6 +47,13 @@ SELECT
     raw."_source"                                AS zip_source,
     NOW()                                        AS created_at
 FROM raw."S_MARITC" raw
+LEFT JOIN LATERAL (
+    SELECT "WERKS(k/*)"
+    FROM raw."S_MARC"
+    WHERE "PRODUCT(k/*)" = raw."MATNR(k/*)"
+    ORDER BY "WERKS(k/*)"
+    LIMIT 1
+) marc ON TRUE
 WHERE (
     SELECT COALESCE(is_active, FALSE)
     FROM stg.check_catalog WHERE check_id = 'CK034'
