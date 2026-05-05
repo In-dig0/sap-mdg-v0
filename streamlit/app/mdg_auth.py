@@ -163,7 +163,7 @@ def render_sidebar_menu():
 
     # Pagine comuni a tutti i ruoli
     st.sidebar.page_link("pages/9_info.py",                label="ℹ️ Info")
-    st.sidebar.page_link("dashboard.py",                   label="📊 Riepilogo esito controlli")
+    st.sidebar.page_link("dashboard.py",                   label="📊 Cockpit controlli")
     st.sidebar.page_link("pages/1_check_results.py",       label="✅ Dettaglio esito controlli")
     st.sidebar.page_link("pages/5_view_data.py",           label="🗄️ Visualizza Dati")
     st.sidebar.page_link("pages/0_user_profile.py",        label="👤 Il mio profilo")

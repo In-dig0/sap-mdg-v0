@@ -7,6 +7,7 @@ Check Results — dettaglio completo per un check
 
 import os
 import io
+from datetime import date
 import streamlit as st
 import pandas as pd
 import psycopg2
@@ -44,10 +45,16 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
 
 
 def df_to_xlsx(df, sheet_name: str = "Risultati") -> bytes:
+    from openpyxl.styles import Font, PatternFill
     buf = io.BytesIO()
-    with __import__("pandas").ExcelWriter(buf, engine="openpyxl") as writer:
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name=sheet_name)
         ws = writer.sheets[sheet_name]
+        header_font = Font(bold=True)
+        header_fill = PatternFill("solid", start_color="BFBFBF", end_color="BFBFBF")
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.fill = header_fill
         for col in ws.columns:
             max_len = max(
                 len(str(cell.value)) if cell.value is not None else 0
@@ -288,6 +295,6 @@ else:
         st.download_button(
             label="⬇️ Esporta errori in Excel",
             data=xlsx_data,
-            file_name=f"{check_id}_issues.xlsx",
+            file_name=f"{check_id}_issues_{date.today().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
