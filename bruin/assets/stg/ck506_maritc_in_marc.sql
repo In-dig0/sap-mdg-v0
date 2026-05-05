@@ -34,7 +34,7 @@ SELECT
             WHERE marc."PRODUCT(k/*)" = raw."MATNR(k/*)"
               AND marc."WERKS(k/*)"   = raw."PLANT(k/*)"
         )
-            THEN 'Error'
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK506')
         ELSE 'Ok'
     END                                               AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

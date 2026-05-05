@@ -31,11 +31,11 @@ SELECT
         ELSE '[' || COALESCE(marc."WERKS(k/*)", '?') || '] Tipo materiale [' || raw."MTART(*)" || '] valido'
     END                                          AS message,
     CASE
-        WHEN raw."MTART(*)" IS NULL OR raw."MTART(*)" = ''  THEN 'Error'
+        WHEN raw."MTART(*)" IS NULL OR raw."MTART(*)" = ''  THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK016')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T134" ref
             WHERE ref."MTART" = raw."MTART(*)"
-        )                                                    THEN 'Error'
+        )                                                    THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK016')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

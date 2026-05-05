@@ -30,12 +30,12 @@ SELECT
         ELSE '[' || raw."WERKS(k/*)" || '] Coppia WERKS/DISPO [' || raw."WERKS(k/*)" || '/' || raw."DISPO" || '] valida'
     END                                                  AS message,
     CASE
-        WHEN raw."DISPO" IS NULL OR raw."DISPO" = ''    THEN 'Error'
+        WHEN raw."DISPO" IS NULL OR raw."DISPO" = ''    THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK021')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T024D" ref
             WHERE ref."WERKS" = raw."WERKS(k/*)"
               AND ref."DISPO" = raw."DISPO"
-        )                                               THEN 'Error'
+        )                                               THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK021')
         ELSE 'Ok'
     END                                                  AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

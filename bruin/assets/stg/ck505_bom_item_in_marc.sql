@@ -39,7 +39,7 @@ SELECT
             WHERE marc."PRODUCT(k/*)" = bom."IDNRK"
               AND marc."WERKS(k/*)"   = bom."WERKS(k)"
         )
-            THEN 'Error'
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK505')
         ELSE 'Ok'
     END                                           AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

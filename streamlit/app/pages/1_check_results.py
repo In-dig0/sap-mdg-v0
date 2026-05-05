@@ -52,11 +52,21 @@ def df_to_xlsx(
     from openpyxl.styles import Font, PatternFill
 
     def _style_header(ws):
+        from openpyxl.styles import Border, Side, Alignment
         header_font = Font(bold=True)
         header_fill = PatternFill("solid", start_color="BFBFBF", end_color="BFBFBF")
+        border_side = Side(style="thin", color="000000")
+        header_border = Border(
+            left=border_side, right=border_side,
+            top=border_side, bottom=border_side,
+        )
         for cell in ws[1]:
-            cell.font = header_font
-            cell.fill = header_fill
+            cell.font      = header_font
+            cell.fill      = header_fill
+            cell.border    = header_border
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        # Filtro automatico su tutto il range dati
+        ws.auto_filter.ref = ws.dimensions
 
     def _autofit(ws):
         for col in ws.columns:
@@ -155,9 +165,23 @@ st.divider()
 # ---------------------------------------------------------------------------
 # Header check selezionato
 # ---------------------------------------------------------------------------
+df_severity = run_query("""
+    SELECT severity FROM stg.check_catalog WHERE check_id = %s
+""", (check_id,))
+severity     = df_severity["severity"].iloc[0] if not df_severity.empty else None
+sev_color    = "#EF4444" if severity == "Error" else "#F59E0B" if severity == "Warning" else "#6B7280"
+sev_badge    = (
+    f'<span style="display:inline-block; margin-left:12px; padding:2px 12px; '
+    f'border-radius:12px; font-size:14px; font-weight:600; '
+    f'background:{sev_color}22; color:{sev_color}; border:1px solid {sev_color}66;">'
+    f'{severity}</span>'
+    if severity else ""
+)
+
 st.markdown(
     f'<h2 style="margin-bottom:4px;">'
-    f'<span style="color:#85B7EB;">{check_id}</span></h2>',
+    f'<span style="color:#85B7EB;">{check_id}</span>'
+    f'{sev_badge}</h2>',
     unsafe_allow_html=True,
 )
 description = df_checks_available.loc[

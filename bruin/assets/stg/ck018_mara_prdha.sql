@@ -33,7 +33,7 @@ SELECT
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_PRDHA" ref
             WHERE ref."PRDHA" = raw."PRDHA"
-        )                                        THEN 'Error'
+        )                                        THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK018')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

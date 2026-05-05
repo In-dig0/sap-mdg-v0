@@ -31,11 +31,11 @@ SELECT
         ELSE '[' || COALESCE(marc."WERKS(k/*)", '?') || '] Classe di valorizzazione [' || raw."BKLAS(*)" || '] valida'
     END                                                  AS message,
     CASE
-        WHEN raw."BKLAS(*)" IS NULL OR raw."BKLAS(*)" = ''  THEN 'Error'
+        WHEN raw."BKLAS(*)" IS NULL OR raw."BKLAS(*)" = ''  THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK022')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T025" ref
             WHERE ref."BKLAS" = raw."BKLAS(*)"
-        )                                                    THEN 'Error'
+        )                                                    THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK022')
         ELSE 'Ok'
     END                                                  AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

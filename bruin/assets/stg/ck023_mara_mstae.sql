@@ -29,11 +29,11 @@ SELECT
         ELSE 'Stato materiale [' || raw."MSTAE" || '] valido'
     END                                          AS message,
     CASE
-        WHEN raw."MSTAE" IS NULL OR raw."MSTAE" = ''  THEN 'Error'
+        WHEN raw."MSTAE" IS NULL OR raw."MSTAE" = ''  THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK023')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T141" ref
             WHERE ref."MMSTA" = raw."MSTAE"
-        )                                              THEN 'Error'
+        )                                              THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK023')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

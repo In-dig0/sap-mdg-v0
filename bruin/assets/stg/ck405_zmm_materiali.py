@@ -55,6 +55,10 @@ def main():
             run_id = cur.fetchone()[0]
             now    = datetime.now(timezone.utc)
 
+            cur.execute("SELECT severity FROM stg.check_catalog WHERE check_id = %s", (CHECK_ID,))
+            sev_row  = cur.fetchone()
+            severity = sev_row[0] if sev_row else "Error"
+
             total_orphans = 0
 
             for sec_table in SECONDARY_TABLES:
@@ -77,7 +81,7 @@ def main():
                         sec_table, 'MAT', rec[0], CHECK_ID,
                         f"[PRODUCT={rec[0]}] presente in {sec_table} "
                         f"ma assente nella master {MASTER_TABLE}",
-                        'Error', run_id, rec[1], now,
+                        severity, run_id, rec[1], now,
                     ))
 
                 if rows_err:

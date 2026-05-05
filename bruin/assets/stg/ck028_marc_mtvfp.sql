@@ -29,11 +29,11 @@ SELECT
         ELSE '[' || raw."WERKS(k/*)" || '] Tipo fabbisogno [' || raw."MTVFP" || '] valido'
     END                                                  AS message,
     CASE
-        WHEN raw."MTVFP" IS NULL OR raw."MTVFP" = ''   THEN 'Error'
+        WHEN raw."MTVFP" IS NULL OR raw."MTVFP" = ''   THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK028')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_TMVF" ref
             WHERE ref."MTVFP" = raw."MTVFP"
-        )                                               THEN 'Error'
+        )                                               THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK028')
         ELSE 'Ok'
     END                                                  AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

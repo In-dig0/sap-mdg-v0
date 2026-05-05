@@ -33,12 +33,12 @@ SELECT
     END                                          AS message,
     CASE
         WHEN raw."COMCO(k/*)" IS NULL OR raw."COMCO(k/*)" = ''
-            THEN 'Error'
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK034')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_CommodityCodesEU01" ref
             WHERE ref."codice" = raw."COMCO(k/*)"
         )
-            THEN 'Error'
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK034')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

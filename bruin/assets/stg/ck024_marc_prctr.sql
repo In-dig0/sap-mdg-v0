@@ -29,11 +29,11 @@ SELECT
         ELSE '[' || raw."WERKS(k/*)" || '] Profit Center [' || raw."PRCTR" || '] valido'
     END                                                  AS message,
     CASE
-        WHEN raw."PRCTR" IS NULL OR raw."PRCTR" = ''    THEN 'Error'
+        WHEN raw."PRCTR" IS NULL OR raw."PRCTR" = ''    THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK024')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_CEPC" ref
             WHERE ref."PRCTR" = raw."PRCTR"
-        )                                               THEN 'Error'
+        )                                               THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK024')
         ELSE 'Ok'
     END                                                  AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

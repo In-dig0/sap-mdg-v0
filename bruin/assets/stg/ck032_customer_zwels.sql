@@ -30,12 +30,12 @@ SELECT
     END                                           AS message,
     CASE
         WHEN raw."ZWELS_01" IS NULL OR raw."ZWELS_01" = ''
-            THEN 'Error'
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK032')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T042Z" ref
             WHERE ref."ZLSCH" = raw."ZWELS_01"
         )
-            THEN 'Error'
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK032')
         ELSE 'Ok'
     END                                           AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

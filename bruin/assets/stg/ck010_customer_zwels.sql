@@ -29,11 +29,11 @@ SELECT
         ELSE 'Modalità pagamento [' || raw."ZWELS_01" || '] valida'
     END                                          AS message,
     CASE
-        WHEN raw."ZWELS_01" IS NULL OR raw."ZWELS_01" = ''  THEN 'Error'
+        WHEN raw."ZWELS_01" IS NULL OR raw."ZWELS_01" = ''  THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK010')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_Mod_Pagamento" ref
             WHERE ref."Cod_Mod_Pag" = raw."ZWELS_01"
-        )                                                    THEN 'Error'
+        )                                                    THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK010')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

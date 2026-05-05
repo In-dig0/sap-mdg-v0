@@ -29,11 +29,11 @@ SELECT
         ELSE 'Codice paese [' || raw."COUNTRY" || '] valido'
     END                                          AS message,
     CASE
-        WHEN raw."COUNTRY" IS NULL OR raw."COUNTRY" = ''   THEN 'Error'
+        WHEN raw."COUNTRY" IS NULL OR raw."COUNTRY" = ''   THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK001')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY"
-        )                                                   THEN 'Error'
+        )                                                   THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK001')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

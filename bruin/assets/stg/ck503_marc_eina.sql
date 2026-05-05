@@ -31,7 +31,7 @@ SELECT
              SELECT 1 FROM raw."S_EINA#INFORMATFOR" eina
              WHERE eina."MATNR" = marc."PRODUCT(k/*)"
          )
-         THEN 'Error'
+         THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK503')
          ELSE 'Ok'
     END                                             AS status,
     (SELECT run_id FROM stg.pipeline_runs

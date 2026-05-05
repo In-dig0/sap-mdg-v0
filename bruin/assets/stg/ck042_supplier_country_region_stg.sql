@@ -30,12 +30,12 @@ SELECT
         ELSE 'Coppia paese/regione [' || raw."COUNTRY" || '/' || raw."REGION" || '] valida'
     END                                          AS message,
     CASE
-        WHEN raw."REGION" IS NULL OR raw."REGION" = ''  THEN 'Error'
+        WHEN raw."REGION" IS NULL OR raw."REGION" = ''  THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK042')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T005S" ref
             WHERE ref."LAND1" = raw."COUNTRY"
               AND ref."BLAND" = raw."REGION"
-        )                                               THEN 'Error'
+        )                                               THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK042')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

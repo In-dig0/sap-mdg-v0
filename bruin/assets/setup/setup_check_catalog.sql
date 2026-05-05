@@ -25,126 +25,159 @@ VALUES
     ('CK001','Fornitori: codice paese (COUNTRY) presente in T005S',
      'BP','S_SUPPL_GEN#ZBP_DatiGenerali','COUNTRY',
      'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK002','Fornitori: coppia COUNTRY+REGION presente in T005S',
      'BP','S_SUPPL_GEN#ZBP_DatiGenerali','COUNTRY + REGION',
      'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK003','Clienti: codice paese COUNTRY(*) presente in T005S',
      'BP','S_CUST_GEN#ZBP-DatiGenerali','COUNTRY(*)',
      'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK004','Clienti: coppia COUNTRY(*)+REGION presente in T005S',
      'BP','S_CUST_GEN#ZBP-DatiGenerali','COUNTRY(*) + REGION',
      'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
 
-    -- SAP_REF — CK005-CK015 (mancanti nella versione precedente)
-    ('CK005','Fornitori (AddDatiSocieta): condizione pagamento ZTERM1 presente in TVZB',
+    ('CK005','Fornitori (AddDatiSocieta): condizione pagamento (ZTERM1) presente in TVZB',
      'BP','S_SUPPL_COMPANY#ZBP_AddDatiSocieta','ZTERM1',
      'ref.SAP_EXPORT_TVZB (ZTERM)','Error','SAP_REF',TRUE,NOW()),
-    ('CK006','Fornitori (DatiSocieta): condizione pagamento ZTERM1 presente in TVZB',
+
+    ('CK006','Fornitori (DatiSocieta): condizione pagamento (ZTERM1) presente in TVZB',
      'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','ZTERM1',
      'ref.SAP_EXPORT_TVZB (ZTERM)','Error','SAP_REF',TRUE,NOW()),
-    ('CK007','Clienti (DatiSocieta): condizione pagamento ZTERM1 presente in TVZB',
+     
+    ('CK007','Clienti (DatiSocieta): condizione pagamento (ZTERM1) presente in TVZB',
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZTERM1',
      'ref.SAP_EXPORT_TVZB (ZTERM)','Error','SAP_REF',TRUE,NOW()),
-    ('CK008','Fornitori (DatiSocieta): modalità pagamento ZWELS_01 presente in SAP_Mod_Pagamento',
+
+    ('CK008','Fornitori (DatiSocieta): modalità pagamento (ZWELS_01) presente in SAP_Mod_Pagamento',
      'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','ZWELS_01',
      'ref.SAP_Mod_Pagamento (Cod_Mod_Pag)','Error','SAP_REF',TRUE,NOW()),
-    ('CK009','Fornitori (AddDatiSocieta): modalità pagamento ZWELS_01 presente in SAP_Mod_Pagamento',
+
+    ('CK009','Fornitori (AddDatiSocieta): modalità pagamento (ZWELS_01) presente in SAP_Mod_Pagamento',
      'BP','S_SUPPL_COMPANY#ZBP_AddDatiSocieta','ZWELS_01',
      'ref.SAP_Mod_Pagamento (Cod_Mod_Pag)','Error','SAP_REF',TRUE,NOW()),
-    ('CK010','Clienti (DatiSocieta): modalità pagamento ZWELS_01 presente in SAP_Mod_Pagamento',
+
+    ('CK010','Clienti (DatiSocieta): modalità pagamento (ZWELS_01) presente in SAP_Mod_Pagamento',
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZWELS_01',
      'ref.SAP_Mod_Pagamento (Cod_Mod_Pag)','Error','SAP_REF',TRUE,NOW()),
-    ('CK011','Fornitori (DatiSocieta): conto riconciliazione AKONT(*) presente in SAP_Conto_Riconciliazione_Fornitori',
+
+    ('CK011','Fornitori (DatiSocieta): conto riconciliazione (AKONT(*)) presente in SAP_Conto_Riconciliazione_Fornitori',
      'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','AKONT(*)',
      'ref.SAP_Conto_Riconciliazione_Fornitori (Cod_Conto)','Error','SAP_REF',TRUE,NOW()),
-    ('CK012','Clienti (DatiSocieta): conto riconciliazione AKONT(*) presente in SAP_Conto_Riconciliazione_Clienti',
+
+    ('CK012','Clienti (DatiSocieta): conto riconciliazione (AKONT(*)) presente in SAP_Conto_Riconciliazione_Clienti',
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','AKONT(*)',
      'ref.SAP_Conto_Riconciliazione_Clienti (Cod_Conto)','Error','SAP_REF',TRUE,NOW()),
-    ('CK013','Fornitori (AddDatiSocieta): conto riconciliazione AKONT(*) presente in SAP_Conto_Riconciliazione_Fornitori',
+
+    ('CK013','Fornitori (AddDatiSocieta): conto riconciliazione (AKONT(*)) presente in SAP_Conto_Riconciliazione_Fornitori',
      'BP','S_SUPPL_COMPANY#ZBP_AddDatiSocieta','AKONT(*)',
      'ref.SAP_Conto_Riconciliazione_Fornitori (Cod_Conto)','Error','SAP_REF',TRUE,NOW()),
-    ('CK014','Materiali (S_MARA): gruppo merci esterno EXTWG presente in SAP_EXPORT_TWEW',
+
+    ('CK014','Materiali (S_MARA): gruppo merci esterno (EXTWG) presente in SAP_EXPORT_TWEW',
      'MAT','S_MARA','EXTWG',
      'ref.SAP_EXPORT_TWEW (EXTWG)','Error','SAP_REF',TRUE,NOW()),
-    ('CK015','Materiali (S_MARA): gruppo merci MATKL obbligatorio e presente in SAP_EXPORT_T023',
+
+    ('CK015','Materiali (S_MARA): gruppo merci (MATKL) obbligatorio e presente in SAP_EXPORT_T023',
      'MAT','S_MARA','MATKL',
      'ref.SAP_EXPORT_T023 (MATKL)','Error','SAP_REF',TRUE,NOW()),
-
-    -- SAP_REF — CK016-CK034
-    ('CK016','Materiali (S_MARA): tipo materiale MTART(*) obbligatorio e presente in SAP_EXPORT_T134',
+   
+    ('CK016','Materiali (S_MARA): tipo materiale (MTART(*)) obbligatorio e presente in SAP_EXPORT_T134',
      'MAT','S_MARA','MTART(*)',
      'ref.SAP_EXPORT_T134 (MTART)','Error','SAP_REF',TRUE,NOW()),
-    ('CK017','Materiali (S_MARA): peso netto NTGEW obbligatorio e diverso da zero',
+
+    ('CK017','Materiali (S_MARA): peso netto (NTGEW) obbligatorio e diverso da zero',
      'MAT','S_MARA','NTGEW',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
-    ('CK018','Materiali (S_MARA): gerarchia prodotto PRDHA se valorizzata presente in SAP_EXPORT_PRDHA',
+
+    ('CK018','Materiali (S_MARA): gerarchia prodotto (PRDHA), quando valorizzata, presente in SAP_EXPORT_PRDHA',
      'MAT','S_MARA','PRDHA',
      'ref.SAP_EXPORT_PRDHA (PRDHA)','Error','SAP_REF',TRUE,NOW()),
-    ('CK019','Materiali (S_MARC): gruppo acquisti EKGRP se valorizzato presente in SAP_EXPORT_T024',
+
+    ('CK019','Materiali (S_MARC): gruppo acquisti (EKGRP), quando valorizzato, presente in SAP_EXPORT_T024',
      'MAT','S_MARC','EKGRP',
      'ref.SAP_EXPORT_T024 (EKGRP)','Error','SAP_REF',TRUE,NOW()),
-    ('CK020','Materiali (S_MARC): se BESKZ in (F,X) allora EKGRP deve essere valorizzato',
+
+    ('CK020','Materiali (S_MARC): se il tipo approvvigionamento è esterno/misto (BESKZ in F,X) allora gruppo acquisti (EKGRP) deve essere valorizzato',
      'MAT','S_MARC','EKGRP',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
-    ('CK021','Materiali (S_MARC): coppia WERKS+DISPO presente in SAP_EXPORT_T024D',
+
+    ('CK021','Materiali (S_MARC): la coppia divisione-controllo disponibilità (WERKS+DISPO) presente in SAP_EXPORT_T024D',
      'MAT','S_MARC','WERKS(k/*) + DISPO',
      'ref.SAP_EXPORT_T024D (WERKS+DISPO)','Error','SAP_REF',TRUE,NOW()),
-    ('CK022','Materiali (S_MBEW): classe di valorizzazione BKLAS(*) obbligatoria e presente in SAP_EXPORT_T025',
+
+    ('CK022','Materiali (S_MBEW): classe di valorizzazione (BKLAS(*)) obbligatoria e presente in SAP_EXPORT_T025',
      'MAT','S_MBEW','BKLAS(*)',
      'ref.SAP_EXPORT_T025 (BKLAS)','Error','SAP_REF',TRUE,NOW()),
-    ('CK023','Materiali (S_MARA): stato materiale MSTAE obbligatorio e presente in SAP_EXPORT_T141',
+
+    ('CK023','Materiali (S_MARA): stato materiale (MSTAE) obbligatorio e presente in SAP_EXPORT_T141',
      'MAT','S_MARA','MSTAE',
      'ref.SAP_EXPORT_T141 (MMSTA)','Error','SAP_REF',TRUE,NOW()),
-    ('CK024','Materiali (S_MARC): profit center PRCTR obbligatorio e presente in SAP_EXPORT_CEPC',
+
+    ('CK024','Materiali (S_MARC): profit center (PRCTR) obbligatorio e presente in SAP_EXPORT_CEPC',
      'MAT','S_MARC','PRCTR',
      'ref.SAP_EXPORT_CEPC (PRCTR)','Error','SAP_REF',TRUE,NOW()),
-    ('CK025','Materiali (S_MVKE): gruppo prezzi KONDM se valorizzato presente in SAP_EXPORT_T178',
+     
+    ('CK025','Materiali (S_MVKE): gruppo prezzi materiale (KONDM), quando valorizzato, presente in SAP_EXPORT_T178',
      'MAT','S_MVKE','KONDM',
      'ref.SAP_EXPORT_T178 (KONDM)','Error','SAP_REF',TRUE,NOW()),
-    ('CK026','Materiali (S_MARC): tipo approvvigionamento BESKZ obbligatorio e presente in SAP_EXPORT_T460A',
+
+    ('CK026','Materiali (S_MARC): tipo approvvigionamento (BESKZ) obbligatorio e presente in SAP_EXPORT_T460A',
      'MAT','S_MARC','BESKZ',
      'ref.SAP_EXPORT_T460A (BESKZ)','Error','SAP_REF',TRUE,NOW()),
-    ('CK027','Materiali (S_MARC): tipo approvvigionamento speciale SOBSL se valorizzato presente in SAP_EXPORT_T460A',
+     
+    ('CK027','Materiali (S_MARC): tipo approvvigionamento speciale (SOBSL), quando valorizzato, presente in SAP_EXPORT_T460A',
      'MAT','S_MARC','SOBSL',
      'ref.SAP_EXPORT_T460A (SOBSL)','Error','SAP_REF',TRUE,NOW()),
-    ('CK028','Materiali (S_MARC): tipo fabbisogno MTVFP obbligatorio e presente in SAP_EXPORT_TMVF',
+
+    ('CK028','Materiali (S_MARC): tipo fabbisogno (MTVFP) obbligatorio e presente in SAP_EXPORT_TMVF',
      'MAT','S_MARC','MTVFP',
      'ref.SAP_EXPORT_TMVF (MTVFP)','Error','SAP_REF',TRUE,NOW()),
-    ('CK029','Fornitori (S_SUPPL_COMPANY): condizione pagamento ZTERM1 obbligatoria e presente in SAP_EXPORT_T052',
+
+    ('CK029','Fornitori (S_SUPPL_COMPANY): condizione pagamento (ZTERM1) obbligatoria e presente in SAP_EXPORT_T052',
      'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','ZTERM1',
      'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
-    ('CK030','Clienti (S_CUST_COMPANY#ZBP-DatiSocieta): condizione pagamento ZTERM obbligatoria e presente in SAP_EXPORT_T052',
+
+    ('CK030','Clienti (S_CUST_COMPANY#ZBP-DatiSocieta): condizione pagamento (ZTERM) obbligatoria e presente in SAP_EXPORT_T052',
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZTERM',
      'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
-    ('CK031','Fornitori (S_SUPPL_COMPANY#ZBP_DatiSocieta): modalità pagamento ZWELS_01 obbligatoria e presente in SAP_EXPORT_T042Z',
+
+    ('CK031','Fornitori (S_SUPPL_COMPANY#ZBP_DatiSocieta): modalità pagamento (ZWELS_01) obbligatoria e presente in SAP_EXPORT_T042Z',
      'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','ZWELS_01',
      'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',TRUE,NOW()),
-    ('CK032','Clienti (S_CUST_COMPANY#ZBP-DatiSocieta): modalità pagamento ZWELS_01 obbligatoria e presente in SAP_EXPORT_T042Z',
+
+    ('CK032','Clienti (S_CUST_COMPANY#ZBP-DatiSocieta): modalità pagamento (ZWELS_01) obbligatoria e presente in SAP_EXPORT_T042Z',
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZWELS_01',
      'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',TRUE,NOW()),
-    ('CK033','Materiali (S_MVKE): gerarchia prodotto PRDHA obbligatoria e presente in SAP_EXPORT_PRDHA',
+
+    ('CK033','Materiali (S_MVKE): gerarchia prodotto (PRDHA) obbligatoria e presente in SAP_EXPORT_PRDHA',
      'MAT','S_MVKE','PRDHA',
      'ref.SAP_EXPORT_PRDHA (PRDHA)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK034','Materiali (S_MARITC): codice nomenclatura doganale COMCO(k/*) obbligatorio e presente in SAP_CommodityCodesEU01',
      'MAT','S_MARITC','COMCO(k/*)',
      'ref.SAP_CommodityCodesEU01 (codice)','Error','SAP_REF',TRUE,NOW()),
 
-    -- SAP_REF — CK041-CK046
     ('CK041','Fornitori STG: codice paese (COUNTRY) presente in T005S',
      'BP','S_SUPPL_GEN#ZBP_DatiGenerali_STG','COUNTRY',
      'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK042','Fornitori STG: coppia COUNTRY+REGION presente in T005S',
      'BP','S_SUPPL_GEN#ZBP_DatiGenerali_STG','COUNTRY + REGION',
      'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
-    ('CK043','Clienti STG: codice paese COUNTRY(*) presente in T005S',
+     
+    ('CK043','Clienti STG: codice paese (COUNTRY(*)) presente in T005S',
      'BP','S_CUST_GEN#ZBP_DatiGenerali_STG','COUNTRY(*)',
      'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK044','Clienti STG: coppia COUNTRY(*)+REGION presente in T005S',
      'BP','S_CUST_GEN#ZBP_DatiGenerali_STG','COUNTRY(*) + REGION',
      'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
-    ('CK045','Destinatari Merci STG: codice paese COUNTRY(*) presente in T005S',
+     
+    ('CK045','Destinatari Merci STG: codice paese (COUNTRY(*)) presente in T005S',
      'BP','S_CUST_GEN#ZDM_DatiGenerali_STG','COUNTRY(*)',
      'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK046','Destinatari Merci STG: coppia COUNTRY(*)+REGION presente in T005S',
      'BP','S_CUST_GEN#ZDM_DatiGenerali_STG','COUNTRY(*) + REGION',
      'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
@@ -153,29 +186,36 @@ VALUES
     ('CK201','Fornitori: partita IVA mancante per soggetti UE/ExtraUE',
      'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXNUM(*)',
      NULL,'Error','EXISTENCE',FALSE,NOW()),
+
     ('CK202','Fornitori: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)',
      'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXTYPE(k/*) + TAXNUM(*)',
      NULL,'Warning','EXISTENCE',FALSE,NOW()),
+
     ('CK203','Clienti: partita IVA mancante per soggetti UE/ExtraUE',
      'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXNUM(*)',
      NULL,'Error','EXISTENCE',FALSE,NOW()),
+
     ('CK204','Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)',
      'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXTYPE(k/*) + TAXNUM(*)',
      NULL,'Warning','EXISTENCE',FALSE,NOW()),
 
     -- CROSS_TABLE — CK401-CK405 (CK401-CK404 is_active=FALSE come da DB locale)
-    ('CK401','Orfani flusso 01-ZBP-Vettori: LIFNR assente nella master',
+    ('CK401','Orfani flusso Vettori: LIFNR assente nella master',
      'BP','varie (tabelle secondarie 01-ZBP-Vettori)','LIFNR(k/*)',
      'S_SUPPL_GEN#ZBP_DatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
-    ('CK402','Orfani flusso 04-ZBP-Fornitori: LIFNR assente nella master',
+
+    ('CK402','Orfani flusso ZBP-Fornitori: codice fornitore (LIFNR) assente nella master',
      'BP','varie (tabelle secondarie 04-ZBP-Fornitori)','LIFNR(k/*)',
      'S_SUPPL_GEN#ZBP_DatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
-    ('CK403','Orfani flusso 02-ZDM-Clienti: KUNNR assente nella master',
+
+    ('CK403','Orfani flusso ZDM-Clienti: codice cliente (KUNNR) assente nella master',
      'BP','varie (tabelle secondarie 02-ZDM-Clienti)','KUNNR(k/*)',
      'S_CUST_GEN#ZDM-DatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
-    ('CK404','Orfani flusso 03-ZBP-Clienti: KUNNR assente nella master',
+
+    ('CK404','Orfani flusso ZBP-Clienti: codice cliente (KUNNR) assente nella master',
      'BP','varie (tabelle secondarie 03-ZBP-Clienti)','KUNNR(k/*)',
      'S_CUST_GEN#ZBP-DatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
+
     ('CK405','Materiali: PRODUCT(k/*) in S_MAKT, S_MARC, S_MARD, S_MARM, S_MBEW, S_MLAN, S_MVKE, S_QMAT deve essere presente nella master S_MARA',
      'MAT','varie (tabelle secondarie archivio materiali)','PRODUCT(k/*)',
      'raw.S_MARA (PRODUCT(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
@@ -183,34 +223,58 @@ VALUES
     -- CROSS_SOURCE — CK501-CK506
     ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X)',
      'MAT','S_MARC','BESKZ',
-     'S_BOM_HEADER (MATNR)','Error','CROSS_SOURCE',TRUE,NOW()),
+     'S_BOM_HEADER (MATNR)','Warning','CROSS_SOURCE',TRUE,NOW()),
+
     ('CK502','Materiali: ciclo di lavoro standard (PLNAL=01) obbligatorio per produzione interna o mista (BESKZ in E, X)',
      'MAT','S_MARC','BESKZ',
-     'S_MAPL (MATNR + WERKS_MAT + PLNAL)','Error','CROSS_SOURCE',TRUE,NOW()),
-    ('CK503','Materiali: inforecord acquisti obbligatorio per acquisto esterno puro (BESKZ=F e SOBSL vuoto)',
+     'S_MAPL (MATNR + WERKS_MAT + PLNAL)','Warning','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK503','Materiali: inforecord acquisti obbligatorio per acquisto esterno (BESKZ=F e SOBSL vuoto)',
      'MAT','S_MARC','BESKZ + SOBSL',
-     'S_EINA#INFORMATFOR (MATNR)','Error','CROSS_SOURCE',TRUE,NOW()),
-    ('CK504','Materiali S_MARC devono essere presenti in A2F a parità di articolo e divisione (IT11→A2F_BO, IT12→A2F_FA)',
+     'S_EINA#INFORMATFOR (MATNR)','Warning','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK504','Materiali(S_MARC): devono essere presenti in A2F a parità di articolo e divisione (IT11→A2F_BO, IT12→A2F_FA)',
      'MAT','S_MARC','PRODUCT(k/*) + WERKS(k/*)',
-     'A2F_BO / A2F_FA (CODART)','Error','CROSS_SOURCE',TRUE,NOW()),
+     'A2F_BO / A2F_FA (CODART)','Warning','CROSS_SOURCE',TRUE,NOW()),
+
     ('CK505','BOM (S_BOM_ITEM): componente IDNRK+WERKS deve essere presente in S_MARC come coppia PRODUCT(k/*)+WERKS(k/*)',
      'MAT','S_BOM_ITEM','IDNRK + WERKS(k)',
-     'raw.S_MARC (PRODUCT(k/*) + WERKS(k/*))','Error','CROSS_SOURCE',TRUE,NOW()),
+     'raw.S_MARC (PRODUCT(k/*) + WERKS(k/*))','Warning','CROSS_SOURCE',TRUE,NOW()),
+
     ('CK506','Codici doganali (S_MARITC): coppia MATNR(k/*)+PLANT(k/*) deve essere presente in S_MARC come coppia PRODUCT(k/*)+WERKS(k/*)',
      'MAT','S_MARITC','MATNR(k/*) + PLANT(k/*)',
-     'raw.S_MARC (PRODUCT(k/*) + WERKS(k/*))','Error','CROSS_SOURCE',TRUE,NOW()),
+     'raw.S_MARC (PRODUCT(k/*) + WERKS(k/*))','Warning','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK507','Condizione ZSPT, codice cliente deve essere presente in ZBP-DatiGenerali/ZDM-DatiGenerali',
+     'PRICE','BO-ZSPT-ScontoTestataCliente','CUSTOMER',
+     'S_CUST_GEN#ZBP-DatiGenerali','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK508','Condizione ZSPT, codice cliente deve essere presente in ZBP-DatiGenerali/ZDM-DatiGenerali',
+     'PRICE','FA-ZSPT-ScontoTestataCliente','CUSTOMER',
+     'S_CUST_GEN#ZBP-DatiGenerali','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK509','Condizione ZPPC, codice cliente deve essere presente in ZBP-DatiGenerali/ZDM-DatiGenerali e codice materiale in S_MVKE',
+     'PRICE','BO-ZPPC-PrezziPianiConsegna','CUSTOMER-MATERIAL',
+     'S_CUST_GEN#ZBP-DatiGenerali + S_MVKE','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK510','Condizione ZPPC, codice cliente deve essere presente in ZBP-DatiGenerali/ZDM-DatiGenerali e codice materiale in S_MVKE',
+     'PRICE','FA-ZPPC-PrezziPianiConsegna','CUSTOMER-MATERIAL',
+     'S_CUST_GEN#ZBP-DatiGenerali + S_MVKE','Error','CROSS_SOURCE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',
      'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXNUM(*)',
      'VIES (ec.europa.eu) | HMRC API v2 (api.service.hmrc.gov.uk)','Error','EXT_REF',FALSE,NOW()),
-    ('CK802','Clienti: sintesi verifica P.IVA EU/UK → stg.check_results',
+
+    ('CK802','Clienti: sintesi verifica P.IVA EU/UK -> stg.check_results',
      'BP','stg.check_vat_vies','check_status',
      'stg.check_vat_vies (output CK801)','Error','EXT_REF',FALSE,NOW()),
+
     ('CK803','Fornitori: validità P.IVA EU (VIES) e UK (HMRC API v2)',
      'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXNUM(*)',
      'VIES (ec.europa.eu) | HMRC API v2 (api.service.hmrc.gov.uk)','Error','EXT_REF',TRUE,NOW()),
-    ('CK804','Fornitori: sintesi verifica P.IVA EU/UK → stg.check_results',
+
+    ('CK804','Fornitori: sintesi verifica P.IVA EU/UK -> stg.check_results',
      'BP','stg.check_vat_vies','check_status',
      'stg.check_vat_vies (output CK803)','Error','EXT_REF',TRUE,NOW())
 

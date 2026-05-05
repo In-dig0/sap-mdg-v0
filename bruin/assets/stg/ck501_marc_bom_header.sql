@@ -6,6 +6,7 @@ depends:
 description: >
   CK501 — CROSS_SOURCE: Materiali: distinta base obbligatoria per
   produzione interna o mista (BESKZ in 'E', 'X').
+  La severity (Error/Warning) viene letta dinamicamente da stg.check_catalog.
 connection: mdg_postgres
 @bruin */
 
@@ -37,7 +38,7 @@ SELECT
              WHERE bom."MATNR(k/*)" = marc."PRODUCT(k/*)"
                AND bom."WERKS(k)"   = marc."WERKS(k/*)"
          )
-         THEN 'Error'
+         THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK501')
          ELSE 'Ok'
     END                                             AS status,
     (SELECT run_id FROM stg.pipeline_runs

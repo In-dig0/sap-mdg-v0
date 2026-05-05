@@ -31,7 +31,7 @@ SELECT
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T024" ref
             WHERE ref."EKGRP" = raw."EKGRP"
-        )                                                THEN 'Error'
+        )                                                THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK019')
         ELSE 'Ok'
     END                                                  AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

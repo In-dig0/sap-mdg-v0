@@ -29,11 +29,11 @@ SELECT
         ELSE 'Conto riconciliazione [' || raw."AKONT(*)" || '] valido'
     END                                          AS message,
     CASE
-        WHEN raw."AKONT(*)" IS NULL OR raw."AKONT(*)" = ''  THEN 'Error'
+        WHEN raw."AKONT(*)" IS NULL OR raw."AKONT(*)" = ''  THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK011')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_Conto_Riconciliazione_Fornitori" ref
             WHERE ref."Cod_Conto" = raw."AKONT(*)"
-        )                                                    THEN 'Error'
+        )                                                    THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK011')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

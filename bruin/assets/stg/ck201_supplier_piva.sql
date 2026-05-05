@@ -25,7 +25,7 @@ SELECT
         ELSE 'Almeno un codice fiscale valorizzato presente'
     END                                          AS message,
     CASE
-        WHEN tax."LIFNR(k/*)" IS NULL THEN 'Error'
+        WHEN tax."LIFNR(k/*)" IS NULL THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK201')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

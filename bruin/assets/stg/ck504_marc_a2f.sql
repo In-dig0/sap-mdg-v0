@@ -42,7 +42,7 @@ SELECT
                  SELECT 1 FROM ref."A2F_FA" a2f
                  WHERE a2f."CODART" = marc."PRODUCT(k/*)"
              )
-             THEN 'Error'
+             THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK504')
         ELSE 'Ok'
     END                                              AS status,
     (SELECT run_id FROM stg.pipeline_runs

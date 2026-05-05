@@ -24,7 +24,7 @@ SELECT
         ELSE '[' || raw."WERKS(k/*)" || '] EKGRP [' || raw."EKGRP" || '] correttamente valorizzato per BESKZ=' || raw."BESKZ"
     END                                                  AS message,
     CASE
-        WHEN raw."EKGRP" IS NULL OR raw."EKGRP" = ''    THEN 'Error'
+        WHEN raw."EKGRP" IS NULL OR raw."EKGRP" = ''    THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK020')
         ELSE 'Ok'
     END                                                  AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

@@ -32,12 +32,12 @@ SELECT
     END                                          AS message,
     CASE
         WHEN raw."PRODH" IS NULL OR raw."PRODH" = ''
-            THEN 'Error'
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK033')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_PRDHA" ref
             WHERE ref."PRDHA" = raw."PRODH"
         )
-            THEN 'Error'
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK033')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

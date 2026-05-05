@@ -39,7 +39,7 @@ SELECT
                AND mapl."WERKS_MAT(k/*)" = marc."WERKS(k/*)"
                AND mapl."PLNAL(k/*)"    = '01'
          )
-         THEN 'Error'
+         THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK502')
          ELSE 'Ok'
     END                                             AS status,
     (SELECT run_id FROM stg.pipeline_runs

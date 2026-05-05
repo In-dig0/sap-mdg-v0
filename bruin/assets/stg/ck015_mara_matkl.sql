@@ -31,11 +31,11 @@ SELECT
         ELSE '[' || COALESCE(marc."WERKS(k/*)", '?') || '] Gruppo merci [' || raw."MATKL" || '] valido'
     END                                          AS message,
     CASE
-        WHEN raw."MATKL" IS NULL OR raw."MATKL" = ''  THEN 'Error'
+        WHEN raw."MATKL" IS NULL OR raw."MATKL" = ''  THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK015')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T023" ref
             WHERE ref."MATKL" = raw."MATKL"
-        )                                              THEN 'Error'
+        )                                              THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK015')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

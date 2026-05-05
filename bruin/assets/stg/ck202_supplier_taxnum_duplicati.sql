@@ -21,7 +21,7 @@ SELECT
     'Codice fiscale [' || t."TAXTYPE(k/*)" || '/' || t."TAXNUM(*)" ||
     '] condiviso con altri ' || (dup.cnt - 1) || ' BP: ' || dup.altri_lifnr
                                                  AS message,
-    'Warning'                                    AS status,
+    (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK202') AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs
      WHERE status = 'running'
      ORDER BY started_at DESC LIMIT 1)           AS run_id,

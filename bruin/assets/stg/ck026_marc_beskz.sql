@@ -29,11 +29,11 @@ SELECT
         ELSE 'Tipo approvvigionamento [' || raw."BESKZ" || '] valido'
     END                                                  AS message,
     CASE
-        WHEN raw."BESKZ" IS NULL OR raw."BESKZ" = ''    THEN 'Error'
+        WHEN raw."BESKZ" IS NULL OR raw."BESKZ" = ''    THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK026')
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T460A" ref
             WHERE ref."BESKZ" = raw."BESKZ"
-        )                                               THEN 'Error'
+        )                                               THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK026')
         ELSE 'Ok'
     END                                                  AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs

@@ -28,8 +28,8 @@ SELECT
         ELSE '[' || COALESCE(marc."WERKS(k/*)", '?') || '] Peso netto [' || raw."NTGEW" || '] valido'
     END                                          AS message,
     CASE
-        WHEN raw."NTGEW" IS NULL OR raw."NTGEW" = ''        THEN 'Error'
-        WHEN REPLACE(raw."NTGEW", ',', '.')::NUMERIC = 0   THEN 'Error'
+        WHEN raw."NTGEW" IS NULL OR raw."NTGEW" = ''        THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK017')
+        WHEN REPLACE(raw."NTGEW", ',', '.')::NUMERIC = 0   THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK017')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs
