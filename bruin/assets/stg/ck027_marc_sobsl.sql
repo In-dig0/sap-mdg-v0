@@ -17,15 +17,15 @@ INSERT INTO stg.check_results (
 SELECT
     'S_MARC'                                             AS source_table,
     'MAT'                                                AS category,
-    raw."PRODUCT(k/*)" || '/' || raw."WERKS(k/*)"       AS object_key,
+    raw."PRODUCT(k/*)"                                   AS object_key,
     'CK027'                                              AS check_id,
     CASE
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T460A" ref
             WHERE ref."SOBSL" = raw."SOBSL"
         )
-            THEN 'Tipo approvvigionamento speciale [' || raw."SOBSL" || '] non presente in SAP (SAP_EXPORT_T460A.SOBSL)'
-        ELSE 'Tipo approvvigionamento speciale [' || raw."SOBSL" || '] valido'
+            THEN '[' || raw."WERKS(k/*)" || '] Tipo approvvigionamento speciale [' || raw."SOBSL" || '] non presente in SAP (SAP_EXPORT_T460A.SOBSL)'
+        ELSE '[' || raw."WERKS(k/*)" || '] Tipo approvvigionamento speciale [' || raw."SOBSL" || '] valido'
     END                                                  AS message,
     CASE
         WHEN NOT EXISTS (

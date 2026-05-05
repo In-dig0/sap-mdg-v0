@@ -22,8 +22,7 @@ SELECT
              SELECT 1 FROM raw."S_EINA#INFORMATFOR" eina
              WHERE eina."MATNR" = marc."PRODUCT(k/*)"
          )
-         THEN 'Materiale [' || marc."PRODUCT(k/*)" || '] '
-              || 'plant [' || marc."WERKS(k/*)" || '] '
+         THEN '[' || marc."WERKS(k/*)" || '] Materiale [' || marc."PRODUCT(k/*)" || '] '
               || 'ha BESKZ=[F] SOBSL=[ ] (acquisto esterno puro) '
               || 'ma non ha un inforecord acquisti in S_EINA#INFORMATFOR'
          ELSE 'Ok'

@@ -16,18 +16,18 @@ INSERT INTO stg.check_results (
 SELECT
     'S_MARC'                                             AS source_table,
     'MAT'                                                AS category,
-    raw."PRODUCT(k/*)" || '/' || raw."WERKS(k/*)"       AS object_key,
+    raw."PRODUCT(k/*)"                                   AS object_key,
     'CK021'                                              AS check_id,
     CASE
         WHEN raw."DISPO" IS NULL OR raw."DISPO" = ''
-            THEN 'DISPO obbligatorio mancante'
+            THEN '[' || raw."WERKS(k/*)" || '] DISPO obbligatorio mancante'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T024D" ref
             WHERE ref."WERKS" = raw."WERKS(k/*)"
               AND ref."DISPO" = raw."DISPO"
         )
-            THEN 'Coppia WERKS/DISPO [' || raw."WERKS(k/*)" || '/' || raw."DISPO" || '] non presente in SAP (SAP_EXPORT_T024D)'
-        ELSE 'Coppia WERKS/DISPO [' || raw."WERKS(k/*)" || '/' || raw."DISPO" || '] valida'
+            THEN '[' || raw."WERKS(k/*)" || '] Coppia WERKS/DISPO [' || raw."WERKS(k/*)" || '/' || raw."DISPO" || '] non presente in SAP (SAP_EXPORT_T024D)'
+        ELSE '[' || raw."WERKS(k/*)" || '] Coppia WERKS/DISPO [' || raw."WERKS(k/*)" || '/' || raw."DISPO" || '] valida'
     END                                                  AS message,
     CASE
         WHEN raw."DISPO" IS NULL OR raw."DISPO" = ''    THEN 'Error'

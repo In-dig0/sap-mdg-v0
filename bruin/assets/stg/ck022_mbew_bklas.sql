@@ -18,7 +18,7 @@ INSERT INTO stg.check_results (
 SELECT
     'S_MBEW'                                             AS source_table,
     'MAT'                                                AS category,
-    raw."PRODUCT(k/*)" || '/' || raw."BWKEY(k/*)"       AS object_key,
+    raw."PRODUCT(k/*)"                                   AS object_key,
     'CK022'                                              AS check_id,
     CASE
         WHEN raw."BKLAS(*)" IS NULL OR raw."BKLAS(*)" = ''

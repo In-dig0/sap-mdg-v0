@@ -24,8 +24,7 @@ SELECT
                AND mapl."WERKS_MAT(k/*)" = marc."WERKS(k/*)"
                AND mapl."PLNAL(k/*)"    = '01'
          )
-         THEN 'Materiale [' || marc."PRODUCT(k/*)" || '] '
-              || 'plant [' || marc."WERKS(k/*)" || '] '
+         THEN '[' || marc."WERKS(k/*)" || '] Materiale [' || marc."PRODUCT(k/*)" || '] '
               || 'ha BESKZ=[' || marc."BESKZ" || '] '
               || '(produzione ' || CASE marc."BESKZ"
                   WHEN 'E' THEN 'interna'

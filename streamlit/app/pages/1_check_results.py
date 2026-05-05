@@ -44,23 +44,46 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
         conn.close()
 
 
-def df_to_xlsx(df, sheet_name: str = "Risultati") -> bytes:
+def df_to_xlsx(
+    df,
+    sheet_name: str = "Risultati",
+    legenda_rows: list | None = None,
+) -> bytes:
     from openpyxl.styles import Font, PatternFill
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name=sheet_name)
-        ws = writer.sheets[sheet_name]
+
+    def _style_header(ws):
         header_font = Font(bold=True)
         header_fill = PatternFill("solid", start_color="BFBFBF", end_color="BFBFBF")
         for cell in ws[1]:
             cell.font = header_font
             cell.fill = header_fill
+
+    def _autofit(ws):
         for col in ws.columns:
             max_len = max(
                 len(str(cell.value)) if cell.value is not None else 0
                 for cell in col
             )
             ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 80)
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        # Foglio principale
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        ws_main = writer.sheets[sheet_name]
+        _style_header(ws_main)
+        _autofit(ws_main)
+
+        # Foglio Legenda
+        df_legenda = pd.DataFrame(
+            legenda_rows or [],
+            columns=["Codice controllo", "Descrizione controllo", "Categoria", "Stato"],
+        )
+        df_legenda.to_excel(writer, index=False, sheet_name="Legenda")
+        ws_leg = writer.sheets["Legenda"]
+        _style_header(ws_leg)
+        _autofit(ws_leg)
+
     return buf.getvalue()
 
 
@@ -291,7 +314,31 @@ else:
 
     df_issues = df_detail[df_detail["Stato"].isin(["Error", "Warning"])]
     if not df_issues.empty:
-        xlsx_data = df_to_xlsx(df_issues, sheet_name="Error+Warning")
+        # Recupera categoria dal check_catalog (se disponibile)
+        df_cat = run_query("""
+            SELECT check_id, check_desc, category
+            FROM stg.check_catalog
+            WHERE check_id = %s
+        """, (check_id,))
+        category = (
+            df_cat["category"].iloc[0]
+            if not df_cat.empty and "category" in df_cat.columns
+            else "—"
+        )
+
+        # Compila una riga per ogni stato presente nel file esportato
+        stati_presenti = sorted(df_issues["Stato"].unique())
+        legenda_rows = [
+            {
+                "Codice controllo":      check_id,
+                "Descrizione controllo": description,
+                "Categoria":             category,
+                "Stato":                 stato,
+            }
+            for stato in stati_presenti
+        ]
+
+        xlsx_data = df_to_xlsx(df_issues, sheet_name="Error+Warning", legenda_rows=legenda_rows)
         st.download_button(
             label="⬇️ Esporta errori in Excel",
             data=xlsx_data,

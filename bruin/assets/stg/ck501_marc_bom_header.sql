@@ -23,8 +23,7 @@ SELECT
              WHERE bom."MATNR(k/*)" = marc."PRODUCT(k/*)"
                AND bom."WERKS(k)"   = marc."WERKS(k/*)"
          )
-         THEN 'Materiale [' || marc."PRODUCT(k/*)" || '] '
-              || 'plant [' || marc."WERKS(k/*)" || '] '
+         THEN '[' || marc."WERKS(k/*)" || '] Materiale [' || marc."PRODUCT(k/*)" || '] '
               || 'ha BESKZ=[' || marc."BESKZ" || '] '
               || '(produzione ' || CASE marc."BESKZ"
                   WHEN 'E' THEN 'interna'

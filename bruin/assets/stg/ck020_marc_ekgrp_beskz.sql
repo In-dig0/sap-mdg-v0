@@ -16,12 +16,12 @@ INSERT INTO stg.check_results (
 SELECT
     'S_MARC'                                             AS source_table,
     'MAT'                                                AS category,
-    raw."PRODUCT(k/*)" || '/' || raw."WERKS(k/*)"       AS object_key,
+    raw."PRODUCT(k/*)"                                   AS object_key,
     'CK020'                                              AS check_id,
     CASE
         WHEN raw."EKGRP" IS NULL OR raw."EKGRP" = ''
-            THEN 'EKGRP obbligatorio quando BESKZ=' || raw."BESKZ" || ' (approvvigionamento esterno/misto)'
-        ELSE 'EKGRP [' || raw."EKGRP" || '] correttamente valorizzato per BESKZ=' || raw."BESKZ"
+            THEN '[' || raw."WERKS(k/*)" || '] EKGRP obbligatorio quando BESKZ=' || raw."BESKZ" || ' (approvvigionamento esterno/misto)'
+        ELSE '[' || raw."WERKS(k/*)" || '] EKGRP [' || raw."EKGRP" || '] correttamente valorizzato per BESKZ=' || raw."BESKZ"
     END                                                  AS message,
     CASE
         WHEN raw."EKGRP" IS NULL OR raw."EKGRP" = ''    THEN 'Error'

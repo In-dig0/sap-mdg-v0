@@ -17,15 +17,15 @@ INSERT INTO stg.check_results (
 SELECT
     'S_MARC'                                             AS source_table,
     'MAT'                                                AS category,
-    raw."PRODUCT(k/*)" || '/' || raw."WERKS(k/*)"       AS object_key,
+    raw."PRODUCT(k/*)"                                   AS object_key,
     'CK019'                                              AS check_id,
     CASE
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_T024" ref
             WHERE ref."EKGRP" = raw."EKGRP"
         )
-            THEN 'Gruppo acquisti [' || raw."EKGRP" || '] non presente in SAP (SAP_EXPORT_T024.EKGRP)'
-        ELSE 'Gruppo acquisti [' || raw."EKGRP" || '] valido'
+            THEN '[' || raw."WERKS(k/*)" || '] Gruppo acquisti [' || raw."EKGRP" || '] non presente in SAP (SAP_EXPORT_T024.EKGRP)'
+        ELSE '[' || raw."WERKS(k/*)" || '] Gruppo acquisti [' || raw."EKGRP" || '] valido'
     END                                                  AS message,
     CASE
         WHEN NOT EXISTS (

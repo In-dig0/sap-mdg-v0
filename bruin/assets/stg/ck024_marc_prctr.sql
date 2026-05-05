@@ -16,17 +16,17 @@ INSERT INTO stg.check_results (
 SELECT
     'S_MARC'                                             AS source_table,
     'MAT'                                                AS category,
-    raw."PRODUCT(k/*)" || '/' || raw."WERKS(k/*)"       AS object_key,
+    raw."PRODUCT(k/*)"                                   AS object_key,
     'CK024'                                              AS check_id,
     CASE
         WHEN raw."PRCTR" IS NULL OR raw."PRCTR" = ''
-            THEN 'PRCTR obbligatorio mancante'
+            THEN '[' || raw."WERKS(k/*)" || '] PRCTR obbligatorio mancante'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_CEPC" ref
             WHERE ref."PRCTR" = raw."PRCTR"
         )
-            THEN 'Profit Center [' || raw."PRCTR" || '] non presente in SAP (SAP_EXPORT_CEPC.PRCTR)'
-        ELSE 'Profit Center [' || raw."PRCTR" || '] valido'
+            THEN '[' || raw."WERKS(k/*)" || '] Profit Center [' || raw."PRCTR" || '] non presente in SAP (SAP_EXPORT_CEPC.PRCTR)'
+        ELSE '[' || raw."WERKS(k/*)" || '] Profit Center [' || raw."PRCTR" || '] valido'
     END                                                  AS message,
     CASE
         WHEN raw."PRCTR" IS NULL OR raw."PRCTR" = ''    THEN 'Error'

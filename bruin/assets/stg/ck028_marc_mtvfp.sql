@@ -16,17 +16,17 @@ INSERT INTO stg.check_results (
 SELECT
     'S_MARC'                                             AS source_table,
     'MAT'                                                AS category,
-    raw."PRODUCT(k/*)" || '/' || raw."WERKS(k/*)"       AS object_key,
+    raw."PRODUCT(k/*)"                                   AS object_key,
     'CK028'                                              AS check_id,
     CASE
         WHEN raw."MTVFP" IS NULL OR raw."MTVFP" = ''
-            THEN 'MTVFP obbligatorio mancante'
+            THEN '[' || raw."WERKS(k/*)" || '] MTVFP obbligatorio mancante'
         WHEN NOT EXISTS (
             SELECT 1 FROM ref."SAP_EXPORT_TMVF" ref
             WHERE ref."MTVFP" = raw."MTVFP"
         )
-            THEN 'Tipo fabbisogno [' || raw."MTVFP" || '] non presente in SAP (SAP_EXPORT_TMVF.MTVFP)'
-        ELSE 'Tipo fabbisogno [' || raw."MTVFP" || '] valido'
+            THEN '[' || raw."WERKS(k/*)" || '] Tipo fabbisogno [' || raw."MTVFP" || '] non presente in SAP (SAP_EXPORT_TMVF.MTVFP)'
+        ELSE '[' || raw."WERKS(k/*)" || '] Tipo fabbisogno [' || raw."MTVFP" || '] valido'
     END                                                  AS message,
     CASE
         WHEN raw."MTVFP" IS NULL OR raw."MTVFP" = ''   THEN 'Error'
