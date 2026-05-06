@@ -294,6 +294,79 @@ async def execute_bruin_pipeline(run_id: str, log_file: Path, cleanup: bool = Fa
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
+class AccessLogEntry(BaseModel):
+    email:   str
+    success: bool
+    reason:  Optional[str] = None
+    role:    Optional[str] = None
+
+
+@app.post("/auth/access-log", tags=["Auth"], status_code=201)
+def write_access_log(entry: AccessLogEntry):
+    """
+    Persiste un evento di login/logout nella tabella usr.access_log.
+    Chiamato da mdg_auth.py ad ogni tentativo di accesso.
+    """
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            INSERT INTO usr.access_log (email, success, reason, role, logged_at)
+            VALUES (%s, %s, %s, %s, NOW())
+        """, (entry.email, entry.success, entry.reason, entry.role))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"status": "ok"}
+    except Exception as e:
+        # Non sollevare eccezione: il log su stdout è già avvenuto in mdg_auth
+        return {"status": "error", "detail": str(e)}
+
+
+@app.get("/auth/access-log", tags=["Auth"])
+def get_access_log(limit: int = 200, email: Optional[str] = None, success: Optional[bool] = None):
+    """
+    Restituisce il log degli accessi. Filtrabili per email e/o esito.
+    Riservato agli admin (il controllo ruolo è fatto lato Streamlit).
+    """
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        where_parts = []
+        params      = []
+        if email:
+            where_parts.append("email ILIKE %s")
+            params.append(f"%{email}%")
+        if success is not None:
+            where_parts.append("success = %s")
+            params.append(success)
+        where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+        params.append(limit)
+        cur.execute(f"""
+            SELECT id, email, success, reason, role, logged_at
+            FROM usr.access_log
+            {where_clause}
+            ORDER BY logged_at DESC
+            LIMIT %s
+        """, tuple(params))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return [
+            {
+                "id":        r[0],
+                "email":     r[1],
+                "success":   r[2],
+                "reason":    r[3],
+                "role":      r[4],
+                "logged_at": r[5].isoformat() if r[5] else None,
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB: {e}")
+
 @app.get("/health", response_model=HealthResponse, tags=["Sistema"])
 def health():
     """Verifica lo stato di API, Postgres, container Bruin e file semaforo."""
