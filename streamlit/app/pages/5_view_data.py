@@ -139,8 +139,8 @@ col_r, col_c, col_max, col_search = st.columns([1, 1, 1, 3])
 col_r.metric("Righe totali", n_rows)
 
 max_rows = col_max.number_input(
-    "Righe da mostrare", min_value=10, max_value=100000,
-    value=n_rows, step=100, key="max_rows"
+    "Righe da mostrare", min_value=1, max_value=100000,
+    value=min(n_rows, 100000), step=100, key="max_rows"
 )
 
 search_text = col_search.text_input(
