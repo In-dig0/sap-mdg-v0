@@ -328,7 +328,30 @@ async def on_startup():
     async with engine.begin() as conn:
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS usr"))
         await conn.run_sync(Base.metadata.create_all)
-    print("[AUTH] Schema 'usr' e tabella 'usr.users' pronti.")
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS usr.access_log (
+                id        SERIAL       NOT NULL,
+                email     VARCHAR(255) NOT NULL,
+                success   BOOLEAN      NOT NULL,
+                reason    TEXT,
+                role      VARCHAR(50),
+                logged_at TIMESTAMP    NOT NULL DEFAULT NOW(),
+                CONSTRAINT pk_access_log PRIMARY KEY (id)
+            )
+        """))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_access_log_email "
+            "ON usr.access_log (email)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_access_log_logged_at "
+            "ON usr.access_log (logged_at DESC)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_access_log_success "
+            "ON usr.access_log (success)"
+        ))
+    print("[AUTH] Schema 'usr', tabella 'usr.users' e 'usr.access_log' pronti.")
 
     # 2. Seed admin automatico
     if not ADMIN_EMAIL or not ADMIN_PASSWORD:

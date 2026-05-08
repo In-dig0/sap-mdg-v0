@@ -8,6 +8,7 @@ Pipeline Admin — Controllo pipeline e analisi log
 import re
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 import pandas as pd
 import requests
@@ -139,7 +140,7 @@ def api_inbox():
 
 def api_delete_file(filename: str, endpoint: str = "inbox"):
     try:
-        r = requests.delete(f"{API_BASE}/files/{endpoint}/{filename}", timeout=5)
+        r = requests.delete(f"{API_BASE}/files/{endpoint}/{quote(filename, safe='')}", timeout=5)
         r.raise_for_status()
         return r.json(), None
     except requests.HTTPError as e:
@@ -166,12 +167,6 @@ def api_upload_file(file_bytes: bytes, filename: str, endpoint: str = "inbox"):
         return r.json(), None
     except requests.HTTPError as e:
         return None, e.response.json().get("detail", str(e))
-    except Exception as e:
-        return None, str(e)
-    try:
-        r = requests.get(f"{API_BASE}/files/{endpoint}", timeout=5)
-        r.raise_for_status()
-        return r.json(), None
     except Exception as e:
         return None, str(e)
 
@@ -344,7 +339,6 @@ with tab_sftp:
 
     if not folders:
         st.warning("Impossibile recuperare le cartelle SFTP dall'API. Verifica che FastAPI sia raggiungibile.")
-        st.stop()
 
     # Dizionario label → endpoint per il radio
     folder_options   = {f["label"]: f["endpoint"]  for f in folders}

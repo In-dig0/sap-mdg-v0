@@ -4,6 +4,12 @@ Dashboard qualità dati — Home page
 """
 
 import os
+import sys
+from pathlib import Path
+
+# mdg_auth.py si trova in /app, un livello sopra /app/pages/
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import streamlit as st
 import pandas as pd
 import psycopg2

@@ -100,7 +100,7 @@ svg = """
   <text x="323" y="92" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#93c5fd" text-anchor="middle">mdg_sftp</text>
   <line x1="238" y1="102" x2="408" y2="102" stroke="#1d4ed8" stroke-width="1"/>
   <text x="323" y="122" font-family="JetBrains Mono,monospace" font-size="11" fill="#7dd3fc" text-anchor="middle">SFTP Server</text>
-  <text x="323" y="142" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">volumi datalake  ·  :22 e :8082</text>
+  <text x="323" y="142" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">volumi datalake condivisi</text>
 
   <!-- mdg_bruin (col B, bottom) -->
   <rect x="228" y="300" width="190" height="110" rx="9" fill="#1a0b38" stroke="#7c3aed" stroke-width="2.2"/>
@@ -115,35 +115,31 @@ svg = """
   <line x1="510" y1="222" x2="700" y2="222" stroke="#16a34a" stroke-width="1"/>
   <text x="605" y="244" font-family="JetBrains Mono,monospace" font-size="11" fill="#86efac" text-anchor="middle">Database PostgreSQL</text>
   <text x="605" y="264" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">raw · ref · stg · prd</text>
-  <text x="605" y="282" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#334155" text-anchor="middle">:5432</text>
 
   <!-- mdg_pgadmin (col C, bottom) -->
   <rect x="500" y="500" width="210" height="110" rx="9" fill="#0a1a10" stroke="#16a34a" stroke-width="2.2"/>
   <text x="605" y="532" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#4ade80" text-anchor="middle">mdg_pgadmin</text>
   <line x1="510" y1="542" x2="700" y2="542" stroke="#14532d" stroke-width="1"/>
   <text x="605" y="562" font-family="JetBrains Mono,monospace" font-size="11" fill="#86efac" text-anchor="middle">PostgreSQL Mgmt</text>
-  <text x="605" y="582" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">:8080</text>
 
   <!-- mdg_fastapi (col D, top) -->
   <rect x="790" y="60" width="200" height="110" rx="9" fill="#1f0e03" stroke="#f97316" stroke-width="2.2"/>
   <text x="890" y="92" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#fb923c" text-anchor="middle">mdg_fastapi</text>
   <line x1="800" y1="102" x2="980" y2="102" stroke="#7c2d12" stroke-width="1"/>
   <text x="890" y="122" font-family="JetBrains Mono,monospace" font-size="11" fill="#fdba74" text-anchor="middle">Pipeline Controller</text>
-  <text x="890" y="142" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">:8000 · docker.sock</text>
+  <text x="890" y="142" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">docker.sock</text>
 
   <!-- mdg_streamlit (col D, mid) -->
   <rect x="790" y="240" width="200" height="110" rx="9" fill="#0e1a0e" stroke="#22c55e" stroke-width="2.2"/>
   <text x="890" y="272" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#4ade80" text-anchor="middle">mdg_streamlit</text>
   <line x1="800" y1="282" x2="980" y2="282" stroke="#15803d" stroke-width="1"/>
   <text x="890" y="302" font-family="JetBrains Mono,monospace" font-size="11" fill="#86efac" text-anchor="middle">Dashboard MDG</text>
-  <text x="890" y="322" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">:8501</text>
 
   <!-- mdg_auth (col D, bottom) -->
   <rect x="790" y="430" width="200" height="110" rx="9" fill="#1a0a1a" stroke="#9333ea" stroke-width="2.2"/>
   <text x="890" y="462" font-family="JetBrains Mono,monospace" font-size="14" font-weight="700" fill="#d8b4fe" text-anchor="middle">mdg_auth</text>
   <line x1="800" y1="472" x2="980" y2="472" stroke="#6b21a8" stroke-width="1"/>
   <text x="890" y="492" font-family="JetBrains Mono,monospace" font-size="11" fill="#c4b5fd" text-anchor="middle">fastapi-users · JWT</text>
-  <text x="890" y="512" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#475569" text-anchor="middle">:8001</text>
 
   <!-- Browser Web Business (col E, fuori network) -->
   <rect x="1070" y="260" width="160" height="68" rx="8" fill="#0f172a" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 3"/>
@@ -354,8 +350,6 @@ pipeline_svg = """
   <line x1="580" y1="466" x2="580" y2="424" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 2" marker-end="url(#parr-purple)"/>
   <line x1="835" y1="466" x2="835" y2="414" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 2" marker-end="url(#parr-purple)"/>
   <line x1="1089" y1="466" x2="1089" y2="326" stroke="#7c3aed" stroke-width="1" stroke-dasharray="4 2" marker-end="url(#parr-purple)"/>
-  <!-- Browser IT → mdg_pgadmin (orizzontale diretta) -->
-  <line x1="1068" y1="594" x2="712" y2="555" stroke="#94a3b8" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#arr)"/>
 
 </svg>
 """
@@ -412,7 +406,6 @@ containers = [
     },
 ]
 
-import pandas as pd
 cols = st.columns(3)
 for i, c in enumerate(containers):
     with cols[i % 3]:

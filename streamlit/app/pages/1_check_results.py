@@ -336,36 +336,39 @@ else:
         }
     )
 
+    # Recupera categoria dal check_catalog (se disponibile)
+    df_cat = run_query("""
+        SELECT check_id, check_desc, category
+        FROM stg.check_catalog
+        WHERE check_id = %s
+    """, (check_id,))
+    category = (
+        df_cat["category"].iloc[0]
+        if not df_cat.empty and "category" in df_cat.columns
+        else "—"
+    )
+
+    # Export: usa solo Error+Warning se presenti, altrimenti esporta tutto il visibile
     df_issues = df_detail[df_detail["Stato"].isin(["Error", "Warning"])]
-    if not df_issues.empty:
-        # Recupera categoria dal check_catalog (se disponibile)
-        df_cat = run_query("""
-            SELECT check_id, check_desc, category
-            FROM stg.check_catalog
-            WHERE check_id = %s
-        """, (check_id,))
-        category = (
-            df_cat["category"].iloc[0]
-            if not df_cat.empty and "category" in df_cat.columns
-            else "—"
-        )
+    df_export  = df_issues if not df_issues.empty else df_detail
+    sheet_name = "Error+Warning" if not df_issues.empty else "Risultati"
 
-        # Compila una riga per ogni stato presente nel file esportato
-        stati_presenti = sorted(df_issues["Stato"].unique())
-        legenda_rows = [
-            {
-                "Codice controllo":      check_id,
-                "Descrizione controllo": description,
-                "Categoria":             category,
-                "Stato":                 stato,
-            }
-            for stato in stati_presenti
-        ]
+    stati_presenti = sorted(df_export["Stato"].unique())
+    legenda_rows = [
+        {
+            "Codice controllo":      check_id,
+            "Descrizione controllo": description,
+            "Categoria":             category,
+            "Stato":                 stato,
+        }
+        for stato in stati_presenti
+    ]
 
-        xlsx_data = df_to_xlsx(df_issues, sheet_name="Error+Warning", legenda_rows=legenda_rows)
-        st.download_button(
-            label="⬇️ Esporta errori in Excel",
-            data=xlsx_data,
-            file_name=f"{check_id}_issues_{date.today().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+    export_label = "⬇️ Esporta errori in Excel" if not df_issues.empty else "⬇️ Esporta risultati in Excel"
+    xlsx_data = df_to_xlsx(df_export, sheet_name=sheet_name, legenda_rows=legenda_rows)
+    st.download_button(
+        label=export_label,
+        data=xlsx_data,
+        file_name=f"{check_id}_issues_{date.today().strftime('%Y%m%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
