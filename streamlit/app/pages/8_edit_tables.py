@@ -341,7 +341,10 @@ if df.empty:
 # Aggiunge colonna indice visibile (da 1)
 df.insert(0, "#", range(1, len(df) + 1))
 
-# Salva df originale
+# FIX: quando filter_key cambia, il blocco sopra ha già azzerato _orig_df a None.
+# Lo rigeneriamo qui con il df appena caricato. In questo modo AgGrid riceve
+# sempre i dati aggiornati al filtro corrente e non rimane agganciato al
+# dataset del filtro precedente.
 if st.session_state.get("_orig_df") is None:
     st.session_state["_orig_df"] = df.copy()
 

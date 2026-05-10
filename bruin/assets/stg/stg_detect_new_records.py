@@ -5,8 +5,9 @@ description: >
   Confronta le tabelle raw (dati ERP) con le corrispondenti tabelle stg
   (indirizzi normalizzati) per rilevare nuovi record ad ogni run.
   Logica:
-    1. Tutti i record _status='NEW' in stg → aggiornati a 'EXISTING'
-    2. Record presenti in raw ma assenti in stg (per chiave k) → INSERT con _status='NEW'
+    1. Record presenti in raw ma assenti in stg (per chiave k) → INSERT con _status='NEW'
+    2. Tutti i record _status='NEW' con _loaded_at < NOW() - 1s → aggiornati a 'EXISTS'
+       (il filtro sul timestamp esclude i record appena inseriti nello step 1)
   Le colonne chiave sono rilevate automaticamente dal suffisso (k) nel nome.
 depends:
   - ingestion.ingest_others_to_stg
@@ -89,22 +90,11 @@ def get_stg_columns(cur, stg_schema: str, stg_table: str) -> list[str]:
     ]
 
 
-def reset_new_to_existing(cur, stg_schema: str, stg_table: str) -> int:
-    """Step 1: aggiorna tutti i NEW → EXISTING."""
-    fqt = f'{stg_schema}.{q(stg_table)}'
-    cur.execute(f"""
-        UPDATE {fqt}
-        SET "_status" = 'EXISTING'
-        WHERE "_status" = 'NEW'
-    """)
-    return cur.rowcount
-
-
 def insert_new_records(cur, raw_schema: str, raw_table: str,
                         stg_schema: str, stg_table: str,
                         key_cols: list[str], stg_cols: list[str]) -> int:
     """
-    Step 2: inserisce in stg i record presenti in raw ma assenti in stg
+    Step 1: inserisce in stg i record presenti in raw ma assenti in stg
     per chiave, con _status='NEW'.
     Solo le colonne presenti in entrambe le tabelle vengono copiate.
     """
@@ -126,18 +116,13 @@ def insert_new_records(cur, raw_schema: str, raw_table: str,
         log.warning(f"  Nessuna colonna comune tra {raw_table} e {stg_table} — skip.")
         return 0
 
-    # Condizione JOIN sulle chiavi
-    join_cond = " AND ".join(
-        f'raw.{q(k)} = stg.{q(k)}'
-        for k in key_cols
-    )
     # Condizione NOT EXISTS: record in raw senza corrispondenza in stg
     not_exists_cond = " AND ".join(
         f'stg.{q(k)} = raw.{q(k)}'
         for k in key_cols
     )
 
-    col_list    = ", ".join(q(c) for c in common_cols)
+    col_list     = ", ".join(q(c) for c in common_cols)
     col_list_raw = ", ".join(f'raw.{q(c)}' for c in common_cols)
 
     source_value = f"{raw_schema}.{raw_table}"
@@ -155,11 +140,28 @@ def insert_new_records(cur, raw_schema: str, raw_table: str,
     return cur.rowcount
 
 
+def reset_new_to_existing(cur, stg_schema: str, stg_table: str) -> int:
+    """
+    Step 2: aggiorna NEW → EXISTS solo per i record con _loaded_at
+    antecedente all'ultimo secondo.
+    Il filtro sul timestamp protegge i record appena inseriti nello Step 1,
+    che devono rimanere NEW fino al run successivo.
+    """
+    fqt = f'{stg_schema}.{q(stg_table)}'
+    cur.execute(f"""
+        UPDATE {fqt}
+        SET "_status" = 'EXISTS'
+        WHERE "_status" = 'NEW'
+          AND "_loaded_at" < NOW() - INTERVAL '1 second'
+    """)
+    return cur.rowcount
+
+
 def ensure_audit_columns(cur, stg_schema: str, stg_table: str):
     """Aggiunge _source, _status, _loaded_at se non esistono."""
     fqt = f'{stg_schema}.{q(stg_table)}'
     cur.execute(f"ALTER TABLE {fqt} ADD COLUMN IF NOT EXISTS \"_source\" TEXT")
-    cur.execute(f"ALTER TABLE {fqt} ADD COLUMN IF NOT EXISTS \"_status\" TEXT DEFAULT 'EXISTING'")
+    cur.execute(f"ALTER TABLE {fqt} ADD COLUMN IF NOT EXISTS \"_status\" TEXT DEFAULT 'EXISTS'")
     cur.execute(f"ALTER TABLE {fqt} ADD COLUMN IF NOT EXISTS \"_loaded_at\" TIMESTAMPTZ")
 
 
@@ -187,17 +189,24 @@ def process_pair(conn, raw_schema: str, raw_table: str,
         # Recupera colonne stg (senza audit)
         stg_cols = get_stg_columns(cur, stg_schema, stg_table)
 
-        # Step 1: NEW → EXISTING
-        n_reset = reset_new_to_existing(cur, stg_schema, stg_table)
-        log.info(f"  Step 1 — NEW → EXISTING: {n_reset} record aggiornati")
+        # FIX: Step 1 e Step 2 invertiti rispetto alla versione precedente.
+        # Prima si inseriscono i nuovi record (con _status='NEW' e _loaded_at=NOW()),
+        # poi si azzerano a 'EXISTS' i vecchi NEW — ma solo quelli con
+        # _loaded_at < NOW() - 1s, così i record appena inseriti nello Step 1
+        # non vengono toccati e rimangono NEW fino al run successivo.
 
-        # Step 2: inserisci nuovi da raw
+        # Step 1: inserisci nuovi record da raw con _status='NEW'
         n_new = insert_new_records(
             cur, raw_schema, raw_table,
             stg_schema, stg_table,
             key_cols, stg_cols,
         )
-        log.info(f"  Step 2 — Nuovi record inseriti: {n_new}")
+        log.info(f"  Step 1 — Nuovi record inseriti: {n_new}")
+
+        # Step 2: NEW → EXISTS (solo record del run precedente)
+        n_reset = reset_new_to_existing(cur, stg_schema, stg_table)
+        log.info(f"  Step 2 — NEW → EXISTS: {n_reset} record aggiornati")
+
         conn.commit()
 
 
