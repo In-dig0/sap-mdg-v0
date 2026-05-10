@@ -198,23 +198,32 @@ def _render_login_form():
     st.divider()
 
     # Inizializza contatori in session_state
-    if "login_attempts"     not in st.session_state:
-        st.session_state["login_attempts"]     = 0
+    if "login_attempts" not in st.session_state:
+        st.session_state["login_attempts"] = 0
     if "login_locked_until" not in st.session_state:
         st.session_state["login_locked_until"] = None
 
-    # Genera captcha se non presente o già usato
-    if "captcha_question" not in st.session_state or st.session_state.get("captcha_used", False):
+    # FIX: pattern "next captcha"
+    # Al submit errato prepariamo il NUOVO captcha in captcha_next_*, ma NON lo
+    # attiviamo subito: lo promuoviamo a captcha_question/answer solo all'inizio
+    # del render SUCCESSIVO (quello in cui l'utente deve già leggere la domanda
+    # e compilare il form). Così domanda mostrata e risposta attesa sono sempre
+    # sincronizzate, anche con clear_on_submit=True.
+    if "captcha_next_q" in st.session_state:
+        # Promuovi il captcha pre-generato al render precedente
+        st.session_state["captcha_question"] = st.session_state.pop("captcha_next_q")
+        st.session_state["captcha_answer"]   = st.session_state.pop("captcha_next_a")
+    elif "captcha_question" not in st.session_state:
+        # Prima apertura: genera il captcha iniziale
         q, a = _generate_captcha()
         st.session_state["captcha_question"] = q
         st.session_state["captcha_answer"]   = a
-        st.session_state["captcha_used"]     = False
 
     # Blocca se in lockout
     if _check_lockout():
         st.stop()
 
-    with st.form("login_form", clear_on_submit=False):
+    with st.form("login_form", clear_on_submit=True):
         email    = st.text_input("Email", placeholder="admin@mdg.local")
         password = st.text_input("Password", type="password")
         st.markdown(
@@ -237,15 +246,20 @@ def _render_login_form():
             captcha_value = None
 
         if captcha_value != st.session_state.get("captcha_answer"):
-            st.session_state["captcha_used"] = True
+            # Pre-genera il prossimo captcha: sarà promosso al render successivo
+            q, a = _generate_captcha()
+            st.session_state["captcha_next_q"] = q
+            st.session_state["captcha_next_a"] = a
             st.error("❌ Risposta al CAPTCHA non corretta. Riprova.")
             return
 
         with st.spinner("Autenticazione in corso..."):
             user = _login(email, password)
 
-        # Rigenera captcha ad ogni tentativo
-        st.session_state["captcha_used"] = True
+        # Dopo ogni tentativo (ok o ko) pre-genera il prossimo captcha
+        q, a = _generate_captcha()
+        st.session_state["captcha_next_q"] = q
+        st.session_state["captcha_next_a"] = a
 
         if user:
             # Login riuscito: resetta contatori e salva sessione

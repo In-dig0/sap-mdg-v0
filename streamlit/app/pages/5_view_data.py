@@ -48,7 +48,7 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
 SCHEMAS = ["raw", "stg", "ref", "prd"]
 
 # Tabelle di sistema da escludere
-SYSTEM_TABLES = {"check_results", "check_catalog", "pipeline_runs", "check_states"}
+SYSTEM_TABLES = {"check_catalog", "pipeline_runs"}
 
 # ---------------------------------------------------------------------------
 # Header
@@ -208,18 +208,33 @@ with st.expander("🔎 Filtro per colonna", expanded=False):
                 + (f" ... +{len(filter_values)-10} altri" if len(filter_values) > 10 else "")
             )
 
-# Carica dati
+# ---------------------------------------------------------------------------
+# FIX: costruisci WHERE clause in SQL combinando filtro colonna + ricerca testo
+# La ricerca testo era applicata in Python su un sottoinsieme di righe (LIMIT),
+# quindi su tabelle grandi non trovava record presenti oltre il limite.
+# Ora entrambi i filtri viaggiano nella query e il LIMIT si applica dopo.
+# ---------------------------------------------------------------------------
 try:
-    where_clause = ""
-    query_params: list = [max_rows]
+    where_parts: list[str] = []
+    query_params: list = []
 
+    # Filtro per colonna (include / exclude)
     if filter_col and filter_col != "— nessun filtro —" and filter_values:
         placeholders = ", ".join(["%s"] * len(filter_values))
-        if filter_mode == "include":
-            where_clause = f'WHERE "{filter_col}" IN ({placeholders})'
-        else:
-            where_clause = f'WHERE "{filter_col}" NOT IN ({placeholders})'
-        query_params = filter_values + [max_rows]
+        op = "IN" if filter_mode == "include" else "NOT IN"
+        where_parts.append(f'"{filter_col}" {op} ({placeholders})')
+        query_params.extend(filter_values)
+
+    # Ricerca testo libera su tutte le colonne via CAST::text + ILIKE
+    if search_text and available_columns:
+        text_conditions = " OR ".join(
+            [f'"{col}"::text ILIKE %s' for col in available_columns]
+        )
+        where_parts.append(f"({text_conditions})")
+        query_params.extend([f"%{search_text}%"] * len(available_columns))
+
+    where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+    query_params.append(int(max_rows))
 
     df = run_query(
         f'SELECT * FROM {selected_schema}."{selected_table}" {where_clause} LIMIT %s',
@@ -231,21 +246,16 @@ except Exception as e:
 
 col_c.metric("Colonne", len(df.columns))
 
-# Applica filtro testo libero
-if search_text and not df.empty:
-    mask = df.apply(
-        lambda col: col.astype(str).str.contains(search_text, case=False, na=False)
-    ).any(axis=1)
-    df_show = df[mask]
-    st.caption(f"Righe visualizzate: {len(df_show)} (filtrate da {len(df)} caricate)")
+# Didascalia righe — il filtro è già applicato in SQL, nessun post-processing
+if search_text or filter_values:
+    st.caption(f"Righe visualizzate: {len(df)} (filtrate dal DB)")
 else:
-    df_show = df
-    st.caption(f"Righe visualizzate: {len(df_show)}")
+    st.caption(f"Righe visualizzate: {len(df)}")
 
-if df_show.empty:
+if df.empty:
     st.info("Nessun record trovato con il filtro applicato.")
 else:
-    df_show = df_show.reset_index(drop=True)
+    df_show = df.reset_index(drop=True)
     df_show.index = df_show.index + 1
     st.dataframe(df_show, use_container_width=True, hide_index=False)
 
