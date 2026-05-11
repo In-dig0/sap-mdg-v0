@@ -400,6 +400,19 @@ def main():
             if deleted:
                 log.info(f"Rimossi {deleted} record customer precedenti per run_id={run_id}.")
 
+            # 2c. Pulizia record CACHED accumulati da run precedenti:
+            #     per ogni (entity_id, vat_number) customer teniamo solo il record
+            #     più recente non-CACHED, cancellando tutti i CACHED ormai inutili.
+            cur.execute("""
+                DELETE FROM stg.check_vat_vies
+                WHERE entity_type = 'customer'
+                  AND check_status = 'CACHED'
+            """)
+            cleaned = cur.rowcount
+            conn.commit()
+            if cleaned:
+                log.info(f"Rimossi {cleaned} record CACHED customer residui da run precedenti.")
+
             # 3. Leggi VAT customer da raw
             cur.execute("""
                 SELECT
@@ -499,8 +512,11 @@ def main():
 
         log.info(f"CACHED: {cached_count} | Da verificare: {len(raw_rows) - cached_count}")
 
-        # 6. Scrivi risultati in stg.check_vat_vies
-        if results:
+        # 6. Scrivi in stg.check_vat_vies SOLO i risultati reali (non i CACHED).
+        #    I record CACHED sono già presenti nella tabella da run precedenti:
+        #    riscriverli creerebbe duplicati a ogni run.
+        real_results = [r for r in results if r["check_status"] != "CACHED"]
+        if real_results:
             with conn.cursor() as cur:
                 execute_values(
                     cur,
@@ -520,12 +536,15 @@ def main():
                             r["vies_address"], r["vies_request_date"], r["check_status"],
                             r["error_message"], r["zip_source"], r["created_at"],
                         )
-                        for r in results
+                        for r in real_results
                     ],
                     page_size=200,
                 )
             conn.commit()
-            log.info(f"Scritti {len(results)} record in stg.check_vat_vies.")
+            log.info(f"Scritti {len(real_results)} record reali in stg.check_vat_vies "
+                     f"({cached_count} record riusati dalla cache, non riscritti).")
+        else:
+            log.info(f"Nessun nuovo record da scrivere ({cached_count} tutti da cache).")
 
         # 7. Riepilogo
         from collections import Counter

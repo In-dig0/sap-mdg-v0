@@ -11,6 +11,7 @@ description: >
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
 depends:
   - prd.merge_clienti
+  - prd.merge_taxnumbers_clienti
 @bruin """
 
 import os
@@ -39,18 +40,25 @@ OUTPUT_DIR = "/project/datalake/out_source_mdg"
 
 AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 
-# Tabella anagrafici da prd
-PRD_TABLE = ("prd", "S_CUST_GEN#ZBP_DatiGenerali")
+# Tabelle da schema prd che sostituiscono le rispettive versioni raw.
+# L'ordine determina la sequenza di scrittura nel ZIP.
+PRD_TABLES = [
+    ("prd", "S_CUST_GEN#ZBP_DatiGenerali"),
+    ("prd", "S_CUST_TAXNUMBERS#ZBP-CodiciFisc"),
+]
+
+# Nomi tabella raw sostituiti da prd (vengono skippati nella sezione raw)
+PRD_TABLE_NAMES = {table for _, table in PRD_TABLES}
 
 # Tabelle da raw (filtrate per _source)
 RAW_TABLES = [
     "S_CUST_BANK_DATA#ZBP-AppoggioBanca",
     "S_CUST_COMPANY#ZBP-DatiSocieta",
-    "S_CUST_GEN#ZBP-DatiGenerali",        # versione raw — sostituita da prd
+    "S_CUST_GEN#ZBP-DatiGenerali",            # sostituita da prd
     "S_CUST_SALES_DATA#ZBP-DatiVendite",
     "S_CUST_SALES_PARTNER#ZBP-Partner",
     "S_CUST_TAXCLASS#ZBP-IvaVendite",
-    "S_CUST_TAXNUMBERS#ZBP-CodiciFisc",
+    "S_CUST_TAXNUMBERS#ZBP-CodiciFisc",        # sostituita da prd
     "S_ROLES#ZBP-RuoliClienti",
 ]
 
@@ -64,7 +72,7 @@ def q(name: str) -> str:
 
 
 def get_distinct_sources(conn) -> list[str]:
-    schema, table = PRD_TABLE
+    schema, table = PRD_TABLES[0]
     fqt = f'{schema}.{q(table)}'
     with conn.cursor() as cur:
         cur.execute(
@@ -115,21 +123,20 @@ def build_zip(conn, source_name: str) -> bytes:
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
 
-        # 1. Tabella anagrafici da prd
-        prd_schema, prd_table = PRD_TABLE
-        prd_cols = get_columns(conn, prd_schema, prd_table)
-        if prd_cols:
-            csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols)
-            n_rows = csv_bytes.count(b"\r\n") - 1
-            zf.writestr(f"{prd_table}.csv", csv_bytes)
-            log.info(f"  + {prd_schema}.{prd_table}: {n_rows} righe")
-        else:
-            log.warning(f"  Nessuna colonna trovata per {prd_schema}.{prd_table}")
+        # 1. Tabelle da prd (ordine definito in PRD_TABLES)
+        for prd_schema, prd_table in PRD_TABLES:
+            prd_cols = get_columns(conn, prd_schema, prd_table)
+            if prd_cols:
+                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols)
+                n_rows = csv_bytes.count(b"\r\n") - 1
+                zf.writestr(f"{prd_table}.csv", csv_bytes)
+                log.info(f"  + {prd_schema}.{prd_table}: {n_rows} righe")
+            else:
+                log.warning(f"  Nessuna colonna trovata per {prd_schema}.{prd_table}")
 
-        # 2. Tabelle da raw (skip S_CUST_GEN#ZBP-DatiGenerali — già presa da prd)
-        raw_prd_equiv = "S_CUST_GEN#ZBP-DatiGenerali"
+        # 2. Tabelle da raw (skip quelle già prese da prd)
         for raw_table in RAW_TABLES:
-            if raw_table == raw_prd_equiv:
+            if raw_table in PRD_TABLE_NAMES:
                 log.info(f"  SKIP raw.{raw_table} — sostituito da prd")
                 continue
 

@@ -11,6 +11,8 @@ description: >
   Output: /project/datalake/out/<nome_source>.zip
 depends:
   - prd.merge_fornitori
+  - prd.merge_taxnumbers_fornitori
+  - prd.merge_add_taxnumbers_fornitori
   - prd.merge_clienti
   - prd.merge_dest_merci
 @bruin """
@@ -42,18 +44,27 @@ OUTPUT_DIR = "/project/datalake/out_source_mdg"
 # Colonne audit da escludere dai CSV di output
 AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 
-# Tabella anagrafici da prd (sostituisce raw."S_SUPPL_GEN#ZBP_DatiGenerali")
-PRD_TABLE = ("prd", "S_SUPPL_GEN#ZBP_DatiGenerali")
+# Tabelle da schema prd che sostituiscono le rispettive versioni raw.
+# L'ordine determina la sequenza di scrittura nel ZIP.
+PRD_TABLES = [
+    ("prd", "S_SUPPL_GEN#ZBP_DatiGenerali"),
+    ("prd", "S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc"),
+    ("prd", "S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc"),
+]
+
+# Nomi tabella raw sostituiti da prd (vengono skippati nella sezione raw)
+PRD_TABLE_NAMES = {table for _, table in PRD_TABLES}
 
 # Tabelle da raw da includere nel ZIP (filtrate per _source)
 RAW_TABLES = [
     "S_ROLES#ZBP_RuoliFornitori",
     "S_SUPPL_COMPANY#ZBP_DatiSocieta",
-    "S_SUPPL_GEN#ZBP_DatiGenerali",       # versione raw (sostituita da prd per i dati generali)
+    "S_SUPPL_GEN#ZBP_DatiGenerali",           # sostituita da prd
     "S_SUPPL_INDUSTRY#ZBP_SettoriIndust",
     "S_SUPPL_PARTNER#ZBP_Partner",
     "S_SUPPL_PURCHASING#ZBP_OrganAcq",
-    "S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc",
+    "S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc",       # sostituita da prd
+    "S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc",    # sostituita da prd
     "S_SUPPL_WITH_TAX#ZBP_RitenAcco",
     "S_SUPP_BANK#ZBP_AppoggioBanca",
 ]
@@ -68,8 +79,8 @@ def q(name: str) -> str:
 
 
 def get_distinct_sources(conn) -> list[str]:
-    """Recupera i valori distinti di _source dalla tabella prd."""
-    schema, table = PRD_TABLE
+    """Recupera i valori distinti di _source dalla tabella prd principale."""
+    schema, table = PRD_TABLES[0]
     fqt = f'{schema}.{q(table)}'
     with conn.cursor() as cur:
         cur.execute(f'SELECT DISTINCT "_source" FROM {fqt} WHERE "_source" IS NOT NULL ORDER BY 1')
@@ -114,26 +125,26 @@ def fetch_table_csv(conn, schema: str, table: str,
 def build_zip(conn, source_name: str) -> bytes:
     """
     Costruisce il contenuto di un archivio ZIP per un dato _source.
-    Usa prd per S_SUPPL_GEN#ZBP_DatiGenerali, raw per tutte le altre.
+    Usa prd per le tabelle in PRD_TABLES, raw per tutte le altre.
     """
     buf = io.BytesIO()
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
 
-        # 1. Tabella anagrafici da prd
-        prd_schema, prd_table = PRD_TABLE
-        prd_cols = get_columns(conn, prd_schema, prd_table)
-        if prd_cols:
-            csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols)
-            n_rows = csv_bytes.count(b"\r\n") - 1
-            zf.writestr(f"{prd_table}.csv", csv_bytes)
-            log.info(f"  + {prd_schema}.{prd_table}: {n_rows} righe")
-        else:
-            log.warning(f"  Nessuna colonna trovata per {prd_schema}.{prd_table}")
+        # 1. Tabelle da prd (ordine definito in PRD_TABLES)
+        for prd_schema, prd_table in PRD_TABLES:
+            prd_cols = get_columns(conn, prd_schema, prd_table)
+            if prd_cols:
+                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols)
+                n_rows = csv_bytes.count(b"\r\n") - 1
+                zf.writestr(f"{prd_table}.csv", csv_bytes)
+                log.info(f"  + {prd_schema}.{prd_table}: {n_rows} righe")
+            else:
+                log.warning(f"  Nessuna colonna trovata per {prd_schema}.{prd_table}")
 
-        # 2. Tabelle da raw (skip S_SUPPL_GEN#ZBP_DatiGenerali — già preso da prd)
+        # 2. Tabelle da raw (skip quelle già prese da prd)
         for raw_table in RAW_TABLES:
-            if raw_table == PRD_TABLE[1]:
+            if raw_table in PRD_TABLE_NAMES:
                 log.info(f"  SKIP raw.{raw_table} — sostituito da prd")
                 continue
 
