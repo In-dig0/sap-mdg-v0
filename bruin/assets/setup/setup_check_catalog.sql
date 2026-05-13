@@ -178,6 +178,14 @@ VALUES
      'BP','S_CUST_GEN#ZDM_DatiGenerali_STG','COUNTRY(*)',
      'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
 
+    ('CK048','Clienti (AppoggioBanca): chiave banca italiana (BANKL) presente in SAP_Banche (solo BANKS=IT)',
+     'BP','S_CUST_BANK_DATA#ZBP-AppoggioBanca','BANKL(k)',
+     'ref.SAP_Banche (Numero ABI/CAB)','Error','SAP_REF',TRUE,NOW()),
+
+    ('CK047','Fornitori (AppoggioBanca): chiave banca italiana (BANKL) presente in SAP_Banche (solo BANKS=IT)',
+     'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKL(k)',
+     'ref.SAP_Banche (Numero ABI/CAB)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK046','Destinatari Merci STG: coppia COUNTRY(*)+REGION presente in T005S',
      'BP','S_CUST_GEN#ZDM_DatiGenerali_STG','COUNTRY(*) + REGION',
      'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),

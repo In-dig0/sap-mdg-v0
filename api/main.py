@@ -25,14 +25,16 @@ BRUIN_PIPELINE    = os.getenv("BRUIN_PIPELINE", "/project/bruin")
 SEMAPHORE_PATH    = os.getenv("SEMAPHORE_PATH", "/data/inbound/DATASET_READY.txt")
 SAP_PATH          = Path(os.getenv("SAP_PATH", "/data/in_source_sap"))
 OTHERS_PATH       = Path(os.getenv("OTHERS_PATH", "/data/in_source_others"))
+OUT_MDG_PATH      = Path(os.getenv("OUT_MDG_PATH", "/data/out_source_mdg"))
 LOG_DIR           = Path(os.getenv("LOG_DIR", "/logs"))
 
 # Mappa endpoint → (path, accetta_semaforo)
 # Estendibile aggiungendo nuovi volumi senza modificare il codice Streamlit.
 FOLDER_REGISTRY: dict[str, dict] = {
-    "inbox":  {"path": lambda: Path(SEMAPHORE_PATH).parent, "label": "in_source_pprod",  "semaphore": True},
-    "sap":    {"path": lambda: SAP_PATH,                    "label": "in_source_sap",     "semaphore": False},
-    "others": {"path": lambda: OTHERS_PATH,                 "label": "in_source_others",  "semaphore": False},
+    "inbox":   {"path": lambda: Path(SEMAPHORE_PATH).parent, "label": "in_source_pprod",  "semaphore": True,  "readonly": False},
+    "sap":     {"path": lambda: SAP_PATH,                    "label": "in_source_sap",     "semaphore": False, "readonly": False},
+    "others":  {"path": lambda: OTHERS_PATH,                 "label": "in_source_others",  "semaphore": False, "readonly": False},
+    "out_mdg": {"path": lambda: OUT_MDG_PATH,                "label": "out_source_mdg",    "semaphore": False, "readonly": False},
 }
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -570,6 +572,7 @@ def list_folders():
             "endpoint": key,
             "label":    cfg["label"],
             "semaphore": cfg["semaphore"],
+            "readonly":  cfg.get("readonly", False),
             "exists":   cfg["path"]().exists(),
         }
         for key, cfg in FOLDER_REGISTRY.items()
@@ -704,6 +707,44 @@ def delete_all_others_files():
 @app.post("/files/others/upload", tags=["File"])
 async def upload_others_file(file: UploadFile):
     return await _upload_file("others", file)
+
+
+# ── Endpoint download generico ────────────────────────────────────────────────
+
+@app.get("/files/{endpoint}/download/{filename}", tags=["File"])
+async def download_file(endpoint: str, filename: str):
+    """Scarica un singolo file dalla cartella specificata."""
+    from fastapi.responses import FileResponse
+    cfg = FOLDER_REGISTRY.get(endpoint)
+    if not cfg:
+        raise HTTPException(status_code=404, detail=f"Endpoint '{endpoint}' non registrato.")
+    folder = cfg["path"]()
+    target = folder / filename
+    if not target.resolve().is_relative_to(folder.resolve()):
+        raise HTTPException(status_code=400, detail="Nome file non valido.")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail=f"File non trovato: {filename}")
+    return FileResponse(
+        path=str(target),
+        filename=filename,
+        media_type="application/octet-stream",
+    )
+
+
+# ── Endpoints per cartella out_mdg (out_source_mdg) — sola lettura ────────────
+
+@app.get("/files/out_mdg", tags=["File"])
+def list_out_mdg():
+    """Lista i file nella cartella out_source_mdg (output pipeline)."""
+    return _list_folder("out_mdg")
+
+@app.delete("/files/out_mdg/{filename}", tags=["File"])
+def delete_out_mdg_file(filename: str):
+    return _delete_file("out_mdg", filename)
+
+@app.delete("/files/out_mdg", tags=["File"])
+def delete_all_out_mdg_files():
+    return _delete_all_files("out_mdg")
 
 import subprocess
 

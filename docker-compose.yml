@@ -23,6 +23,7 @@ services:
     image: ${POSTGRES_IMAGE}
     container_name: mdg_postgres
     restart: unless-stopped
+    command: postgres -c max_connections=300 -c shared_buffers=256MB
     environment:
       POSTGRES_DB:       ${POSTGRES_DB}
       POSTGRES_USER:     ${POSTGRES_USER}
@@ -167,6 +168,7 @@ services:
       SEMAPHORE_PATH:    /data/inbound/DATASET_READY.txt
       SAP_PATH:          /data/in_source_sap
       OTHERS_PATH:       /data/in_source_others
+      OUT_MDG_PATH:      /data/out_source_mdg
       LOG_DIR:           /logs
       POSTGRES_HOST:     ${POSTGRES_HOST}
       POSTGRES_PORT:     ${POSTGRES_PORT}
@@ -179,6 +181,7 @@ services:
       - datalake_pprod:/data/inbound
       - datalake_sap:/data/in_source_sap
       - datalake_others:/data/in_source_others
+      - datalake_out:/data/out_source_mdg
       - api_logs:/logs
       - ./api:/app
     depends_on:

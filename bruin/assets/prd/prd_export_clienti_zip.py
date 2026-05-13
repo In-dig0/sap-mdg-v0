@@ -19,6 +19,7 @@ import io
 import csv
 import zipfile
 import logging
+import math
 import psycopg2
 
 logging.basicConfig(
@@ -45,6 +46,7 @@ AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 PRD_TABLES = [
     ("prd", "S_CUST_GEN#ZBP_DatiGenerali"),
     ("prd", "S_CUST_TAXNUMBERS#ZBP-CodiciFisc"),
+    ("prd", "S_CUST_BANK_DATA#ZBP-AppoggioBanca"),
 ]
 
 # Nomi tabella raw sostituiti da prd (vengono skippati nella sezione raw)
@@ -52,7 +54,7 @@ PRD_TABLE_NAMES = {table for _, table in PRD_TABLES}
 
 # Tabelle da raw (filtrate per _source)
 RAW_TABLES = [
-    "S_CUST_BANK_DATA#ZBP-AppoggioBanca",
+    "S_CUST_BANK_DATA#ZBP-AppoggioBanca",    # sostituita da prd (filtro CK048)
     "S_CUST_COMPANY#ZBP-DatiSocieta",
     "S_CUST_GEN#ZBP-DatiGenerali",            # sostituita da prd
     "S_CUST_SALES_DATA#ZBP-DatiVendite",
@@ -102,10 +104,20 @@ def fetch_table_csv(conn, schema: str, table: str,
         )
         rows = cur.fetchall()
 
+    def sanitize(val):
+        """Converte None, float NaN e stringa 'NaN' in stringa vuota."""
+        if val is None:
+            return ""
+        if isinstance(val, float) and math.isnan(val):
+            return ""
+        if isinstance(val, str) and val.strip() == "NaN":
+            return ""
+        return val
+
     buf = io.StringIO()
-    writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_ALL, lineterminator="\r\n")
+    writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
     writer.writerow(cols)
-    writer.writerows(rows)
+    writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
     return buf.getvalue().encode("utf-8")
 
 
@@ -129,6 +141,9 @@ def build_zip(conn, source_name: str) -> bytes:
             if prd_cols:
                 csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols)
                 n_rows = csv_bytes.count(b"\r\n") - 1
+                if n_rows <= 0:
+                    log.info(f"  {prd_schema}.{prd_table}: 0 righe per '{source_name}' — skip")
+                    continue
                 zf.writestr(f"{prd_table}.csv", csv_bytes)
                 log.info(f"  + {prd_schema}.{prd_table}: {n_rows} righe")
             else:

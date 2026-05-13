@@ -341,8 +341,9 @@ with tab_sftp:
         st.warning("Impossibile recuperare le cartelle SFTP dall'API. Verifica che FastAPI sia raggiungibile.")
 
     # Dizionario label → endpoint per il radio
-    folder_options   = {f["label"]: f["endpoint"]  for f in folders}
-    folder_semaphore = {f["endpoint"]: f["semaphore"] for f in folders}
+    folder_options    = {f["label"]: f["endpoint"]  for f in folders}
+    folder_semaphore  = {f["endpoint"]: f["semaphore"] for f in folders}
+    folder_readonly   = {f["endpoint"]: f.get("readonly", False) for f in folders}
 
     sel_col, _ = st.columns([2, 4])
     selected_label = sel_col.radio(
@@ -353,6 +354,7 @@ with tab_sftp:
     )
     endpoint = folder_options[selected_label]
     has_semaphore = folder_semaphore.get(endpoint, False)
+    is_readonly   = folder_readonly.get(endpoint, False)
 
     st.divider()
     folder_data, err = api_list_files(endpoint)
@@ -380,67 +382,92 @@ with tab_sftp:
             i2.metric("Dimensione tot.", f"{total_kb:.1f} KB")
 
         st.divider()
-        h1, h2, h3, h4, h5 = st.columns([3, 1, 1, 2, 1])
+        h1, h2, h3, h4, h5, h6 = st.columns([3, 1, 1, 2, 1, 1])
         h1.markdown("**Nome file**"); h2.markdown("**Tipo**")
         h3.markdown("**Dim. (KB)**"); h4.markdown("**Modificato**")
-        h5.markdown("**Elimina**")
+        h5.markdown("**Download**");  h6.markdown("**Elimina**")
         st.divider()
 
         for f in files:
-            c1, c2, c3, c4, c5 = st.columns([3, 1, 1, 2, 1])
+            c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 1, 2, 1, 1])
             c1.write(f["name"])
             c2.write(f["type"])
             c3.write(f["size_kb"])
             c4.write(f["modified_at"].replace("T", " ")[:19])
-            if c5.button("🗑️", key=f"del_{endpoint}_{f['name']}", help=f"Elimina {f['name']}"):
-                _, e = api_delete_file(f["name"], endpoint)
-                if e:
-                    st.error(f"Errore: {e}")
-                else:
-                    st.toast(f"✅ '{f['name']}' eliminato.")
-                    st.rerun()
+
+            # Pulsante download: recupera il file via API
+            dl_url = f"{API_BASE}/files/{endpoint}/download/{quote(f['name'], safe='')}"
+            try:
+                dl_resp = requests.get(dl_url, timeout=15)
+                dl_resp.raise_for_status()
+                c5.download_button(
+                    label="⬇️",
+                    data=dl_resp.content,
+                    file_name=f["name"],
+                    mime="application/octet-stream",
+                    key=f"dl_{endpoint}_{f['name']}",
+                    help=f"Scarica {f['name']}",
+                )
+            except Exception:
+                c5.write("—")
+
+            # Pulsante elimina: nascosto per cartelle readonly
+            if not is_readonly:
+                if c6.button("🗑️", key=f"del_{endpoint}_{f['name']}", help=f"Elimina {f['name']}"):
+                    _, e = api_delete_file(f["name"], endpoint)
+                    if e:
+                        st.error(f"Errore: {e}")
+                    else:
+                        st.toast(f"✅ '{f['name']}' eliminato.")
+                        st.rerun()
+            else:
+                c6.write("—")
 
         st.divider()
         col_ri, col_del, _ = st.columns([1, 1, 3])
         if col_ri.button("🔄 Aggiorna", key="sftp_refresh"):
             st.rerun()
-        svuota_label = f"🗑️ Svuota {selected_label}"
-        confirm_key  = f"confirm_delete_all_{endpoint}"
-        if col_del.button(svuota_label, type="secondary", key=f"svuota_{endpoint}"):
-            if st.session_state.get(confirm_key):
-                _, e = api_delete_all_files(endpoint)
-                if e:
-                    st.error(f"Errore: {e}")
+        if not is_readonly:
+            svuota_label = f"🗑️ Svuota {selected_label}"
+            confirm_key  = f"confirm_delete_all_{endpoint}"
+            if col_del.button(svuota_label, type="secondary", key=f"svuota_{endpoint}"):
+                if st.session_state.get(confirm_key):
+                    _, e = api_delete_all_files(endpoint)
+                    if e:
+                        st.error(f"Errore: {e}")
+                    else:
+                        st.toast(f"✅ {selected_label} svuotata.")
+                    st.session_state.pop(confirm_key, None)
+                    st.rerun()
                 else:
-                    st.toast(f"✅ {selected_label} svuotata.")
-                st.session_state.pop(confirm_key, None)
-                st.rerun()
-            else:
-                st.session_state[confirm_key] = True
-                st.warning(f"⚠️ Clicca di nuovo **{svuota_label}** per confermare.")
+                    st.session_state[confirm_key] = True
+                    st.warning(f"⚠️ Clicca di nuovo **{svuota_label}** per confermare.")
 
     st.divider()
-    upload_types = ["zip", "csv", "txt"] if has_semaphore else ["xlsx", "csv"]
-    with st.expander(f"⬆️ Upload in {selected_label}", expanded=False):
-        st.caption(f"Carica file direttamente nella cartella **{selected_label}** senza usare un client SFTP.")
-        uploaded_files = st.file_uploader(
-            "Seleziona file da caricare",
-            type=upload_types,
-            accept_multiple_files=True,
-            key=f"upload_{endpoint}",
-        )
-        if uploaded_files:
-            if st.button("⬆️ Carica", type="primary", key=f"btn_upload_{endpoint}"):
-                ok_count = 0
-                for uf in uploaded_files:
-                    _, e = api_upload_file(uf.read(), uf.name, endpoint)
-                    if e:
-                        st.error(f"Errore su '{uf.name}': {e}")
-                    else:
-                        ok_count += 1
-                if ok_count:
-                    st.success(f"✅ {ok_count} file caricati in {selected_label}.")
-                    st.rerun()
+    if not is_readonly:
+        upload_types = ["zip", "csv", "txt"] if has_semaphore else ["xlsx", "csv"]
+        with st.expander(f"⬆️ Upload in {selected_label}", expanded=False):
+            st.caption(f"Carica file direttamente nella cartella **{selected_label}** senza usare un client SFTP.")
+            uploaded_files = st.file_uploader(
+                "Seleziona file da caricare",
+                type=upload_types,
+                accept_multiple_files=True,
+                key=f"upload_{endpoint}",
+            )
+            if uploaded_files:
+                if st.button("⬆️ Carica", type="primary", key=f"btn_upload_{endpoint}"):
+                    ok_count = 0
+                    for uf in uploaded_files:
+                        _, e = api_upload_file(uf.read(), uf.name, endpoint)
+                        if e:
+                            st.error(f"Errore su '{uf.name}': {e}")
+                        else:
+                            ok_count += 1
+                    if ok_count:
+                        st.success(f"✅ {ok_count} file caricati in {selected_label}.")
+                        st.rerun()
+    else:
+        st.info(f"ℹ️ La cartella **{selected_label}** è di sola lettura (output pipeline). Upload e cancellazione non disponibili.")
 
 # ===========================================================================
 # TAB 3 — STORICO RUN

@@ -117,11 +117,96 @@ def _log_vies_discards(cur, raw_fqt: str, raw_cols: list[str],
         log.warning("  " + " | ".join(f"{str(v):<30}" for v in row))
 
 
+def check_ck047_results_exists(cur) -> bool:
+    """Verifica che stg.check_results abbia righe per CK047 con status != 'Ok'."""
+    cur.execute("""
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema = 'stg' AND table_name = 'check_results'
+    """)
+    return cur.fetchone()[0] > 0
+
+
+def _log_ck047_discards(cur, raw_fqt: str, ck047_lifnr_col: str):
+    """
+    Logga i record scartati dal filtro CK047 (coordinate bancarie IT non valide).
+    Un record per LIFNR+BANKS+BANKL.
+    """
+    cur.execute(f"""
+        SELECT
+            raw.{q(ck047_lifnr_col)},
+            raw."BANKS(k/*)",
+            raw."BANKL(k)"
+        FROM {raw_fqt} raw
+        WHERE raw."BANKS(k/*)" = 'IT'
+          AND NOT EXISTS (
+            SELECT 1 FROM ref."SAP_Banche" b
+            WHERE b."Numero ABI/CAB" = raw."BANKL(k)"
+          )
+        ORDER BY raw.{q(ck047_lifnr_col)}, raw."BANKL(k)"
+    """)
+    discarded = cur.fetchall()
+
+    if not discarded:
+        log.info("  ✓  CK047 — nessun record scartato (coordinate bancarie IT tutte valide).")
+        return
+
+    log.warning(
+        f"  ⚠  CK047 — {len(discarded)} record scartati da "
+        f"{raw_fqt} (BANKS=IT, BANKL non presente in ref.SAP_Banche):"
+    )
+    col_headers = [ck047_lifnr_col, "BANKS(k/*)", "BANKL(k)"]
+    header = "  " + " | ".join(f"{h:<30}" for h in col_headers)
+    log.warning(header)
+    log.warning("  " + "-" * (len(header) - 2))
+    for row in discarded:
+        log.warning("  " + " | ".join(f"{str(v):<30}" for v in row))
+
+
+def _log_ck048_discards(cur, raw_fqt: str, ck048_kunnr_col: str):
+    """
+    Logga i record scartati dal filtro CK048 (coordinate bancarie IT clienti non valide).
+    Un record per KUNNR+BANKS+BANKL.
+    """
+    cur.execute(f"""
+        SELECT
+            raw.{q(ck048_kunnr_col)},
+            raw."BANKS(k)",
+            raw."BANKL(k)"
+        FROM {raw_fqt} raw
+        WHERE raw."BANKS(k)" = 'IT'
+          AND NOT EXISTS (
+            SELECT 1 FROM ref."SAP_Banche" b
+            WHERE b."Numero ABI/CAB" = raw."BANKL(k)"
+          )
+        ORDER BY raw.{q(ck048_kunnr_col)}, raw."BANKL(k)"
+    """)
+    discarded = cur.fetchall()
+
+    if not discarded:
+        log.info("  ✓  CK048 — nessun record scartato (coordinate bancarie IT clienti tutte valide).")
+        return
+
+    log.warning(
+        f"  ⚠  CK048 — {len(discarded)} record scartati da "
+        f"{raw_fqt} (BANKS=IT, BANKL non presente in ref.SAP_Banche):"
+    )
+    col_headers = [ck048_kunnr_col, "BANKS(k)", "BANKL(k)"]
+    header = "  " + " | ".join(f"{h:<30}" for h in col_headers)
+    log.warning(header)
+    log.warning("  " + "-" * (len(header) - 2))
+    for row in discarded:
+        log.warning("  " + " | ".join(f"{str(v):<30}" for v in row))
+
+
 def merge_table(cur, raw_schema: str, raw_table: str,
                 stg_schema: str, stg_table: str,
                 prd_table: str,
                 vies_filter: bool = False,
-                vies_lifnr_col: str | None = None):
+                vies_lifnr_col: str | None = None,
+                ck047_filter: bool = False,
+                ck047_lifnr_col: str | None = None,
+                ck048_filter: bool = False,
+                ck048_kunnr_col: str | None = None):
     """
     Merge raw + stg -> prd.
     - Colonne comuni: COALESCE(stg.col, raw.col) — preferenza a stg
@@ -130,6 +215,8 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     - Record stg con _status='DELETED' esclusi dal JOIN
     - Se la tabella STG non esiste, usa solo raw (nessun JOIN).
     - vies_filter=True: esclude TAXTYPE LIKE '%0' con PIVA EU non valida.
+    - ck047_filter=True: esclude record con BANKS=IT e BANKL non in ref.SAP_Banche (fornitori).
+    - ck048_filter=True: esclude record con BANKS=IT e BANKL non in ref.SAP_Banche (clienti).
     """
     raw_fqt = f'{raw_schema}.{q(raw_table)}'
     stg_fqt = f'{stg_schema}.{q(stg_table)}'
@@ -163,13 +250,20 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     log.info(f"  Colonne comuni raw<->stg (override da stg): {len(common_cols)}")
 
     # ---- SELECT ----
+    # Usiamo la prima colonna chiave come sentinella: se il record STG esiste
+    # (LEFT JOIN trovato) prendiamo SEMPRE il valore da STG, anche se NULL o
+    # vuoto. Usiamo RAW solo quando il record STG è assente (sentinel IS NULL).
+    stg_sentinel = q(key_cols[0]) if key_cols else None
+
     select_parts = []
     for col in raw_cols:
         if col in ("_source", "_loaded_at"):
             select_parts.append(f'raw.{q(col)}')
-        elif col in common_cols:
+        elif col in common_cols and stg_sentinel:
             select_parts.append(
-                f'COALESCE(NULLIF(stg.{q(col)}, \'\'), raw.{q(col)}) AS {q(col)}'
+                f'CASE WHEN stg.{stg_sentinel} IS NOT NULL '
+                f'THEN stg.{q(col)} '
+                f'ELSE raw.{q(col)} END AS {q(col)}'
             )
         else:
             select_parts.append(f'raw.{q(col)}')
@@ -224,12 +318,70 @@ def merge_table(cur, raw_schema: str, raw_table: str,
         else:
             log.warning("  stg.check_vat_vies non trovata — filtro VIES saltato.")
 
+    # ---- Filtro CK047 (coordinate bancarie IT non valide) ----
+    if ck047_filter and ck047_lifnr_col:
+        if check_ck047_results_exists(cur):
+            bankl_col = "BANKL(k)"
+            banks_col = "BANKS(k/*)"
+            if bankl_col in raw_cols and banks_col in raw_cols:
+                log.info(
+                    f"  Filtro CK047 attivo su {q(ck047_lifnr_col)} "
+                    f"(BANKS=IT, BANKL non in ref.SAP_Banche)"
+                )
+                where_clauses.append(f"""NOT (
+            raw.{q(banks_col)} = 'IT'
+            AND NOT EXISTS (
+                SELECT 1 FROM ref."SAP_Banche" b
+                WHERE b."Numero ABI/CAB" = raw.{q(bankl_col)}
+            )
+        )""")
+            else:
+                log.warning(
+                    f"  Filtro CK047: colonne {bankl_col} o {banks_col} "
+                    f"non trovate in {raw_fqt} — filtro saltato."
+                )
+        else:
+            log.warning("  stg.check_results non trovata — filtro CK047 saltato.")
+
     where_clause = ("WHERE " + "\n          AND ".join(where_clauses)
                     if where_clauses else "")
 
     # ---- Log record scartati da VIES (prima del DROP, un record per PIVA) ----
     if vies_filter and vies_lifnr_col and check_vat_vies_exists(cur):
         _log_vies_discards(cur, raw_fqt, raw_cols, vies_lifnr_col)
+
+    # ---- Log record scartati da CK047 (prima del DROP) ----
+    if ck047_filter and ck047_lifnr_col and check_ck047_results_exists(cur):
+        _log_ck047_discards(cur, raw_fqt, ck047_lifnr_col)
+
+    # ---- Filtro CK048 (coordinate bancarie IT clienti non valide) ----
+    if ck048_filter and ck048_kunnr_col:
+        if check_ck047_results_exists(cur):  # riusa lo stesso check su stg.check_results
+            bankl_col  = "BANKL(k)"
+            banks_col  = "BANKS(k)"
+            if bankl_col in raw_cols and banks_col in raw_cols:
+                log.info(
+                    f"  Filtro CK048 attivo su {q(ck048_kunnr_col)} "
+                    f"(BANKS=IT, BANKL non in ref.SAP_Banche)"
+                )
+                where_clauses.append(f"""NOT (
+            raw.{q(banks_col)} = 'IT'
+            AND NOT EXISTS (
+                SELECT 1 FROM ref."SAP_Banche" b
+                WHERE b."Numero ABI/CAB" = raw.{q(bankl_col)}
+            )
+        )""")
+            else:
+                log.warning(
+                    f"  Filtro CK048: colonne {bankl_col} o {banks_col} "
+                    f"non trovate in {raw_fqt} — filtro saltato."
+                )
+        else:
+            log.warning("  stg.check_results non trovata — filtro CK048 saltato.")
+
+    # ---- Log record scartati da CK048 (prima del DROP) ----
+    if ck048_filter and ck048_kunnr_col and check_ck047_results_exists(cur):
+        _log_ck048_discards(cur, raw_fqt, ck048_kunnr_col)
 
     # ---- DROP + CREATE ----
     cur.execute(f"DROP TABLE IF EXISTS {prd_fqt}")
