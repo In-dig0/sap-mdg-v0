@@ -49,9 +49,6 @@ PRD_TABLES = [
     ("prd", "S_CUST_BANK_DATA#ZBP-AppoggioBanca"),
 ]
 
-# Nomi tabella raw sostituiti da prd (vengono skippati nella sezione raw)
-PRD_TABLE_NAMES = {table for _, table in PRD_TABLES}
-
 # Tabelle da raw (filtrate per _source)
 RAW_TABLES = [
     "S_CUST_BANK_DATA#ZBP-AppoggioBanca",    # sostituita da prd (filtro CK048)
@@ -64,6 +61,12 @@ RAW_TABLES = [
     "S_ROLES#ZBP-RuoliClienti",
 ]
 
+# Mappa: nome raw → tabella prd sostitutiva
+RAW_REPLACED_BY_PRD = {
+    "S_CUST_GEN#ZBP-DatiGenerali",         # con -
+    "S_CUST_TAXNUMBERS#ZBP-CodiciFisc",
+    "S_CUST_BANK_DATA#ZBP-AppoggioBanca"
+}
 
 def get_connection():
     return psycopg2.connect(**DB_CONFIG)
@@ -151,7 +154,7 @@ def build_zip(conn, source_name: str) -> bytes:
 
         # 2. Tabelle da raw (skip quelle già prese da prd)
         for raw_table in RAW_TABLES:
-            if raw_table in PRD_TABLE_NAMES:
+            if raw_table in RAW_REPLACED_BY_PRD:
                 log.info(f"  SKIP raw.{raw_table} — sostituito da prd")
                 continue
 
