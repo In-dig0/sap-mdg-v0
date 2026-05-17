@@ -1,12 +1,13 @@
 """ @bruin
-name: stg.ck404_zbp_clienti
+name: stg.ck405_zmm_materiali_orphans
 type: python
 depends:
   - stg.clean_check_results
 description: >
-  CK404 — CROSS_TABLE: flusso 03-ZBP-Clienti.
-  Verifica che ogni KUNNR nelle tabelle secondarie del flusso
-  esista nella master S_CUST_GEN#ZBP-DatiGenerali.
+  CK405 — CROSS_TABLE: archivio materiali.
+  Verifica che il campo PRODUCT(k/*) nelle tabelle secondarie
+  S_MAKT, S_MARC, S_MARD, S_MARM, S_MBEW, S_MLAN, S_MVKE, S_QMAT
+  esista nella master S_MARA.
 @bruin """
 
 import os
@@ -22,24 +23,23 @@ DB_CONFIG = {
     "password": os.environ.get("POSTGRES_PASSWORD", ""),
 }
 
-CHECK_ID     = "CK404"
-ZIP_PREFIX   = "03-ZBP-Clienti"
-MASTER_TABLE = "S_CUST_GEN#ZBP-DatiGenerali"
-MASTER_FK    = "KUNNR(k/*)"
-SECONDARY_FK = "KUNNR(k/*)"
+CHECK_ID     = "CK405"
+MASTER_TABLE = "S_MARA"
+MASTER_FK    = "PRODUCT(k/*)"
+SECONDARY_FK = "PRODUCT(k/*)"
+
+SECONDARY_TABLES = [
+    "S_MAKT",
+    "S_MARC",
+    "S_MARD",
+    "S_MARM",
+    "S_MBEW",
+    "S_MLAN",
+    "S_MVKE",
+    "S_QMAT",
+]
 
 def q(name): return '"' + name.replace('"', '""') + '"'
-
-def get_secondary_tables(cur):
-    cur.execute("""
-        SELECT DISTINCT table_name
-        FROM information_schema.columns
-        WHERE table_schema = 'raw'
-          AND column_name = %s
-          AND table_name != %s
-        ORDER BY table_name
-    """, (SECONDARY_FK, MASTER_TABLE))
-    return [r[0] for r in cur.fetchall()]
 
 def main():
     conn = psycopg2.connect(**DB_CONFIG)
@@ -59,28 +59,27 @@ def main():
             sev_row  = cur.fetchone()
             severity = sev_row[0] if sev_row else "Error"
 
-            secondary_tables = get_secondary_tables(cur)
             total_orphans = 0
 
-            for sec_table in secondary_tables:
-                # Errori: SECONDARY_FK non presente nella master
+            for sec_table in SECONDARY_TABLES:
+
+                # Errori: PRODUCT(k/*) non presente nella master S_MARA
                 cur.execute(f"""
                     SELECT DISTINCT sec.{q(SECONDARY_FK)}, sec."_source"
                     FROM raw.{q(sec_table)} sec
-                    WHERE sec."_source" ILIKE %s
-                      AND sec.{q(SECONDARY_FK)} IS NOT NULL
+                    WHERE sec.{q(SECONDARY_FK)} IS NOT NULL
                       AND sec.{q(SECONDARY_FK)} <> ''
                       AND NOT EXISTS (
                           SELECT 1 FROM raw.{q(MASTER_TABLE)} mst
                           WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
                       )
-                """, (f"{ZIP_PREFIX}%",))
+                """)
 
                 rows_err = []
                 for rec in cur.fetchall():
                     rows_err.append((
-                        sec_table, 'BP', rec[0], CHECK_ID,
-                        f"[{SECONDARY_FK.split('(')[0]}={rec[0]}] presente in {sec_table} "
+                        sec_table, 'MAT', rec[0], CHECK_ID,
+                        f"[PRODUCT={rec[0]}] presente in {sec_table} "
                         f"ma assente nella master {MASTER_TABLE}",
                         severity, run_id, rec[1], now,
                     ))
@@ -95,23 +94,22 @@ def main():
                     total_orphans += len(rows_err)
                     print(f"[WARN] {CHECK_ID} — {sec_table}: {len(rows_err)} orfani")
 
-                # Ok: SECONDARY_FK presente nella master
+                # Ok: PRODUCT(k/*) presente nella master S_MARA
                 cur.execute(f"""
                     SELECT DISTINCT sec.{q(SECONDARY_FK)}, sec."_source"
                     FROM raw.{q(sec_table)} sec
-                    WHERE sec."_source" ILIKE %s
-                      AND sec.{q(SECONDARY_FK)} IS NOT NULL
+                    WHERE sec.{q(SECONDARY_FK)} IS NOT NULL
                       AND sec.{q(SECONDARY_FK)} <> ''
                       AND EXISTS (
                           SELECT 1 FROM raw.{q(MASTER_TABLE)} mst
                           WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
                       )
-                """, (f"{ZIP_PREFIX}%",))
+                """)
 
                 rows_ok = []
                 for rec in cur.fetchall():
                     rows_ok.append((
-                        sec_table, 'BP', rec[0], CHECK_ID,
+                        sec_table, 'MAT', rec[0], CHECK_ID,
                         'Ok',
                         'Ok', run_id, rec[1], now,
                     ))
@@ -127,7 +125,7 @@ def main():
 
         conn.commit()
         if total_orphans == 0:
-            print(f"[OK] {CHECK_ID} — nessun orfano nel flusso {ZIP_PREFIX}")
+            print(f"[OK] {CHECK_ID} — nessun orfano nell'archivio materiali")
         else:
             print(f"[WARN] {CHECK_ID} — totale orfani: {total_orphans}")
     finally:

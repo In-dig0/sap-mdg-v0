@@ -6,6 +6,7 @@ depends:
 description: >
   CK501 — CROSS_SOURCE: Materiali: distinta base obbligatoria per
   produzione interna o mista (BESKZ in 'E', 'X').
+  Esclusi i materiali con stato MSTAE in ('01','08') (materiale incompleto).
   La severity (Error/Warning) viene letta dinamicamente da stg.check_catalog.
 connection: mdg_postgres
 @bruin */
@@ -47,6 +48,10 @@ SELECT
     marc."_source"                                  AS zip_source,
     NOW()                                           AS created_at
 FROM raw."S_MARC" marc
+-- Escludi materiali con stato incompleto (MSTAE 01=incompleto, 08=incompleto rev.)
+JOIN raw."S_MARA" mara
+  ON mara."PRODUCT(k/*)" = marc."PRODUCT(k/*)"
+ AND COALESCE(mara."MSTAE", '') NOT IN ('01', '08')
 WHERE marc."BESKZ" IN ('E', 'X')
   AND (
       SELECT COALESCE(is_active, FALSE)

@@ -1,10 +1,10 @@
 """ @bruin
-name: stg.ck402_zbp_fornitori
+name: stg.ck401_zbp_vettori_orphans
 type: python
 depends:
   - stg.clean_check_results
 description: >
-  CK402 — CROSS_TABLE: flusso 04-ZBP-Fornitori.
+  CK401 — CROSS_TABLE: flusso 01-ZBP-Vettori.
   Verifica che ogni LIFNR nelle tabelle secondarie del flusso
   esista nella master S_SUPPL_GEN#ZBP_DatiGenerali.
 @bruin """
@@ -22,8 +22,8 @@ DB_CONFIG = {
     "password": os.environ.get("POSTGRES_PASSWORD", ""),
 }
 
-CHECK_ID     = "CK402"
-ZIP_PREFIX   = "04-ZBP-Fornitori"
+CHECK_ID     = "CK401"
+ZIP_PREFIX   = "01-ZBP-Vettori"
 MASTER_TABLE = "S_SUPPL_GEN#ZBP_DatiGenerali"
 MASTER_FK    = "LIFNR(k/*)"
 SECONDARY_FK = "LIFNR(k/*)"

@@ -6,6 +6,7 @@ depends:
 description: >
   CK502 — CROSS_SOURCE: Materiali: ciclo di lavoro standard obbligatorio
   per produzione interna o mista (BESKZ in 'E', 'X').
+  Esclusi i materiali con stato MSTAE in ('01','08') (materiale incompleto).
 connection: mdg_postgres
 @bruin */
 
@@ -20,9 +21,9 @@ SELECT
     'CK502'                                         AS check_id,
     CASE WHEN NOT EXISTS (
              SELECT 1 FROM raw."S_MAPL" mapl
-             WHERE mapl."MATNR(k/*)"    = marc."PRODUCT(k/*)"
+             WHERE mapl."MATNR(k/*)"     = marc."PRODUCT(k/*)"
                AND mapl."WERKS_MAT(k/*)" = marc."WERKS(k/*)"
-               AND mapl."PLNAL(k/*)"    = '01'
+               AND mapl."PLNAL(k/*)"     = '01'
          )
          THEN '[' || marc."WERKS(k/*)" || '] Materiale [' || marc."PRODUCT(k/*)" || '] '
               || 'ha BESKZ=[' || marc."BESKZ" || '] '
@@ -35,9 +36,9 @@ SELECT
     END                                             AS message,
     CASE WHEN NOT EXISTS (
              SELECT 1 FROM raw."S_MAPL" mapl
-             WHERE mapl."MATNR(k/*)"    = marc."PRODUCT(k/*)"
+             WHERE mapl."MATNR(k/*)"     = marc."PRODUCT(k/*)"
                AND mapl."WERKS_MAT(k/*)" = marc."WERKS(k/*)"
-               AND mapl."PLNAL(k/*)"    = '01'
+               AND mapl."PLNAL(k/*)"     = '01'
          )
          THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK502')
          ELSE 'Ok'
@@ -48,6 +49,10 @@ SELECT
     marc."_source"                                  AS zip_source,
     NOW()                                           AS created_at
 FROM raw."S_MARC" marc
+-- Escludi materiali con stato incompleto (MSTAE 01=incompleto, 08=incompleto rev.)
+JOIN raw."S_MARA" mara
+  ON mara."PRODUCT(k/*)" = marc."PRODUCT(k/*)"
+ AND COALESCE(mara."MSTAE", '') NOT IN ('01', '08')
 WHERE marc."BESKZ" IN ('E', 'X')
   AND (
       SELECT COALESCE(is_active, FALSE)

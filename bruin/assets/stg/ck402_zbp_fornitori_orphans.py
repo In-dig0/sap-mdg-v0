@@ -1,12 +1,12 @@
 """ @bruin
-name: stg.ck403_zdm_clienti
+name: stg.ck402_zbp_fornitori_orphans
 type: python
 depends:
   - stg.clean_check_results
 description: >
-  CK403 — CROSS_TABLE: flusso 02-ZDM-Clienti.
-  Verifica che ogni KUNNR nelle tabelle secondarie del flusso
-  esista nella master S_CUST_GEN#ZDM-DatiGenerali.
+  CK402 — CROSS_TABLE: flusso 04-ZBP-Fornitori.
+  Verifica che ogni LIFNR nelle tabelle secondarie del flusso
+  esista nella master S_SUPPL_GEN#ZBP_DatiGenerali.
 @bruin """
 
 import os
@@ -22,11 +22,11 @@ DB_CONFIG = {
     "password": os.environ.get("POSTGRES_PASSWORD", ""),
 }
 
-CHECK_ID     = "CK403"
-ZIP_PREFIX   = "02-ZDM-Clienti"
-MASTER_TABLE = "S_CUST_GEN#ZDM-DatiGenerali"
-MASTER_FK    = "KUNNR(k/*)"
-SECONDARY_FK = "KUNNR(k/*)"
+CHECK_ID     = "CK402"
+ZIP_PREFIX   = "04-ZBP-Fornitori"
+MASTER_TABLE = "S_SUPPL_GEN#ZBP_DatiGenerali"
+MASTER_FK    = "LIFNR(k/*)"
+SECONDARY_FK = "LIFNR(k/*)"
 
 def q(name): return '"' + name.replace('"', '""') + '"'
 

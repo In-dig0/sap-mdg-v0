@@ -113,7 +113,8 @@ st.divider()
 try:
     df_checks_available = run_query("""
         SELECT DISTINCT cr.check_id, cr.source_table,
-               COALESCE(cc.check_desc, '—') AS check_desc
+               COALESCE(cc.check_desc, '—') AS check_desc,
+               COALESCE(cc.category, '—')   AS category
         FROM stg.check_results cr
         LEFT JOIN stg.check_catalog cc ON cc.check_id = cr.check_id
         ORDER BY cr.check_id, cr.source_table
@@ -125,6 +126,28 @@ except Exception:
 if df_checks_available.empty:
     st.info("Nessun risultato disponibile. Avvia la pipeline Bruin.")
     st.stop()
+
+# ---------------------------------------------------------------------------
+# Filtro per categoria
+# ---------------------------------------------------------------------------
+categories_available = sorted(df_checks_available["category"].dropna().unique().tolist())
+
+col_cat, _ = st.columns([2, 6])
+with col_cat:
+    selected_category = st.selectbox(
+        "Categoria controllo",
+        options=["Tutte"] + categories_available,
+        index=0,
+        key="category_filter",
+    )
+
+if selected_category != "Tutte":
+    df_checks_available = df_checks_available[
+        df_checks_available["category"] == selected_category
+    ]
+    if df_checks_available.empty:
+        st.info(f"Nessun controllo disponibile per la categoria '{selected_category}'.")
+        st.stop()
 
 # Costruisci opzioni dropdown: "CK016  —  S_MARA  —  Descrizione check"
 options = [
@@ -143,6 +166,10 @@ if ss_check_id and ss_source_table:
         if opt.startswith(prefix):
             default_idx = i
             break
+    # Se il check salvato non è più disponibile nella categoria selezionata, reset
+    if default_idx == 0 and not options[0].startswith(prefix):
+        st.session_state.pop("detail_check_id", None)
+        st.session_state.pop("detail_source_table", None)
 
 selected = st.selectbox(
     "Seleziona il controllo",

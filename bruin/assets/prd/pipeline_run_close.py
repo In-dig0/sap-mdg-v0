@@ -10,10 +10,11 @@ depends:
   - stg.ck202_supplier_taxnum_duplicati
   - stg.ck203_customer_piva
   - stg.ck204_customer_taxnum_duplicati
-  - stg.ck401_zbp_vettori
-  - stg.ck402_zbp_fornitori
-  - stg.ck403_zdm_clienti
-  - stg.ck404_zbp_clienti
+  - stg.ck401_zbp_vettori_orphans
+  - stg.ck402_zbp_fornitori_orphans
+  - stg.ck403_zdm_clienti_orphans
+  - stg.ck404_zbp_clienti_orphans
+  - prd.reconcile_zip
 description: >
   Chiude il record in stg.pipeline_runs al termine del run.
   Legge il run_id dal file semaforo /tmp/mdg_run_id.txt.

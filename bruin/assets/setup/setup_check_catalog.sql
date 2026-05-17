@@ -186,6 +186,22 @@ VALUES
      'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKL(k)',
      'ref.SAP_Banche (Numero ABI/CAB)','Error','SAP_REF',TRUE,NOW()),
 
+    ('CK049','Fornitori (RitenAcco): coppia WITHT+WT_WITHCD presente in T059Z',
+     'BP','S_SUPPL_WITH_TAX#ZBP_RitenAcco','WITHT(k/*) + WT_WITHCD',
+     'ref.SAP_EXPORT_T059Z (WITHT+WT_WITHCD)','Error','SAP_REF',TRUE,NOW()),
+
+    ('CK050','Fornitori (AddRitenAcco): coppia WITHT+WT_WITHCD presente in T059Z',
+     'BP','S_SUPPL_WITH_TAX#ZBP_AddRitenAcco','WITHT(k/*) + WT_WITHCD',
+     'ref.SAP_EXPORT_T059Z (WITHT+WT_WITHCD)','Error','SAP_REF',TRUE,NOW()),
+
+    ('CK051','Fornitori (SettoriIndust): coppia ISTYPE+IND_SECTOR presente in TB038A',
+     'BP','S_SUPPL_INDUSTRY#ZBP_SettoriIndust','ISTYPE(k/*) + IND_SECTOR(k/*)',
+     'ref.SAP_EXPORT_TB038A (ISTYPE+IND_SECTOR)','Error','SAP_REF',TRUE,NOW()),
+
+    ('CK052','Fornitori (AddSettoriIndust): coppia ISTYPE+IND_SECTOR presente in TB038A',
+     'BP','S_SUPPL_INDUSTRY#ZBP_AddSettoriIndust','ISTYPE(k/*) + IND_SECTOR(k/*)',
+     'ref.SAP_EXPORT_TB038A (ISTYPE+IND_SECTOR)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK046','Destinatari Merci STG: coppia COUNTRY(*)+REGION presente in T005S',
      'BP','S_CUST_GEN#ZDM_DatiGenerali_STG','COUNTRY(*) + REGION',
      'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
@@ -208,32 +224,44 @@ VALUES
      NULL,'Warning','EXISTENCE',FALSE,NOW()),
 
     -- CROSS_TABLE — CK401-CK405 (CK401-CK404 is_active=FALSE come da DB locale)
-    ('CK401','Orfani flusso Vettori: LIFNR assente nella master',
+    ('CK401','Orfani flusso Vettori: codice fornitore (LIFNR) assente nella tab. master',
      'BP','varie (tabelle secondarie 01-ZBP-Vettori)','LIFNR(k/*)',
      'S_SUPPL_GEN#ZBP_DatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
 
-    ('CK402','Orfani flusso ZBP-Fornitori: codice fornitore (LIFNR) assente nella master',
+    ('CK402','Orfani flusso ZBP-Fornitori: codice fornitore (LIFNR) assente nella tab. master',
      'BP','varie (tabelle secondarie 04-ZBP-Fornitori)','LIFNR(k/*)',
      'S_SUPPL_GEN#ZBP_DatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
 
-    ('CK403','Orfani flusso ZDM-Clienti: codice cliente (KUNNR) assente nella master',
+    ('CK403','Orfani flusso ZDM-Clienti: codice cliente (KUNNR) assente nella tab. master',
      'BP','varie (tabelle secondarie 02-ZDM-Clienti)','KUNNR(k/*)',
      'S_CUST_GEN#ZDM-DatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
 
-    ('CK404','Orfani flusso ZBP-Clienti: codice cliente (KUNNR) assente nella master',
+    ('CK404','Orfani flusso ZBP-Clienti: codice cliente (KUNNR) assente nella tab. master',
      'BP','varie (tabelle secondarie 03-ZBP-Clienti)','KUNNR(k/*)',
      'S_CUST_GEN#ZBP-DatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
 
-    ('CK405','Materiali: PRODUCT(k/*) in S_MAKT, S_MARC, S_MARD, S_MARM, S_MBEW, S_MLAN, S_MVKE, S_QMAT deve essere presente nella master S_MARA',
+    ('CK405','Orfani flusso Materiali: codice materiale (PRODUCT(k/*)) assente tab. master S_MARA',
      'MAT','varie (tabelle secondarie archivio materiali)','PRODUCT(k/*)',
      'raw.S_MARA (PRODUCT(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
 
+    ('CK406','Orfani flusso Distinte base: codice materiale (MATNR) e plant (WERKS) in S_BOM_ITEM devono essere presenti in S_BOM_HEADER',
+     'MAT','S_BOM_ITEM','MATNR(k/*) + WERKS(k)',
+     'raw.S_BOM_HEADER (MATNR(k/*)+WERKS(k))','Error','CROSS_TABLE',TRUE,NOW()),
+
+    ('CK407','Orfani flusso Inforecord: INFNR(k/*) assente nella tab. master S_EINA#INFORMATFOR',
+     'MAT','S_EINE#INFORDATIACQ + S_SCALES#INFORSCALES + S_COND#INFORCOND','INFNR(k/*)',
+     'raw.S_EINA#INFORMATFOR (INFNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
+
+    ('CK408','Orfani flusso Cicli di lavoro: codice ciclo di lavoro (PLNNR) assente nella tab. master S_OPERATION',
+     'MAT','S_MAPL + S_GROUP + S_PLKO','PLNNR(k/*)',
+     'raw.S_OPERATION (PLNNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
+
     -- CROSS_SOURCE — CK501-CK506
-    ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X)',
+    ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X); esclusi MSTAE 01/08',
      'MAT','S_MARC','BESKZ',
      'S_BOM_HEADER (MATNR)','Warning','CROSS_SOURCE',TRUE,NOW()),
 
-    ('CK502','Materiali: ciclo di lavoro standard (PLNAL=01) obbligatorio per produzione interna o mista (BESKZ in E, X)',
+    ('CK502','Materiali: ciclo di lavoro standard (PLNAL=01) obbligatorio per produzione interna o mista (BESKZ in E, X); esclusi MSTAE 01/08',
      'MAT','S_MARC','BESKZ',
      'S_MAPL (MATNR + WERKS_MAT + PLNAL)','Warning','CROSS_SOURCE',TRUE,NOW()),
 
@@ -268,6 +296,22 @@ VALUES
     ('CK510','Condizione ZPPC, codice cliente deve essere presente in ZBP-DatiGenerali/ZDM-DatiGenerali e codice materiale in S_MVKE',
      'PRICE','FA-ZPPC-PrezziPianiConsegna','CUSTOMER-MATERIAL',
      'S_CUST_GEN#ZBP-DatiGenerali + S_MVKE','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK511','Codici doganali: MATNR(k/*) in S_MARITC deve essere presente in S_MARA come PRODUCT(k/*)',
+     'MAT','S_MARITC','MATNR(k/*)',
+     'raw.S_MARA (PRODUCT(k/*))','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK512','Inforecord: MATNR deve essere presente in S_MARA e LIFNR(*) deve essere presente in S_SUPPL_GEN#ZBP_DatiGenerali o S_SUPPL_GEN#AddDatiGenerali',
+     'MAT','S_EINA#INFORMATFOR','MATNR + LIFNR(*)',
+     'raw.S_MARA (PRODUCT(k/*)) + raw.S_SUPPL_GEN#ZBP_DatiGenerali / AddDatiGenerali','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK513','Cicli di lavoro: coppia MATNR(k/*)+WERKS_MAT(k/*) in S_MAPL deve essere presente in S_MARC come PRODUCT(k/*)+WERKS(k/*)',
+     'MAT','S_MAPL','MATNR(k/*) + WERKS_MAT(k/*)',
+     'raw.S_MARC (PRODUCT(k/*)+WERKS(k/*))','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK514','Cicli di lavoro: coppia MATNR(k/*)+WERKS_MAT(k/*) in S_MAPL deve essere presente in S_BOM_HEADER come MATNR(k/*)+WERKS(k)',
+     'MAT','S_MAPL','MATNR(k/*) + WERKS_MAT(k/*)',
+     'raw.S_BOM_HEADER (MATNR(k/*)+WERKS(k))','Error','CROSS_SOURCE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',
