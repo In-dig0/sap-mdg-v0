@@ -29,7 +29,7 @@ render_sidebar_menu()
 # ---------------------------------------------------------------------------
 STG_SCHEMA    = "stg"
 AUDIT_COLS    = {"_source", "_loaded_at", "_xlsx_source", "_zip_source"}
-SYSTEM_TABLES = {"check_results", "check_catalog", "pipeline_runs", "check_states"}
+SYSTEM_TABLES = {"check_catalog", "pipeline_runs", "check_states"}
 
 API_BASE = "http://mdg_fastapi:8000"
 
