@@ -339,6 +339,14 @@ grid_response = AgGrid(
 
 st.divider()
 
+# ── Messaggio di ritorno dopo rerun ─────────────────────────────────────────
+if "save_msg" in st.session_state:
+    msg, msg_type = st.session_state.pop("save_msg")
+    if msg_type == "success":
+        st.success(msg)
+    else:
+        st.info(msg)
+
 # ── Pulsanti azione ──────────────────────────────────────────────────────────
 col_save, col_del, col_reset, _ = st.columns([1, 1, 1, 3])
 
@@ -490,14 +498,6 @@ with st.expander("⚠️ Zona Admin — operazioni irreversibili", expanded=Fals
                 st.rerun()
         else:
             st.error("Nome tabella non corretto — operazione annullata.")
-
-# ── Messaggio di ritorno dopo rerun ─────────────────────────────────────────
-if "save_msg" in st.session_state:
-    msg, msg_type = st.session_state.pop("save_msg")
-    if msg_type == "success":
-        st.success(msg)
-    else:
-        st.info(msg)
 
 # ── Salvataggio ──────────────────────────────────────────────────────────────
 if save_clicked:
