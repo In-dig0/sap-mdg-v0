@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Optional
 
 import psycopg2
+import psycopg2.extras
+import psycopg2.extensions
 from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -745,6 +747,485 @@ def delete_out_mdg_file(filename: str):
 @app.delete("/files/out_mdg", tags=["File"])
 def delete_all_out_mdg_files():
     return _delete_all_files("out_mdg")
+
+# ---------------------------------------------------------------------------
+# Endpoints DB — Gestione tabelle PostgreSQL
+# ---------------------------------------------------------------------------
+
+# Schemi consentiti: whitelist esplicita per prevenire injection
+DB_ALLOWED_SCHEMAS = {"raw", "ref", "stg", "prd"}
+
+# Tabelle di sistema che non possono mai essere eliminate
+DB_PROTECTED_TABLES = {
+    "stg": {"pipeline_runs", "check_results"},
+    "usr": {"access_log"},
+}
+
+
+class TableInfo(BaseModel):
+    name:      str
+    row_count: Optional[int]
+    size:      str
+
+
+class TablesResponse(BaseModel):
+    schema_name: str
+    tables:      list[TableInfo]
+
+
+@app.get("/db/tables", response_model=TablesResponse, tags=["Database"])
+def list_tables(schema: str = "raw"):
+    """
+    Restituisce le tabelle presenti in uno schema PostgreSQL con
+    numero di righe e dimensione su disco.
+
+    - `schema`: uno tra raw | ref | stg | prd
+    """
+    if schema not in DB_ALLOWED_SCHEMAS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Schema '{schema}' non consentito. Valori ammessi: {sorted(DB_ALLOWED_SCHEMAS)}",
+        )
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT
+                t.tablename                                                    AS name,
+                pg_size_pretty(
+                    pg_total_relation_size(
+                        quote_ident(t.schemaname) || '.' || quote_ident(t.tablename)
+                    )
+                )                                                              AS size,
+                s.n_live_tup                                                   AS row_count
+            FROM pg_tables t
+            LEFT JOIN pg_stat_user_tables s
+                   ON s.schemaname = t.schemaname
+                  AND s.relname    = t.tablename
+            WHERE t.schemaname = %s
+            ORDER BY t.tablename
+        """, (schema,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return TablesResponse(
+            schema_name=schema,
+            tables=[
+                TableInfo(
+                    name=r[0],
+                    size=r[1] or "—",
+                    row_count=int(r[2]) if r[2] is not None else None,
+                )
+                for r in rows
+            ],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB: {e}")
+
+
+@app.delete("/db/tables/{schema}", tags=["Database"])
+def drop_table(schema: str, table: str):
+    """
+    Esegue DROP TABLE su una tabella specifica.
+
+    Protezioni:
+    - Schema deve essere in whitelist (raw | ref | stg | prd)
+    - La tabella deve esistere nello schema indicato (verifica su pg_tables)
+    - Alcune tabelle di sistema sono protette e non eliminabili
+    - Operazione riservata agli amministratori (controllo ruolo lato Streamlit)
+    """
+    # Whitelist schema
+    if schema not in DB_ALLOWED_SCHEMAS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Schema '{schema}' non consentito. Valori ammessi: {sorted(DB_ALLOWED_SCHEMAS)}",
+        )
+
+    # Tabelle protette
+    protected = DB_PROTECTED_TABLES.get(schema, set())
+    if table in protected:
+        raise HTTPException(
+            status_code=403,
+            detail=f"La tabella '{schema}.{table}' è protetta e non può essere eliminata.",
+        )
+
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+
+        # Verifica esistenza — usa parametro per sicurezza
+        cur.execute(
+            "SELECT 1 FROM pg_tables WHERE schemaname = %s AND tablename = %s",
+            (schema, table),
+        )
+        if cur.fetchone() is None:
+            cur.close()
+            conn.close()
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tabella '{schema}.{table}' non trovata.",
+            )
+
+        # DROP TABLE — schema e table sono già validati, usiamo quote_ident
+        # per gestire nomi con caratteri speciali senza rischio di injection
+        cur.execute(
+            f"DROP TABLE {psycopg2.extensions.quote_ident(schema, cur)}"
+            f".{psycopg2.extensions.quote_ident(table, cur)}"
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"dropped": f"{schema}.{table}", "message": f"Tabella '{schema}.{table}' eliminata con successo."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante il DROP: {e}")
+
+
+@app.post("/db/tables/{schema}/truncate", tags=["Database"])
+def truncate_table(schema: str, table: str):
+    """
+    Esegue TRUNCATE TABLE su una tabella specifica (svuota i dati, mantiene la struttura).
+
+    Protezioni:
+    - Schema deve essere in whitelist (raw | ref | stg | prd)
+    - La tabella deve esistere nello schema indicato
+    - Alcune tabelle di sistema sono protette e non svuotabili
+    - Operazione riservata agli amministratori (controllo ruolo lato Streamlit)
+    """
+    if schema not in DB_ALLOWED_SCHEMAS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Schema '{schema}' non consentito. Valori ammessi: {sorted(DB_ALLOWED_SCHEMAS)}",
+        )
+
+    protected = DB_PROTECTED_TABLES.get(schema, set())
+    if table in protected:
+        raise HTTPException(
+            status_code=403,
+            detail=f"La tabella '{schema}.{table}' è protetta e non può essere svuotata.",
+        )
+
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+
+        cur.execute(
+            "SELECT 1 FROM pg_tables WHERE schemaname = %s AND tablename = %s",
+            (schema, table),
+        )
+        if cur.fetchone() is None:
+            cur.close()
+            conn.close()
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tabella '{schema}.{table}' non trovata.",
+            )
+
+        cur.execute(
+            f"TRUNCATE TABLE {psycopg2.extensions.quote_ident(schema, cur)}"
+            f".{psycopg2.extensions.quote_ident(table, cur)}"
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"truncated": f"{schema}.{table}", "message": f"Tabella '{schema}.{table}' svuotata con successo."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante il TRUNCATE: {e}")
+
+
+@app.post("/db/schema/{schema}/truncate", tags=["Database"])
+def truncate_schema(schema: str):
+    """
+    Esegue TRUNCATE CASCADE su tutte le tabelle di uno schema (escluse le tabelle protette).
+
+    Protezioni:
+    - Schema deve essere in whitelist (raw | ref | stg | prd)
+    - Le tabelle di sistema protette vengono saltate automaticamente
+    - Operazione riservata agli amministratori (controllo ruolo lato Streamlit)
+    """
+    if schema not in DB_ALLOWED_SCHEMAS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Schema '{schema}' non consentito. Valori ammessi: {sorted(DB_ALLOWED_SCHEMAS)}",
+        )
+
+    protected = DB_PROTECTED_TABLES.get(schema, set())
+
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+
+        cur.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = %s ORDER BY tablename",
+            (schema,),
+        )
+        all_tables = [r[0] for r in cur.fetchall()]
+        tables_to_truncate = [t for t in all_tables if t not in protected]
+
+        truncated = []
+        errors    = []
+        for table in tables_to_truncate:
+            try:
+                cur.execute(
+                    f"TRUNCATE TABLE {psycopg2.extensions.quote_ident(schema, cur)}"
+                    f".{psycopg2.extensions.quote_ident(table, cur)} CASCADE"
+                )
+                truncated.append(table)
+            except Exception as e:
+                conn.rollback()
+                errors.append(f"{table}: {e}")
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {
+            "schema":    schema,
+            "truncated": truncated,
+            "skipped":   list(protected),
+            "errors":    errors,
+            "message":   f"{len(truncated)} tabelle svuotate, {len(errors)} errori.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante il TRUNCATE SCHEMA: {e}")
+
+
+
+# ---------------------------------------------------------------------------
+# Endpoints DB — Lettura e scrittura tabelle (Edit Tables)
+# ---------------------------------------------------------------------------
+
+# Schemi di sistema esclusi dalla navigazione
+DB_EXCLUDED_SCHEMAS = {"pg_catalog", "information_schema", "pg_toast"}
+
+# Tabelle di sistema escluse dalla navigazione per schema
+DB_SYSTEM_TABLES = {"check_results", "check_catalog", "pipeline_runs", "check_states"}
+
+
+@app.get("/db/schemas", tags=["Database"])
+def list_schemas():
+    """
+    Restituisce tutti gli schemi utente (esclusi schemi di sistema PostgreSQL).
+    """
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT schema_name FROM information_schema.schemata
+            WHERE schema_name NOT IN %s
+              AND schema_name NOT LIKE 'pg_%%'
+            ORDER BY schema_name
+        """, (tuple(DB_EXCLUDED_SCHEMAS),))
+        schemas = [r[0] for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return {"schemas": schemas}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB: {e}")
+
+
+@app.get("/db/schema/{schema}/tables", tags=["Database"])
+def list_schema_tables(schema: str, exclude_system: bool = True):
+    """
+    Restituisce le tabelle di uno schema, opzionalmente escludendo
+    le tabelle di sistema MDG (pipeline_runs, check_results, ecc.).
+    """
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+        """, (schema,))
+        tables = [r[0] for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        if exclude_system and schema == "stg":
+            tables = [t for t in tables if t not in DB_SYSTEM_TABLES]
+        return {"schema": schema, "tables": tables}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB: {e}")
+
+
+@app.get("/db/schema/{schema}/tables/columns", tags=["Database"])
+def list_table_columns(schema: str, table: str):
+    """
+    Restituisce le colonne di una tabella nell'ordine di definizione.
+    """
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            ORDER BY ordinal_position
+        """, (schema, table))
+        cols = [r[0] for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        if not cols:
+            raise HTTPException(status_code=404, detail=f"Tabella '{schema}.{table}' non trovata o senza colonne.")
+        return {"schema": schema, "table": table, "columns": cols}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB: {e}")
+
+
+@app.get("/db/schema/{schema}/tables/rows", tags=["Database"])
+def get_table_rows(schema: str, table: str,
+                   status_filter: Optional[str] = None,
+                   search: Optional[str] = None):
+    """
+    Restituisce le righe di una tabella con filtri opzionali.
+
+    - `status_filter`: filtra per colonna _status (NEW | EXISTS | DELETED)
+    - `search`:        ricerca libera su tutte le colonne (case-insensitive)
+
+    Le righe vengono restituite come lista di dizionari.
+    """
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        schema_ident = psycopg2.extensions.quote_ident(schema, cur)
+        table_ident  = psycopg2.extensions.quote_ident(table, cur)
+
+        params     = []
+        conditions = []
+        if status_filter:
+            conditions.append('"_status" = %s')
+            params.append(status_filter)
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        cur.execute(f"SELECT * FROM {schema_ident}.{table_ident} {where} ORDER BY 1",
+                    params if params else None)
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+
+        # Converte tipi non serializzabili (datetime, Decimal, ecc.)
+        import decimal
+        for row in rows:
+            for k, v in row.items():
+                if isinstance(v, datetime):
+                    row[k] = v.isoformat()
+                elif isinstance(v, decimal.Decimal):
+                    row[k] = float(v)
+                elif v is None:
+                    row[k] = ""
+
+        # Ricerca testo lato server (dopo la query per semplicità)
+        if search:
+            search_lower = search.lower()
+            rows = [r for r in rows if any(search_lower in str(v).lower() for v in r.values())]
+
+        return {"schema": schema, "table": table, "count": len(rows), "rows": rows}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB: {e}")
+
+
+class UpdateRowRequest(BaseModel):
+    original_row: dict
+    updated_row:  dict
+    key_cols:     list[str]
+    audit_cols:   list[str] = ["_source", "_loaded_at", "_xlsx_source", "_zip_source"]
+
+
+@app.patch("/db/schema/{schema}/tables/rows", tags=["Database"])
+def update_table_row(schema: str, table: str, body: UpdateRowRequest):
+    """
+    Aggiorna una singola riga identificata dalle colonne chiave.
+
+    - Calcola automaticamente le colonne cambiate (esclude audit e chiavi)
+    - Aggiorna _loaded_at al timestamp corrente
+    - Ritorna 204 se non ci sono modifiche effettive
+    """
+    if not body.key_cols:
+        raise HTTPException(status_code=400, detail="key_cols non può essere vuoto.")
+
+    audit_set = set(body.audit_cols)
+    key_set   = set(body.key_cols)
+
+    changed = {
+        col: body.updated_row[col]
+        for col in body.updated_row
+        if col not in (audit_set | key_set)
+        and str(body.updated_row.get(col, "")) != str(body.original_row.get(col, ""))
+    }
+    if not changed:
+        return {"updated": False, "message": "Nessuna modifica rilevata."}
+
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+
+        schema_ident = psycopg2.extensions.quote_ident(schema, cur)
+        table_ident  = psycopg2.extensions.quote_ident(table, cur)
+
+        def qi(name): return psycopg2.extensions.quote_ident(name, cur)
+
+        set_clause   = ", ".join(f"{qi(c)} = %s" for c in changed)
+        set_vals     = list(changed.values())
+        set_vals.append(datetime.now(tz=None))   # _loaded_at
+
+        where_clause = " AND ".join(f"{qi(k)} = %s" for k in body.key_cols)
+        where_vals   = [body.original_row[k] for k in body.key_cols]
+
+        cur.execute(
+            f'UPDATE {schema_ident}.{table_ident} SET {set_clause}, "_loaded_at" = %s WHERE {where_clause}',
+            set_vals + where_vals,
+        )
+        conn.commit()
+        updated = cur.rowcount > 0
+        cur.close()
+        conn.close()
+        return {"updated": updated, "message": "Riga aggiornata." if updated else "Riga non trovata."}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante UPDATE: {e}")
+
+
+class DeleteRowRequest(BaseModel):
+    row:      dict
+    key_cols: list[str]
+
+
+@app.delete("/db/schema/{schema}/tables/rows", tags=["Database"])
+def delete_table_row(schema: str, table: str, body: DeleteRowRequest):
+    """
+    Elimina una singola riga identificata dalle colonne chiave.
+    """
+    if not body.key_cols:
+        raise HTTPException(status_code=400, detail="key_cols non può essere vuoto.")
+
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+
+        schema_ident = psycopg2.extensions.quote_ident(schema, cur)
+        table_ident  = psycopg2.extensions.quote_ident(table, cur)
+
+        def qi(name): return psycopg2.extensions.quote_ident(name, cur)
+
+        where_clause = " AND ".join(f"{qi(k)} = %s" for k in body.key_cols)
+        where_vals   = [body.row[k] for k in body.key_cols]
+
+        cur.execute(f"DELETE FROM {schema_ident}.{table_ident} WHERE {where_clause}", where_vals)
+        conn.commit()
+        deleted = cur.rowcount > 0
+        cur.close()
+        conn.close()
+        return {"deleted": deleted, "message": "Riga eliminata." if deleted else "Riga non trovata."}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante DELETE: {e}")
 
 import subprocess
 

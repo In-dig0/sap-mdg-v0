@@ -8,9 +8,9 @@ Edit Tables — Visualizzazione e modifica delle tabelle schema stg
 import re
 import io
 import os
+import requests
+from urllib.parse import quote
 import pandas as pd
-import psycopg2
-import psycopg2.extras
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode, JsCode
 
@@ -25,64 +25,40 @@ require_role("it_role")
 render_sidebar_menu()
 
 # ---------------------------------------------------------------------------
-# Configurazione DB
+# Configurazione
 # ---------------------------------------------------------------------------
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
-
-STG_SCHEMA   = "stg"
-AUDIT_COLS   = {"_source", "_loaded_at", "_xlsx_source", "_zip_source"}
+STG_SCHEMA    = "stg"
+AUDIT_COLS    = {"_source", "_loaded_at", "_xlsx_source", "_zip_source"}
 SYSTEM_TABLES = {"check_results", "check_catalog", "pipeline_runs", "check_states"}
 
+API_BASE = "http://mdg_fastapi:8000"
+
+def enc(name: str) -> str:
+    """URL-encode nomi tabella/schema che contengono caratteri speciali (es. #)."""
+    return quote(name, safe="")
+
 
 # ---------------------------------------------------------------------------
-# Helpers DB
+# Client API
 # ---------------------------------------------------------------------------
-
-def get_connection():
-    return psycopg2.connect(**DB_CONFIG)
-
-
-def q(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
-
 
 def get_stg_tables() -> list[str]:
+    """Lista tabelle schema stg tramite FastAPI — GET /db/schema/stg/tables."""
     try:
-        conn = get_connection()
-        cur  = conn.cursor()
-        cur.execute("""
-            SELECT table_name FROM information_schema.tables
-            WHERE table_schema = %s AND table_type = 'BASE TABLE'
-            ORDER BY table_name
-        """, (STG_SCHEMA,))
-        tables = [r[0] for r in cur.fetchall() if r[0] not in SYSTEM_TABLES]
-        cur.close()
-        conn.close()
-        return tables
+        r = requests.get(f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables", timeout=5)
+        r.raise_for_status()
+        return r.json().get("tables", [])
     except Exception as e:
-        st.error(f"Errore connessione DB: {e}")
+        st.error(f"Errore recupero tabelle: {e}")
         return []
 
 
 def get_table_columns(table: str) -> list[str]:
+    """Colonne di una tabella tramite FastAPI — GET /db/schema/stg/tables/{table}/columns."""
     try:
-        conn = get_connection()
-        cur  = conn.cursor()
-        cur.execute("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_schema = %s AND table_name = %s
-            ORDER BY ordinal_position
-        """, (STG_SCHEMA, table))
-        cols = [r[0] for r in cur.fetchall()]
-        cur.close()
-        conn.close()
-        return cols
+        r = requests.get(f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/columns", params={"table": table}, timeout=5)
+        r.raise_for_status()
+        return r.json().get("columns", [])
     except Exception as e:
         st.error(f"Errore lettura colonne: {e}")
         return []
@@ -93,34 +69,25 @@ def get_key_columns(cols: list[str]) -> list[str]:
 
 
 def load_table(table: str, status_filter: str, search: str) -> pd.DataFrame:
+    """Righe di una tabella tramite FastAPI — GET /db/schema/stg/tables/{table}/rows."""
     try:
-        fqt    = f'{STG_SCHEMA}.{q(table)}'
-        conn   = get_connection()
-        params = []
-        conditions = []
-
-        if status_filter != "Tutti":
-            conditions.append('"_status" = %s')
-            params.append(status_filter)
-
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        query = f'SELECT * FROM {fqt} {where} ORDER BY 1'
-
-        df = pd.read_sql(query, conn, params=params if params else None)
-        conn.close()
-
+        params = {"status_filter": status_filter if status_filter != "Tutti" else None,
+                  "search": search or None}
+        params = {k: v for k, v in params.items() if v is not None}
+        r = requests.get(
+            f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/rows",
+            params={"table": table, **params},
+            timeout=30,
+        )
+        r.raise_for_status()
+        rows = r.json().get("rows", [])
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
         # Formatta _loaded_at
         if "_loaded_at" in df.columns:
             df["_loaded_at"] = pd.to_datetime(df["_loaded_at"], utc=True, errors="coerce") \
                                  .dt.strftime("%d/%m/%Y %H:%M:%S")
-
-        # Ricerca testo
-        if search:
-            mask = df.apply(
-                lambda col: col.astype(str).str.contains(search, case=False, na=False)
-            ).any(axis=1)
-            df = df[mask]
-
         df = df.fillna("").astype(str).replace("None", "").replace("nan", "")
         return df
     except Exception as e:
@@ -128,159 +95,107 @@ def load_table(table: str, status_filter: str, search: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def truncate_table(table: str) -> bool:
-    """Svuota completamente una tabella STG."""
-    fqt  = f'{STG_SCHEMA}.{q(table)}'
-    conn = get_connection()
-    cur  = conn.cursor()
+def truncate_table(schema: str, table: str) -> bool:
+    """Svuota una tabella tramite FastAPI — POST /db/tables/{schema}/{table}/truncate."""
     try:
-        cur.execute(f'TRUNCATE TABLE {fqt}')
-        conn.commit()
+        r = requests.post(f"{API_BASE}/db/tables/{enc(schema)}/truncate", params={"table": table}, timeout=10)
+        r.raise_for_status()
         return True
+    except requests.HTTPError as e:
+        st.error(f"Errore TRUNCATE: {e.response.json().get('detail', str(e))}")
+        return False
     except Exception as e:
-        conn.rollback()
         st.error(f"Errore TRUNCATE: {e}")
         return False
-    finally:
-        cur.close()
-        conn.close()
 
 
 def save_row(table: str, original_row: dict, updated_row: dict,
              key_cols: list[str]) -> bool:
-    """
-    Salva una singola riga modificata con UPDATE.
-    Il WHERE usa le colonne chiave del record ORIGINALE per identificare
-    univocamente la riga — sicuro anche dopo sort/filter nella griglia.
-    """
+    """Aggiorna una riga tramite FastAPI — PATCH /db/schema/stg/tables/{table}/rows."""
     if not key_cols:
         st.warning("⚠️ Tabella senza colonne chiave — UPDATE non supportato.")
         return False
-
-    fqt  = f'{STG_SCHEMA}.{q(table)}'
-    conn = get_connection()
-    cur  = conn.cursor()
-
     try:
-        # Colonne effettivamente cambiate (escludi audit e chiavi)
-        changed = {
-            col: updated_row[col]
-            for col in updated_row
-            if col not in (AUDIT_COLS | set(key_cols))
-            and str(updated_row.get(col, "")) != str(original_row.get(col, ""))
-        }
-        if not changed:
-            return False
-
-        set_clause   = ", ".join(f'{q(c)} = %s' for c in changed)
-        set_vals     = list(changed.values())
-        set_vals.append(pd.Timestamp.now(tz="UTC"))
-
-        # WHERE costruito sui valori chiave ORIGINALI
-        where_clause = " AND ".join(f'{q(k)} = %s' for k in key_cols)
-        where_vals   = [original_row[k] for k in key_cols]
-
-        cur.execute(
-            f'UPDATE {fqt} SET {set_clause}, "_loaded_at" = %s WHERE {where_clause}',
-            set_vals + where_vals,
+        r = requests.patch(
+            f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/rows",
+            params={"table": table},
+            json={
+                "original_row": original_row,
+                "updated_row":  updated_row,
+                "key_cols":     key_cols,
+                "audit_cols":   list(AUDIT_COLS),
+            },
+            timeout=10,
         )
-        conn.commit()
-        return cur.rowcount > 0
+        r.raise_for_status()
+        return r.json().get("updated", False)
+    except requests.HTTPError as e:
+        st.error(f"Errore UPDATE: {e.response.json().get('detail', str(e))}")
+        return False
     except Exception as e:
-        conn.rollback()
         st.error(f"Errore UPDATE: {e}")
         return False
-    finally:
-        cur.close()
-        conn.close()
-
 
 
 def get_user_schemas() -> list[str]:
-    """Restituisce tutti gli schemi utente (esclusi schemi di sistema)."""
-    EXCLUDED_SCHEMAS = {"pg_catalog", "information_schema", "pg_toast"}
+    """Schemi utente tramite FastAPI — GET /db/schemas."""
     try:
-        conn = get_connection()
-        cur  = conn.cursor()
-        cur.execute("""
-            SELECT schema_name FROM information_schema.schemata
-            WHERE schema_name NOT IN %s
-              AND schema_name NOT LIKE 'pg_%%'
-            ORDER BY schema_name
-        """, (tuple(EXCLUDED_SCHEMAS),))
-        schemas = [r[0] for r in cur.fetchall()]
-        cur.close()
-        conn.close()
-        return schemas
+        r = requests.get(f"{API_BASE}/db/schemas", timeout=5)
+        r.raise_for_status()
+        return r.json().get("schemas", [])
     except Exception as e:
         st.error(f"Errore lettura schemi: {e}")
         return []
 
 
 def truncate_schema_tables(schema: str) -> tuple[int, list[str]]:
-    """Esegue TRUNCATE CASCADE su tutte le tabelle di uno schema specifico."""
+    """Svuota tutte le tabelle di uno schema tramite FastAPI — POST /db/schema/{schema}/truncate."""
     try:
-        conn = get_connection()
-        cur  = conn.cursor()
-        cur.execute("""
-            SELECT table_name FROM information_schema.tables
-            WHERE table_schema = %s AND table_type = 'BASE TABLE'
-            ORDER BY table_name
-        """, (schema,))
-        tables = [r[0] for r in cur.fetchall()]
-        cur.close()
-        conn.close()
+        r = requests.post(f"{API_BASE}/db/schema/{enc(schema)}/truncate", timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        return len(data.get("truncated", [])), data.get("errors", [])
+    except requests.HTTPError as e:
+        detail = e.response.json().get("detail", str(e))
+        return 0, [detail]
     except Exception as e:
         return 0, [str(e)]
 
-    if not tables:
-        return 0, []
 
-    conn = get_connection()
-    cur  = conn.cursor()
-    errors = []
-    count  = 0
+def drop_table(schema: str, table: str) -> bool:
+    """Elimina una tabella tramite FastAPI — DELETE /db/tables/{schema}/{table}."""
     try:
-        for table in tables:
-            fqt = f'"{schema}"."{table}"'
-            try:
-                cur.execute(f'TRUNCATE TABLE {fqt} CASCADE')
-                count += 1
-            except Exception as e:
-                errors.append(f"{fqt}: {e}")
-                conn.rollback()
-        conn.commit()
+        r = requests.delete(f"{API_BASE}/db/tables/{enc(schema)}", params={"table": table}, timeout=10)
+        r.raise_for_status()
+        return True
+    except requests.HTTPError as e:
+        st.error(f"Errore DROP TABLE: {e.response.json().get('detail', str(e))}")
+        return False
     except Exception as e:
-        conn.rollback()
-        errors.append(str(e))
-    finally:
-        cur.close()
-        conn.close()
-    return count, errors
+        st.error(f"Errore DROP TABLE: {e}")
+        return False
 
 
 def delete_row(table: str, row: dict, key_cols: list[str]) -> bool:
-    """Elimina una singola riga."""
+    """Elimina una riga tramite FastAPI — DELETE /db/schema/stg/tables/{table}/rows."""
     if not key_cols:
         st.warning("⚠️ Tabella senza colonne chiave — DELETE non supportato.")
         return False
-
-    fqt  = f'{STG_SCHEMA}.{q(table)}'
-    conn = get_connection()
-    cur  = conn.cursor()
     try:
-        where_clause = " AND ".join(f'{q(k)} = %s' for k in key_cols)
-        where_vals   = [row[k] for k in key_cols]
-        cur.execute(f'DELETE FROM {fqt} WHERE {where_clause}', where_vals)
-        conn.commit()
-        return cur.rowcount > 0
+        r = requests.delete(
+            f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/rows",
+            params={"table": table},
+            json={"row": row, "key_cols": key_cols},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json().get("deleted", False)
+    except requests.HTTPError as e:
+        st.error(f"Errore DELETE: {e.response.json().get('detail', str(e))}")
+        return False
     except Exception as e:
-        conn.rollback()
         st.error(f"Errore DELETE: {e}")
         return False
-    finally:
-        cur.close()
-        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -438,45 +353,82 @@ with col_reset:
         st.session_state["_orig_df"] = None
         st.rerun()
 
-# ── Zona pericolosa — TRUNCATE ───────────────────────────────────────────────
+# ── Zona pericolosa — operazioni irreversibili ──────────────────────────────
 with st.expander("⚠️ Zona Admin — operazioni irreversibili", expanded=False):
-    st.warning(f"**TRUNCATE** svuota completamente la tabella `stg.{selected_table}`. L'operazione è irreversibile.")
-    col_trunc, col_confirm = st.columns([2, 3])
-    with col_trunc:
-        trunc_clicked = st.button("🗑️ Svuota tabella", type="secondary", use_container_width=True)
-    with col_confirm:
+
+    # ── TRUNCATE TABLE ───────────────────────────────────────────────────────
+    st.warning(f"**TRUNCATE** svuota completamente la tabella. L'operazione è irreversibile.")
+    user_schemas_trunc = get_user_schemas()
+    col_trunc_schema, col_trunc_table, col_trunc_confirm = st.columns([2, 2, 3])
+    with col_trunc_schema:
+        selected_schema_trunc_tbl = st.selectbox(
+            "Schema",
+            options=user_schemas_trunc,
+            index=user_schemas_trunc.index(STG_SCHEMA) if STG_SCHEMA in user_schemas_trunc else 0,
+            key="trunc_tbl_schema_sel",
+        )
+    # Carica tabelle dello schema selezionato
+    try:
+        _rt = requests.get(f"{API_BASE}/db/tables", params={"schema": selected_schema_trunc_tbl}, timeout=5)
+        _rt.raise_for_status()
+        _trunc_tables = [t["name"] for t in _rt.json().get("tables", [])]
+    except Exception:
+        _trunc_tables = []
+    with col_trunc_table:
+        selected_table_trunc = st.selectbox(
+            "Tabella da svuotare",
+            options=_trunc_tables if _trunc_tables else ["—"],
+            key="trunc_tbl_sel",
+        )
+    with col_trunc_confirm:
         trunc_confirm = st.text_input(
             "Digita il nome della tabella per confermare",
-            placeholder=selected_table,
+            placeholder=selected_table_trunc if _trunc_tables else "",
             key="trunc_confirm",
         )
+    trunc_clicked = st.button(
+        "🗑️ Svuota tabella",
+        type="secondary",
+        use_container_width=False,
+        disabled=(not _trunc_tables or selected_table_trunc == "—"),
+        key="btn_trunc_table",
+    )
     if trunc_clicked:
-        if trunc_confirm == selected_table:
-            if truncate_table(selected_table):
-                st.session_state["save_msg"] = (f"🗑️ Tabella `{selected_table}` svuotata.", "success")
+        if trunc_confirm == selected_table_trunc:
+            if truncate_table(selected_schema_trunc_tbl, selected_table_trunc):
+                st.session_state["save_msg"] = (
+                    f"🗑️ Tabella `{selected_schema_trunc_tbl}.{selected_table_trunc}` svuotata.", "success"
+                )
                 st.session_state["_orig_df"] = None
                 st.rerun()
         else:
             st.error("Nome tabella non corretto — operazione annullata.")
 
     st.divider()
+
+    # ── TRUNCATE SCHEMA ──────────────────────────────────────────────────────
     st.warning("**TRUNCATE SCHEMA** svuota tutte le tabelle di uno schema selezionato. Operazione irreversibile.")
     user_schemas = get_user_schemas()
-    col_schema_sel, col_trunc_all, col_confirm_all = st.columns([2, 2, 3])
+    col_schema_sel, col_confirm_all = st.columns([2, 3])
     with col_schema_sel:
         selected_schema_trunc = st.selectbox(
             "Schema da svuotare",
             options=user_schemas,
             key="trunc_schema_sel",
         )
-    with col_trunc_all:
-        trunc_all_clicked = st.button("🗑️ Svuota schema", type="secondary", use_container_width=True)
     with col_confirm_all:
         trunc_all_confirm = st.text_input(
             "Digita il nome dello schema per confermare",
             placeholder=selected_schema_trunc if user_schemas else "",
             key="trunc_all_confirm",
         )
+    trunc_all_clicked = st.button(
+        "🗑️ Svuota schema",
+        type="secondary",
+        use_container_width=False,
+        disabled=not user_schemas,
+        key="btn_trunc_schema",
+    )
     if trunc_all_clicked:
         if trunc_all_confirm == selected_schema_trunc:
             with st.spinner(f"Truncate schema '{selected_schema_trunc}' in corso..."):
@@ -489,6 +441,55 @@ with st.expander("⚠️ Zona Admin — operazioni irreversibili", expanded=Fals
                 st.rerun()
         else:
             st.error("Nome schema non corretto — operazione annullata.")
+
+    st.divider()
+
+    # ── DROP TABLE ───────────────────────────────────────────────────────────
+    st.warning("**DROP TABLE** elimina definitivamente una tabella (struttura + dati) da qualsiasi schema. Operazione irreversibile.")
+    user_schemas_drop = get_user_schemas()
+    col_drop_schema, col_drop_table, col_drop_confirm = st.columns([2, 2, 3])
+    with col_drop_schema:
+        selected_schema_drop = st.selectbox(
+            "Schema",
+            options=user_schemas_drop,
+            key="drop_schema_sel",
+        )
+    # Carica le tabelle dello schema selezionato tramite FastAPI
+    try:
+        _r = requests.get(f"{API_BASE}/db/tables", params={"schema": selected_schema_drop}, timeout=5)
+        _r.raise_for_status()
+        _drop_tables = [t["name"] for t in _r.json().get("tables", [])]
+    except Exception:
+        _drop_tables = []
+    with col_drop_table:
+        selected_table_drop = st.selectbox(
+            "Tabella da eliminare",
+            options=_drop_tables if _drop_tables else ["—"],
+            key="drop_table_sel",
+        )
+    with col_drop_confirm:
+        drop_confirm = st.text_input(
+            "Digita il nome della tabella per confermare",
+            placeholder=selected_table_drop if _drop_tables else "",
+            key="drop_confirm",
+        )
+    drop_clicked = st.button(
+        "💣 DROP TABLE",
+        type="secondary",
+        use_container_width=False,
+        disabled=(not _drop_tables or selected_table_drop == "—"),
+        key="btn_drop_table",
+    )
+    if drop_clicked:
+        if drop_confirm == selected_table_drop:
+            if drop_table(selected_schema_drop, selected_table_drop):
+                st.session_state["save_msg"] = (
+                    f"💣 Tabella `{selected_schema_drop}.{selected_table_drop}` eliminata.", "success"
+                )
+                st.session_state["_orig_df"] = None
+                st.rerun()
+        else:
+            st.error("Nome tabella non corretto — operazione annullata.")
 
 # ── Messaggio di ritorno dopo rerun ─────────────────────────────────────────
 if "save_msg" in st.session_state:
