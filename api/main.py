@@ -757,7 +757,7 @@ DB_ALLOWED_SCHEMAS = {"raw", "ref", "stg", "prd"}
 
 # Tabelle di sistema che non possono mai essere eliminate
 DB_PROTECTED_TABLES = {
-    "stg": {"pipeline_runs", "check_results"},
+    "stg": {"pipeline_runs"},
     "usr": {"access_log"},
 }
 
