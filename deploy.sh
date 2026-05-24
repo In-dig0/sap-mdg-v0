@@ -8,7 +8,9 @@
 #   ./deploy.sh --build  # pull + rebuild immagini + up
 # =============================================================================
 
-set -e  # Interrompi in caso di errore
+set -e
+
+COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
 
 echo "🚀 MDG Deploy — $(date)"
 
@@ -16,15 +18,21 @@ echo "🚀 MDG Deploy — $(date)"
 echo "📥 Git pull..."
 git pull origin main
 
-# Build opzionale
-if [ "$1" == "--build" ]; then
-  echo "🔨 Build immagini..."
-  docker compose -f docker-compose.yml -f docker-compose.prod.yml build
-fi
+# Pull immagini pre-built (postgres, pgadmin, sftp, ecc.)
+echo "🐳 Pull immagini Docker..."
+$COMPOSE pull
 
-# Down + Up
+# Build opzionale
+case "$1" in
+  --build)
+    echo "🔨 Build immagini custom..."
+    $COMPOSE build --pull
+    ;;
+esac
+
+# Up
 echo "🔄 Restart stack..."
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+$COMPOSE up -d
 
 echo "✅ Deploy completato."
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+$COMPOSE ps
