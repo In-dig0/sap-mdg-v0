@@ -331,28 +331,30 @@ df_detail = run_query(f"""
 # Tabella
 # ---------------------------------------------------------------------------
 n_shown = len(df_detail)
-label   = f"Record: {n_shown}"
-if status_filter and len(status_filter) < 3:
-    label += f" ({', '.join(status_filter)})"
-if search_text:
-    label += f" — filtro: '{search_text}'"
-
-st.subheader(label)
+# ... (label e st.subheader invariati)
 
 if df_detail.empty:
     st.info("Nessun record trovato con i filtri selezionati.")
 else:
-    def highlight_status(row):
-        if row["Stato"] == "Error":
-            return ["background-color: rgba(226,75,74,0.12)"] * len(row)
-        if row["Stato"] == "Warning":
-            return ["background-color: rgba(186,117,23,0.15)"] * len(row)
-        return ["background-color: rgba(99,153,34,0.08)"] * len(row)
+    MAX_STYLED_ROWS = 50_000  # soglia sicura: 50k righe × 4 col = 200k celle
 
-    styled = df_detail.style.apply(highlight_status, axis=1)
+    if n_shown <= MAX_STYLED_ROWS:
+        def highlight_status(row):
+            if row["Stato"] == "Error":
+                return ["background-color: rgba(226,75,74,0.12)"] * len(row)
+            if row["Stato"] == "Warning":
+                return ["background-color: rgba(186,117,23,0.15)"] * len(row)
+            return ["background-color: rgba(99,153,34,0.08)"] * len(row)
+        display_df = df_detail.style.apply(highlight_status, axis=1)
+    else:
+        st.caption(
+            f"⚠️ Styling disabilitato per performance ({n_shown:,} record). "
+            "Usa i filtri per restringere la selezione."
+        )
+        display_df = df_detail
 
     st.dataframe(
-        styled,
+        display_df,
         use_container_width=True,
         hide_index=True,
         column_config={
