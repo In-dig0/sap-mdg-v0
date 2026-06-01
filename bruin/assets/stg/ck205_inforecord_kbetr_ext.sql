@@ -4,7 +4,7 @@ type: pg.sql
 depends:
   - stg.clean_check_results
 description: >
-  CK053 — EXISTENCE: Inforecord acquisti (S_COND#INFORCOND):
+  CK205 — EXISTENCE: Inforecord acquisti (S_COND#INFORCOND):
   il campo KBETR_EXT deve essere sempre valorizzato (non nullo e non vuoto).
 connection: mdg_postgres
 @bruin */
@@ -36,6 +36,6 @@ SELECT
 FROM raw."S_COND#INFORCOND" raw
 WHERE (
     SELECT COALESCE(is_active, FALSE)
-    FROM stg.check_catalog WHERE check_id = 'CK053'
+    FROM stg.check_catalog WHERE check_id = 'CK205'
 )
 ;

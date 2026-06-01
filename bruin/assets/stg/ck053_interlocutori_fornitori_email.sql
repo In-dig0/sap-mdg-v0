@@ -26,7 +26,7 @@ SELECT
         WHEN raw."E_MAIL_B" !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$'
             THEN 'E_MAIL_B [' || raw."E_MAIL_B" || '] non è un indirizzo email valido'
                  || ' per LIFNR [' || raw."LIFNR(k/*)" || ']'
-        ELSE 'Ok'
+        ELSE 'E_MAIL_B [' || raw."E_MAIL_B" || '] valido per LIFNR [' || raw."LIFNR(k/*)" || ']'
     END                                             AS message,
     CASE
         WHEN raw."E_MAIL_B" IS NULL OR raw."E_MAIL_B" = ''
