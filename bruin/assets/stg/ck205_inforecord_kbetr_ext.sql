@@ -1,5 +1,5 @@
 /* @bruin
-name: stg.ck053_inforecord_kbetr_ext
+name: stg.ck205_inforecord_kbetr_ext
 type: pg.sql
 depends:
   - stg.clean_check_results
@@ -17,7 +17,7 @@ SELECT
     'S_COND#INFORCOND'                              AS source_table,
     'MAT'                                           AS category,
     raw."INFNR(k/*)"                                AS object_key,
-    'CK053'                                         AS check_id,
+    'CK205'                                         AS check_id,
     CASE
         WHEN raw."KBETR_EXT" IS NULL OR raw."KBETR_EXT" = ''
             THEN 'KBETR_EXT obbligatorio mancante per INFNR [' || raw."INFNR(k/*)" || ']'
@@ -25,7 +25,7 @@ SELECT
     END                                             AS message,
     CASE
         WHEN raw."KBETR_EXT" IS NULL OR raw."KBETR_EXT" = ''
-            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK053')
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK205')
         ELSE 'Ok'
     END                                             AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs
