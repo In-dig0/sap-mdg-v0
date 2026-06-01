@@ -48,7 +48,7 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
 SCHEMAS = ["raw", "stg", "ref", "prd"]
 
 # Tabelle di sistema da escludere
-SYSTEM_TABLES = {"check_catalog", "pipeline_runs"}
+SYSTEM_TABLES = {"pipeline_runs"}
 
 # ---------------------------------------------------------------------------
 # Header
