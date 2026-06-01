@@ -206,6 +206,14 @@ VALUES
      'BP','S_CUST_GEN#ZDM_DatiGenerali_STG','COUNTRY(*) + REGION',
      'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
 
+    ('CK053','Interlocutori fornitori (S_SUPPL_CONT#ZBP-AddInterlocutore): E_MAIL_B deve contenere un indirizzo email formalmente valido',
+     'BP','S_SUPPL_CONT#ZBP-AddInterlocutore','E_MAIL_B',
+     NULL,'Error','FORMAT',TRUE,NOW()),
+
+    ('CK054','Interlocutori clienti (S_CUST_CONT#ZBP-AddInterlocutore): E_MAIL_B deve contenere un indirizzo email formalmente valido',
+     'BP','S_CUST_CONT#ZBP-AddInterlocutore','E_MAIL_B',
+     NULL,'Error','FORMAT',TRUE,NOW()),
+
     -- EXISTENCE — CK201-CK204 (is_active=FALSE come da DB locale)
     ('CK201','Fornitori: partita IVA mancante per soggetti UE/ExtraUE',
      'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXNUM(*)',
@@ -222,6 +230,14 @@ VALUES
     ('CK204','Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)',
      'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXTYPE(k/*) + TAXNUM(*)',
      NULL,'Warning','EXISTENCE',FALSE,NOW()),
+
+    ('CK205','Inforecord acquisti (S_COND#INFORCOND): campo KBETR_EXT obbligatorio e valorizzato',
+     'MAT','S_COND#INFORCOND','KBETR_EXT',
+     NULL,'Error','EXISTENCE',FALSE,NOW()),
+
+    ('CK206','Inforecord acquisti (S_SCALES#INFORSCALES): campo KBETR obbligatorio, non nullo e diverso da zero',
+     'MAT','S_SCALES#INFORSCALES','KBETR',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
 
     -- CROSS_TABLE — CK401-CK405 (CK401-CK404 is_active=FALSE come da DB locale)
     ('CK401','Orfani flusso Vettori: codice fornitore (LIFNR) assente nella tab. master',
@@ -312,6 +328,18 @@ VALUES
     ('CK514','Cicli di lavoro: coppia MATNR(k/*)+WERKS_MAT(k/*) in S_MAPL deve essere presente in S_BOM_HEADER come MATNR(k/*)+WERKS(k)',
      'MAT','S_MAPL','MATNR(k/*) + WERKS_MAT(k/*)',
      'raw.S_BOM_HEADER (MATNR(k/*)+WERKS(k))','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK515', 'Inforecord acquisti: EKGRP valorizzato in S_MARC',
+     'MAT', 'S_EINA#INFORMATFOR', 'MATNR',
+     'raw.S_MARC (PRODUCT(k/*))', 'Error', 'CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK516','Inforecord acquisti (S_EINE#INFORDATIACQ): APLFZ può essere vuoto solo se PLIFZ è valorizzato in S_MARC',
+     'MAT','S_EINE#INFORDATIACQ','APLFZ',
+     'raw.S_MARC (PLIFZ) via S_EINA#INFORMATFOR (MATNR)','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK517','Inforecord acquisti (S_EINA#INFORMATFOR): MATNR non deve essere duplicato',
+     'MAT','S_EINA#INFORMATFOR','MATNR',
+     NULL,'Error','DUPLICATE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',
