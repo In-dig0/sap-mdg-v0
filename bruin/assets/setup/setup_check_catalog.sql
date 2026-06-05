@@ -239,6 +239,30 @@ VALUES
      'MAT','S_SCALES#INFORSCALES','KBETR',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
+    ('CK207','BP: codice fiscale duplicato cross-tabella tra fornitori e clienti (TAXTYPE+TAXNUM), escluso IT4',
+     'BP','ZBP_CodiciFisc + ZBP_AddCodiciFisc (SUPPL) + ZBP-CodiciFisc (CUST)','TAXTYPE(k/*) + TAXNUM(*)',
+     NULL,'Warning','EXISTENCE',TRUE,NOW()),
+
+    ('CK208','Clienti intercompany (BU_GROUP(*)=ZIC): campo VBUND obbligatorio mancante',
+     'BP','S_CUST_GEN#ZBP-DatiGenerali','VBUND',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
+    ('CK209','Fornitori intercompany (BU_GROUP=ZIC): campo VBUND obbligatorio mancante',
+     'BP','S_SUPPL_GEN#ZBP_DatiGenerali','VBUND',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
+    ('CK210','Clienti intercompany (BU_GROUP(*)=ZIC): conto riconciliazione AKONT(*) non ammesso per ZIC',
+     'BP','S_CUST_COMPANY#ZBP-DatiSocieta','AKONT(*)',
+     'S_CUST_GEN#ZBP-DatiGenerali (BU_GROUP(*))','Error','EXISTENCE',TRUE,NOW()),
+
+    ('CK211','Fornitori intercompany (BU_GROUP=ZIC): conto riconciliazione AKONT(*) non ammesso per ZIC',
+     'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','AKONT(*)',
+     'S_SUPPL_GEN#ZBP_DatiGenerali (BU_GROUP)','Error','EXISTENCE',TRUE,NOW()),
+
+    ('CK212','Distinte base (S_BOM_ITEM): quantità componente MENGE(*) non può essere zero',
+     'MAT','S_BOM_ITEM','MENGE(*)',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
     -- CROSS_TABLE — CK401-CK405 (CK401-CK404 is_active=FALSE come da DB locale)
     ('CK401','Orfani flusso Vettori: codice fornitore (LIFNR) assente nella tab. master',
      'BP','varie (tabelle secondarie 01-ZBP-Vettori)','LIFNR(k/*)',
