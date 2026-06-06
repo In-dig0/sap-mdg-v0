@@ -87,7 +87,7 @@ def load_table(table: str, status_filter: str, search: str) -> pd.DataFrame:
         # Formatta _loaded_at
         if "_loaded_at" in df.columns:
             df["_loaded_at"] = pd.to_datetime(df["_loaded_at"], utc=True, errors="coerce") \
-                                 .dt.strftime("%d/%m/%Y %H:%M:%S")
+                                 .dt.strftime("%Y-%m-%d %H:%M:%S")
         df = df.fillna("").astype(str).replace("None", "").replace("nan", "")
         return df
     except Exception as e:
