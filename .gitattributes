@@ -1,1 +1,13 @@
+# Fine riga LF per tutti i file di testo (girano nei container Linux)
+* text=auto eol=lf
 *.sh text eol=lf
+
+# File binari: nessuna conversione
+*.zip  binary
+*.xlsx binary
+*.xls  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.pdf  binary
