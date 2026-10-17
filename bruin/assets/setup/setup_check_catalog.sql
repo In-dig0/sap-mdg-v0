@@ -298,6 +298,14 @@ VALUES
      'ROUTING','S_MAPL + S_GROUP + S_PLKO','PLNNR(k/*)',
      'raw.S_OPERATION (PLNNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
 
+    ('CK409','Fornitori: ogni LIFNR in DatiGenerali deve avere dati societari e organizzazione acquisti',
+     'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta + S_SUPPL_PURCHASING#ZBP_OrganAcq','LIFNR(k/*)',
+     'raw.S_SUPPL_GEN#ZBP_DatiGenerali (LIFNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
+
+    ('CK410','Clienti: ogni KUNNR in DatiGenerali deve avere dati societari e dati area vendite',
+     'BP','S_CUST_COMPANY#ZBP-DatiSocieta + S_CUST_SALES_DATA#ZBP-DatiVendite','KUNNR(k/*)',
+     'raw.S_CUST_GEN#ZBP-DatiGenerali (KUNNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
+
     -- CROSS_SOURCE — CK501-CK506
     ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X); esclusi MSTAE 01/08',
      'MAT','S_MARC','BESKZ',

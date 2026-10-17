@@ -14,6 +14,8 @@ depends:
   - stg.ck402_zbp_fornitori_orphans
   - stg.ck403_zdm_clienti_orphans
   - stg.ck404_zbp_clienti_orphans
+  - stg.ck409_supplier_gen_without_children
+  - stg.ck410_customer_gen_without_children
   - prd.reconcile_zip
 description: >
   Chiude il record in stg.pipeline_runs al termine del run.
