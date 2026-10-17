@@ -4,7 +4,9 @@ Endpoints per avvio, monitoraggio e log della pipeline Bruin.
 """
 
 import asyncio
+import json
 import os
+import re
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -1242,5 +1244,43 @@ def get_docker_version():
         # Estrae solo il numero: "27.3.1"
         version = raw.replace("Docker version ", "").split(",")[0].strip()
         return {"version": version, "raw": raw}
+    except Exception as e:
+        return {"version": "n/a", "raw": str(e)}
+
+PGADMIN_CONTAINER = os.getenv("PGADMIN_CONTAINER", "mdg_pgadmin")
+
+@app.get("/system/bruin-version")
+def get_bruin_version():
+    """Ritorna la versione di Bruin CLI installata nel container Bruin."""
+    try:
+        result = subprocess.run(
+            ["docker", "exec", BRUIN_CONTAINER,
+             "bruin", "version", "--output", "json", "--timeout", "2s"],
+            capture_output=True, text=True, timeout=10
+        )
+        # Output tipo: {"version":"v0.11.782","commit":"...","latest":"v0.11.782"}
+        data = json.loads(result.stdout)
+        return {
+            "version": data.get("version", "n/a").lstrip("v"),
+            "latest":  (data.get("latest") or "").lstrip("v") or None,
+        }
+    except Exception as e:
+        return {"version": "n/a", "latest": None, "raw": str(e)}
+
+
+@app.get("/system/pgadmin-version")
+def get_pgadmin_version():
+    """Ritorna la versione di pgAdmin 4 letta da /pgadmin4/version.py nel container."""
+    try:
+        result = subprocess.run(
+            ["docker", "exec", PGADMIN_CONTAINER, "cat", "/pgadmin4/version.py"],
+            capture_output=True, text=True, timeout=5
+        )
+        # Righe tipo: APP_RELEASE = 9 / APP_REVISION = 14 / APP_SUFFIX = ''
+        values = dict(re.findall(r"^APP_(RELEASE|REVISION|SUFFIX)\s*=\s*'?([^'\n]*)'?", result.stdout, re.M))
+        version = f"{values['RELEASE']}.{values['REVISION']}"
+        if values.get("SUFFIX"):
+            version += f"-{values['SUFFIX']}"
+        return {"version": version}
     except Exception as e:
         return {"version": "n/a", "raw": str(e)}

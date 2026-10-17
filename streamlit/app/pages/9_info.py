@@ -513,6 +513,17 @@ def _get_docker_version() -> str:
     except Exception:
         return "n/a"
 
+def _get_component_version(endpoint: str) -> dict:
+    """Chiama FastAPI (che ha accesso al Docker socket) per leggere la versione di un container."""
+    try:
+        fastapi_url = os.getenv("FASTAPI_URL", "http://mdg_fastapi:8000")
+        r = requests.get(f"{fastapi_url}/system/{endpoint}", timeout=15)
+        if r.status_code == 200:
+            return r.json()
+        return {"version": "n/a"}
+    except Exception:
+        return {"version": "n/a"}
+
 # Versioni Python e librerie (dinamiche — lette a runtime)
 py_version    = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 st_version    = _get_version("streamlit")
@@ -524,6 +535,15 @@ sql_version   = _get_version("sqlalchemy")
 
 # Versione Docker (dinamica — via FastAPI)
 docker_version = _get_docker_version()
+
+# Versioni Bruin e pgAdmin (dinamiche — via FastAPI)
+bruin_info      = _get_component_version("bruin-version")
+bruin_version   = bruin_info.get("version", "n/a")
+bruin_latest    = bruin_info.get("latest")
+bruin_sub       = "orchestratore ETL"
+if bruin_latest and bruin_version != "n/a" and bruin_latest != bruin_version:
+    bruin_sub += f"<br>disponibile v {bruin_latest}"
+pgadmin_version = _get_component_version("pgadmin-version").get("version", "n/a")
 
 # Versioni infrastruttura (statiche — da docker-compose / immagini usate)
 fw_cards = [
@@ -548,14 +568,14 @@ fw_cards = [
     {
         "label": "Database Admin",
         "name":  "PgAdmin 4",
-        "ver":   "latest",
+        "ver":   pgadmin_version,
         "sub":   "interfaccia web DB",
     },
     {
         "label": "Pipeline",
         "name":  "Bruin CLI",
-        "ver":   "custom image",
-        "sub":   "orchestratore ETL",
+        "ver":   bruin_version,
+        "sub":   bruin_sub,
     },
     {
         "label": "Autenticazione",
