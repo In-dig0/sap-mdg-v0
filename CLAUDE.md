@@ -119,6 +119,8 @@ Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `ch
 
 - **Non leggere, modificare o committare** `.env`, `sftpgo/keys/*` e qualunque credenziale.
   `.bruin.yml` è generato da `setup.sh` a partire dal `.env`: non modificarlo a mano.
+- `bruin/config/check_states.json` (stato attivo/inattivo dei check, scritto dalla pagina
+  Check Catalog) **non è tracciato** da Git: ogni ambiente ha il proprio.
 - **Fine riga LF** su tutti i file (girano nei container Linux), imposto da
   `.gitattributes` (`* text=auto eol=lf`). Controllo: `git ls-files --eol | grep crlf` deve essere vuoto.
 - **Nomi file**: attenzione alle maiuscole (Windows non le distingue, Linux sì);
