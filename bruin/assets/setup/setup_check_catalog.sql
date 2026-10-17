@@ -26,43 +26,43 @@ VALUES
     -- SAP_REF — CK001-CK004
     ('CK001','Fornitori: codice paese (COUNTRY) presente in T005S',
      'BP','S_SUPPL_GEN#ZBP_DatiGenerali','COUNTRY',
-     'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK002','Fornitori: coppia COUNTRY+REGION presente in T005S',
      'BP','S_SUPPL_GEN#ZBP_DatiGenerali','COUNTRY + REGION',
-     'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK003','Clienti: codice paese COUNTRY(*) presente in T005S',
      'BP','S_CUST_GEN#ZBP-DatiGenerali','COUNTRY(*)',
-     'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK004','Clienti: coppia COUNTRY(*)+REGION presente in T005S',
      'BP','S_CUST_GEN#ZBP-DatiGenerali','COUNTRY(*) + REGION',
-     'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK005','Fornitori (AddDatiSocieta): condizione pagamento (ZTERM1) presente in TVZB',
+    ('CK005','Fornitori (AddDatiSocieta): condizione pagamento (ZTERM1) presente in T052',
      'BP','S_SUPPL_COMPANY#ZBP_AddDatiSocieta','ZTERM1',
-     'ref.SAP_EXPORT_TVZB (ZTERM)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK006','Fornitori (DatiSocieta): condizione pagamento (ZTERM1) presente in TVZB',
+    ('CK006','Fornitori (DatiSocieta): condizione pagamento (ZTERM1) presente in T052',
      'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','ZTERM1',
-     'ref.SAP_EXPORT_TVZB (ZTERM)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
      
-    ('CK007','Clienti (DatiSocieta): condizione pagamento (ZTERM1) presente in TVZB',
+    ('CK007','Clienti (DatiSocieta): condizione pagamento (ZTERM1) presente in T052',
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZTERM1',
-     'ref.SAP_EXPORT_TVZB (ZTERM)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK008','Fornitori (DatiSocieta): modalità pagamento (ZWELS_01) presente in SAP_Mod_Pagamento',
+    ('CK008','Fornitori (DatiSocieta): modalità pagamento (ZWELS_01) presente in T042Z',
      'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','ZWELS_01',
-     'ref.SAP_Mod_Pagamento (Cod_Mod_Pag)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK009','Fornitori (AddDatiSocieta): modalità pagamento (ZWELS_01) presente in SAP_Mod_Pagamento',
+    ('CK009','Fornitori (AddDatiSocieta): modalità pagamento (ZWELS_01) presente in T042Z',
      'BP','S_SUPPL_COMPANY#ZBP_AddDatiSocieta','ZWELS_01',
-     'ref.SAP_Mod_Pagamento (Cod_Mod_Pag)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK010','Clienti (DatiSocieta): modalità pagamento (ZWELS_01) presente in SAP_Mod_Pagamento',
+    ('CK010','Clienti (DatiSocieta): modalità pagamento (ZWELS_01) presente in T042Z',
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZWELS_01',
-     'ref.SAP_Mod_Pagamento (Cod_Mod_Pag)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK011','Fornitori (DatiSocieta): conto riconciliazione (AKONT(*)) presente in SAP_Conto_Riconciliazione_Fornitori',
      'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','AKONT(*)',
@@ -144,13 +144,13 @@ VALUES
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZTERM',
      'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK031','Fornitori (S_SUPPL_COMPANY#ZBP_DatiSocieta): modalità pagamento (ZWELS_01) obbligatoria e presente in SAP_EXPORT_T042Z',
+    ('CK031','Fornitori (S_SUPPL_COMPANY#ZBP_DatiSocieta): modalità pagamento (ZWELS_01) obbligatoria e presente in SAP_EXPORT_T042Z — duplicato di CK008, disattivato',
      'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','ZWELS_01',
-     'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',FALSE,NOW()),
 
-    ('CK032','Clienti (S_CUST_COMPANY#ZBP-DatiSocieta): modalità pagamento (ZWELS_01) obbligatoria e presente in SAP_EXPORT_T042Z',
+    ('CK032','Clienti (S_CUST_COMPANY#ZBP-DatiSocieta): modalità pagamento (ZWELS_01) obbligatoria e presente in SAP_EXPORT_T042Z — duplicato di CK010, disattivato',
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZWELS_01',
-     'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T042Z (ZLSCH)','Error','SAP_REF',FALSE,NOW()),
 
     ('CK033','Materiali (S_MVKE): gerarchia prodotto (PRDHA) obbligatoria e presente in SAP_EXPORT_PRDHA',
      'MAT','S_MVKE','PRDHA',
@@ -162,31 +162,31 @@ VALUES
 
     ('CK041','Fornitori STG: codice paese (COUNTRY) presente in T005S',
      'BP','S_SUPPL_GEN#ZBP_DatiGenerali_STG','COUNTRY',
-     'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK042','Fornitori STG: coppia COUNTRY+REGION presente in T005S',
      'BP','S_SUPPL_GEN#ZBP_DatiGenerali_STG','COUNTRY + REGION',
-     'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
      
     ('CK043','Clienti STG: codice paese (COUNTRY(*)) presente in T005S',
      'BP','S_CUST_GEN#ZBP_DatiGenerali_STG','COUNTRY(*)',
-     'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK044','Clienti STG: coppia COUNTRY(*)+REGION presente in T005S',
      'BP','S_CUST_GEN#ZBP_DatiGenerali_STG','COUNTRY(*) + REGION',
-     'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
      
     ('CK045','Destinatari Merci STG: codice paese (COUNTRY(*)) presente in T005S',
      'BP','S_CUST_GEN#ZDM_DatiGenerali_STG','COUNTRY(*)',
-     'ref.EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK048','Clienti (AppoggioBanca): chiave banca italiana (BANKL) presente in SAP_Banche (solo BANKS=IT)',
+    ('CK048','Clienti (AppoggioBanca): chiave banca italiana (BANKL) presente in BNKA (solo BANKS=IT)',
      'BP','S_CUST_BANK_DATA#ZBP-AppoggioBanca','BANKL(k)',
-     'ref.SAP_Banche (Numero ABI/CAB)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_BNKA_IT (BANKS+BANKL)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK047','Fornitori (AppoggioBanca): chiave banca italiana (BANKL) presente in SAP_Banche (solo BANKS=IT)',
+    ('CK047','Fornitori (AppoggioBanca): chiave banca italiana (BANKL) presente in BNKA (solo BANKS=IT)',
      'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKL(k)',
-     'ref.SAP_Banche (Numero ABI/CAB)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_BNKA_IT (BANKS+BANKL)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK049','Fornitori (RitenAcco): coppia WITHT+WT_WITHCD presente in T059Z',
      'BP','S_SUPPL_WITH_TAX#ZBP_RitenAcco','WITHT(k/*) + WT_WITHCD',
@@ -206,7 +206,7 @@ VALUES
 
     ('CK046','Destinatari Merci STG: coppia COUNTRY(*)+REGION presente in T005S',
      'BP','S_CUST_GEN#ZDM_DatiGenerali_STG','COUNTRY(*) + REGION',
-     'ref.EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK053','Interlocutori fornitori (S_SUPPL_CONT#ZBP-AddInterlocutore): E_MAIL_B deve contenere un indirizzo email formalmente valido',
      'BP','S_SUPPL_CONT#ZBP-AddInterlocutore','E_MAIL_B',

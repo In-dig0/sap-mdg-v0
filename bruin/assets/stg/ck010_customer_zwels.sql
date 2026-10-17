@@ -5,7 +5,7 @@ depends:
   - stg.clean_check_results
 description: >
   CK010 — SAP_REF: Clienti (ZBP-DatiSocieta): campo ZWELS_01
-  valorizzato e presente nella tabella di riferimento SAP_Mod_Pagamento (Cod_Mod_Pag).
+  valorizzato e presente nella tabella di riferimento SAP T042Z (ZLSCH).
 connection: mdg_postgres
 @bruin */
 
@@ -22,17 +22,17 @@ SELECT
         WHEN raw."ZWELS_01" IS NULL OR raw."ZWELS_01" = ''
             THEN 'ZWELS_01 obbligatorio mancante'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."SAP_Mod_Pagamento" ref
-            WHERE ref."Cod_Mod_Pag" = raw."ZWELS_01"
+            SELECT 1 FROM ref."SAP_EXPORT_T042Z" ref
+            WHERE ref."ZLSCH" = raw."ZWELS_01"
         )
-            THEN 'Modalità pagamento [' || raw."ZWELS_01" || '] non presente in SAP (SAP_Mod_Pagamento)'
+            THEN 'Modalità pagamento [' || raw."ZWELS_01" || '] non presente in SAP (T042Z.ZLSCH)'
         ELSE 'Modalità pagamento [' || raw."ZWELS_01" || '] valida'
     END                                          AS message,
     CASE
         WHEN raw."ZWELS_01" IS NULL OR raw."ZWELS_01" = ''  THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK010')
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."SAP_Mod_Pagamento" ref
-            WHERE ref."Cod_Mod_Pag" = raw."ZWELS_01"
+            SELECT 1 FROM ref."SAP_EXPORT_T042Z" ref
+            WHERE ref."ZLSCH" = raw."ZWELS_01"
         )                                                    THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK010')
         ELSE 'Ok'
     END                                          AS status,

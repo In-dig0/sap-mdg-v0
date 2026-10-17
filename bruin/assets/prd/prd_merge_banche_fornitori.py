@@ -6,7 +6,7 @@ description: >
   - _source e _loaded_at da raw
   - _status esclusa
   - Filtro CK047: se BANKS(k/*)='IT' e BANKL(k) non è presente in
-    ref."SAP_Banche" (campo "Numero ABI/CAB"), il record viene escluso
+    ref."SAP_EXPORT_BNKA_IT" (campo BANKL, banca non cancellata), il record viene escluso
     dall'estrazione e tracciato nel log.
   Strategia: DROP + CREATE ad ogni run (full refresh).
 depends:

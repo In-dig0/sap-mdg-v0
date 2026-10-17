@@ -139,8 +139,10 @@ def _log_ck047_discards(cur, raw_fqt: str, ck047_lifnr_col: str):
         FROM {raw_fqt} raw
         WHERE raw."BANKS(k/*)" = 'IT'
           AND NOT EXISTS (
-            SELECT 1 FROM ref."SAP_Banche" b
-            WHERE b."Numero ABI/CAB" = raw."BANKL(k)"
+            SELECT 1 FROM ref."SAP_EXPORT_BNKA_IT" b
+            WHERE b."BANKS" = 'IT'
+              AND b."BANKL" = raw."BANKL(k)"
+              AND COALESCE(b."LOEVM", '') <> 'X'
           )
         ORDER BY raw.{q(ck047_lifnr_col)}, raw."BANKL(k)"
     """)
@@ -152,7 +154,7 @@ def _log_ck047_discards(cur, raw_fqt: str, ck047_lifnr_col: str):
 
     log.warning(
         f"  ⚠  CK047 — {len(discarded)} record scartati da "
-        f"{raw_fqt} (BANKS=IT, BANKL non presente in ref.SAP_Banche):"
+        f"{raw_fqt} (BANKS=IT, BANKL non presente o cancellata in ref.SAP_EXPORT_BNKA_IT):"
     )
     col_headers = [ck047_lifnr_col, "BANKS(k/*)", "BANKL(k)"]
     header = "  " + " | ".join(f"{h:<30}" for h in col_headers)
@@ -175,8 +177,10 @@ def _log_ck048_discards(cur, raw_fqt: str, ck048_kunnr_col: str):
         FROM {raw_fqt} raw
         WHERE raw."BANKS(k)" = 'IT'
           AND NOT EXISTS (
-            SELECT 1 FROM ref."SAP_Banche" b
-            WHERE b."Numero ABI/CAB" = raw."BANKL(k)"
+            SELECT 1 FROM ref."SAP_EXPORT_BNKA_IT" b
+            WHERE b."BANKS" = 'IT'
+              AND b."BANKL" = raw."BANKL(k)"
+              AND COALESCE(b."LOEVM", '') <> 'X'
           )
         ORDER BY raw.{q(ck048_kunnr_col)}, raw."BANKL(k)"
     """)
@@ -188,7 +192,7 @@ def _log_ck048_discards(cur, raw_fqt: str, ck048_kunnr_col: str):
 
     log.warning(
         f"  ⚠  CK048 — {len(discarded)} record scartati da "
-        f"{raw_fqt} (BANKS=IT, BANKL non presente in ref.SAP_Banche):"
+        f"{raw_fqt} (BANKS=IT, BANKL non presente o cancellata in ref.SAP_EXPORT_BNKA_IT):"
     )
     col_headers = [ck048_kunnr_col, "BANKS(k)", "BANKL(k)"]
     header = "  " + " | ".join(f"{h:<30}" for h in col_headers)
@@ -215,8 +219,8 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     - Record stg con _status='DELETED' esclusi dal JOIN
     - Se la tabella STG non esiste, usa solo raw (nessun JOIN).
     - vies_filter=True: esclude TAXTYPE LIKE '%0' con PIVA EU non valida.
-    - ck047_filter=True: esclude record con BANKS=IT e BANKL non in ref.SAP_Banche (fornitori).
-    - ck048_filter=True: esclude record con BANKS=IT e BANKL non in ref.SAP_Banche (clienti).
+    - ck047_filter=True: esclude record con BANKS=IT e BANKL non in ref.SAP_EXPORT_BNKA_IT (fornitori).
+    - ck048_filter=True: esclude record con BANKS=IT e BANKL non in ref.SAP_EXPORT_BNKA_IT (clienti).
     """
     raw_fqt = f'{raw_schema}.{q(raw_table)}'
     stg_fqt = f'{stg_schema}.{q(stg_table)}'
@@ -326,13 +330,15 @@ def merge_table(cur, raw_schema: str, raw_table: str,
             if bankl_col in raw_cols and banks_col in raw_cols:
                 log.info(
                     f"  Filtro CK047 attivo su {q(ck047_lifnr_col)} "
-                    f"(BANKS=IT, BANKL non in ref.SAP_Banche)"
+                    f"(BANKS=IT, BANKL non presente o cancellata in ref.SAP_EXPORT_BNKA_IT)"
                 )
                 where_clauses.append(f"""NOT (
             raw.{q(banks_col)} = 'IT'
             AND NOT EXISTS (
-                SELECT 1 FROM ref."SAP_Banche" b
-                WHERE b."Numero ABI/CAB" = raw.{q(bankl_col)}
+                SELECT 1 FROM ref."SAP_EXPORT_BNKA_IT" b
+                WHERE b."BANKS" = 'IT'
+                  AND b."BANKL" = raw.{q(bankl_col)}
+                  AND COALESCE(b."LOEVM", '') <> 'X'
             )
         )""")
             else:
@@ -362,13 +368,15 @@ def merge_table(cur, raw_schema: str, raw_table: str,
             if bankl_col in raw_cols and banks_col in raw_cols:
                 log.info(
                     f"  Filtro CK048 attivo su {q(ck048_kunnr_col)} "
-                    f"(BANKS=IT, BANKL non in ref.SAP_Banche)"
+                    f"(BANKS=IT, BANKL non presente o cancellata in ref.SAP_EXPORT_BNKA_IT)"
                 )
                 where_clauses.append(f"""NOT (
             raw.{q(banks_col)} = 'IT'
             AND NOT EXISTS (
-                SELECT 1 FROM ref."SAP_Banche" b
-                WHERE b."Numero ABI/CAB" = raw.{q(bankl_col)}
+                SELECT 1 FROM ref."SAP_EXPORT_BNKA_IT" b
+                WHERE b."BANKS" = 'IT'
+                  AND b."BANKL" = raw.{q(bankl_col)}
+                  AND COALESCE(b."LOEVM", '') <> 'X'
             )
         )""")
             else:

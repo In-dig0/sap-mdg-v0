@@ -5,8 +5,9 @@ depends:
   - stg.clean_check_results
 description: >
   CK048 — SAP_REF: Clienti (ZBP-AppoggioBanca): campo BANKL(k)
-  deve essere presente nella tabella di riferimento ref."SAP_Banche"
-  (campo "Numero ABI/CAB"), ma solo per i record con BANKS(k)='IT'.
+  deve essere presente nella tabella di riferimento SAP BNKA ref."SAP_EXPORT_BNKA_IT"
+  (campo BANKL = ABI+CAB, banca non cancellata: LOEVM <> 'X'),
+  ma solo per i record con BANKS(k)='IT'.
 connection: mdg_postgres
 @bruin */
 
@@ -20,18 +21,33 @@ SELECT
     raw."KUNNR(k/*)"                             AS object_key,
     'CK048'                                      AS check_id,
     CASE
+        WHEN raw."BANKL(k)" IS NULL OR raw."BANKL(k)" = ''
+            THEN 'BANKL obbligatorio mancante'
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."SAP_Banche" ref
-            WHERE ref."Numero ABI/CAB" = raw."BANKL(k)"
+            SELECT 1 FROM ref."SAP_EXPORT_BNKA_IT" ref
+            WHERE ref."BANKS" = 'IT'
+              AND ref."BANKL" = raw."BANKL(k)"
         )
-            THEN 'Chiave banca IT [' || raw."BANKL(k)" || '] non presente in SAP (SAP_Banche)'
+            THEN 'Chiave banca IT [' || raw."BANKL(k)" || '] non presente in SAP (BNKA.BANKL)'
+        WHEN NOT EXISTS (
+            SELECT 1 FROM ref."SAP_EXPORT_BNKA_IT" ref
+            WHERE ref."BANKS" = 'IT'
+              AND ref."BANKL" = raw."BANKL(k)"
+              AND COALESCE(ref."LOEVM", '') <> 'X'
+        )
+            THEN 'Chiave banca IT [' || raw."BANKL(k)" || '] cancellata in SAP (BNKA.LOEVM = X)'
         ELSE 'Chiave banca IT [' || raw."BANKL(k)" || '] valida'
     END                                          AS message,
     CASE
+        WHEN raw."BANKL(k)" IS NULL OR raw."BANKL(k)" = ''
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK048')
         WHEN NOT EXISTS (
-            SELECT 1 FROM ref."SAP_Banche" ref
-            WHERE ref."Numero ABI/CAB" = raw."BANKL(k)"
-        )                                        THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK048')
+            SELECT 1 FROM ref."SAP_EXPORT_BNKA_IT" ref
+            WHERE ref."BANKS" = 'IT'
+              AND ref."BANKL" = raw."BANKL(k)"
+              AND COALESCE(ref."LOEVM", '') <> 'X'
+        )
+            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK048')
         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs
