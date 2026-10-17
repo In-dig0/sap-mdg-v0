@@ -25,6 +25,18 @@ render_sidebar_menu()
 
 STATES_PATH = "/app/config/check_states.json"
 
+# Categorie dei controlli (stg.check_catalog.category), nell'ordine di visualizzazione.
+# Le categorie presenti nel DB ma non elencate qui vengono accodate col proprio codice.
+CATEGORY_LABELS = {
+    "BP":      "Business Partner (Fornitori, Clienti, Dest. merci)",
+    "MAT":     "Materiali",
+    "BOM":     "Distinte base",
+    "ROUTING": "Cicli di lavorazione",
+    "PIR":     "Inforecord acquisti",
+    "CMIR":    "Inforecord vendite",
+    "PRICE":   "Condizioni di vendita",
+}
+
 # ---------------------------------------------------------------------------
 # Funzioni DB
 # ---------------------------------------------------------------------------
@@ -112,6 +124,22 @@ def get_check_types() -> list[str]:
     unknown = sorted(t for t in db_types if t not in LOGICAL_ORDER)
     return known + unknown
 
+def get_category_counts() -> dict[str, int]:
+    """
+    Numero di check per categoria: tutte le categorie di CATEGORY_LABELS
+    (anche a zero) più quelle presenti solo nel DB, in coda in ordine alfabetico.
+    """
+    df_cat = run_query("""
+        SELECT category, COUNT(*) AS n
+        FROM stg.check_catalog
+        GROUP BY category
+    """)
+    db_counts = dict(zip(df_cat["category"], df_cat["n"])) if not df_cat.empty else {}
+    counts = {c: int(db_counts.get(c, 0)) for c in CATEGORY_LABELS}
+    for c in sorted(set(db_counts) - set(CATEGORY_LABELS)):
+        counts[c] = int(db_counts[c])
+    return counts
+
 
 def upsert_catalog(records: list) -> tuple[int, int]:
     conn = psycopg2.connect(**get_db_params())
@@ -169,51 +197,42 @@ tab_controllo, tab_backup = st.tabs(["📋 Controllo", "💾 Import / Export"])
 # ===========================================================================
 # TAB 1 — Controllo
 # ===========================================================================
-with tab_controllo:
+# Le uscite anticipate usano return (non st.stop()) per non bloccare il tab Import / Export.
+def render_tab_controllo():
 
     # Verifica anticipata che la tabella esista — evita crash sulla riga dei filtri
     try:
-        check_types_db = get_check_types()
+        check_types_db  = get_check_types()
+        category_counts = get_category_counts()
     except Exception:
         st.info("⚠️ Nessun dato disponibile. Avvia la pipeline Bruin per inizializzare il database.")
-        st.stop()
+        return
 
-    # Filtri
-    col_type, col_sev, col_active, _ = st.columns([2, 2, 2, 2])
-    with col_type:
-        type_filter = st.selectbox(
-            "Tipo controllo",
-            options=["Tutti"] + check_types_db,
-            index=0,
+    if sum(category_counts.values()) == 0:
+        st.info(
+            "⚠️ Il catalogo dei controlli è vuoto. Avvia la pipeline Bruin "
+            "oppure importa un backup dal tab **💾 Import / Export**."
         )
-    with col_sev:
-        sev_filter = st.selectbox(
-            "Severità",
-            options=["Tutti", "Error", "Warning"],
-            index=0,
-        )
-    with col_active:
-        active_filter = st.selectbox(
-            "Stato",
-            options=["Tutti", "Attivi", "Inattivi"],
-            index=0,
+        return
+
+    # Filtro per categoria
+    col_cat, _ = st.columns([3, 5])
+    with col_cat:
+        category_filter = st.selectbox(
+            "Categoria",
+            options=["Tutte"] + list(category_counts),
+            format_func=lambda c: (
+                f"Tutte ({sum(category_counts.values())})" if c == "Tutte"
+                else f"{CATEGORY_LABELS.get(c, c)} ({category_counts[c]})"
+            ),
+            key="catalog_category_filter",
         )
 
-    # Query
-    where_parts = ["1=1"]
-    params = []
-    if type_filter != "Tutti":
-        where_parts.append("check_type = %s")
-        params.append(type_filter)
-    if sev_filter != "Tutti":
-        where_parts.append("severity = %s")
-        params.append(sev_filter)
-    if active_filter == "Attivi":
-        where_parts.append("is_active = TRUE")
-    elif active_filter == "Inattivi":
-        where_parts.append("is_active = FALSE")
-
-    where_clause = " AND ".join(where_parts)
+    where_clause = "1=1"
+    params = None
+    if category_filter != "Tutte":
+        where_clause = "category = %s"
+        params = (category_filter,)
 
     try:
         df = run_query(f"""
@@ -222,14 +241,14 @@ with tab_controllo:
             FROM stg.check_catalog
             WHERE {where_clause}
             ORDER BY check_type, check_id
-        """, tuple(params) if params else None)
-    except Exception:
-        st.info("⚠️ Nessun dato disponibile. Avvia la pipeline Bruin per inizializzare il database.")
-        st.stop()
+        """, params)
+    except Exception as e:
+        st.error(f"Errore lettura catalogo: {e}")
+        return
 
     if df.empty:
-        st.info("Nessun check trovato con i filtri selezionati.")
-        st.stop()
+        st.info("Nessun controllo configurato per questa categoria.")
+        return
 
     # KPI
     total    = len(df)
@@ -333,12 +352,17 @@ with tab_controllo:
             updated_str = updated_at.strftime('%d/%m/%Y %H:%M') if hasattr(updated_at, 'strftime') else str(updated_at)[:16]
             st.caption(f"Aggiornato il: {updated_str}")
 
+with tab_controllo:
+    render_tab_controllo()
+
 # ===========================================================================
 # TAB 2 — Import / Export
 # ===========================================================================
 with tab_backup:
     st.subheader("💾 Backup e ripristino del catalogo")
     st.caption("Esporta la configurazione dei check su file JSON oppure ripristinala da un backup.")
+    if "catalog_import_msg" in st.session_state:
+        st.success(st.session_state.pop("catalog_import_msg"))
     st.divider()
 
     # -----------------------------------------------------------------------
@@ -347,7 +371,7 @@ with tab_backup:
     st.markdown("#### ⬇️ Export")
     st.write("Scarica tutti i check in formato JSON — utile per backup o per inizializzare un nuovo ambiente.")
 
-    if st.button("Genera file di export", use_container_width=False):
+    if st.button("Genera file di export", width="content"):
         try:
             records = export_catalog()
             json_bytes = json.dumps(records, indent=2, default=str).encode("utf-8")
@@ -361,7 +385,7 @@ with tab_backup:
                 "Check ID", "Categoria", "Tipo", "Severità", "Descrizione",
                 "Tabella", "Campo", "Rif.", "Attivo"
             ]
-            st.dataframe(df_export, use_container_width=True, hide_index=True)
+            st.dataframe(df_export, width="stretch", hide_index=True)
 
             st.download_button(
                 label=f"📥 Scarica check_catalog.json ({len(records)} record)",
@@ -416,12 +440,15 @@ with tab_backup:
                 })
 
             df_preview = pd.DataFrame(rows_preview)
-            st.dataframe(df_preview, use_container_width=True, hide_index=True)
+            st.dataframe(df_preview, width="stretch", hide_index=True)
 
-            if st.button("✅ Conferma import nel database", use_container_width=False):
+            if st.button("✅ Conferma import nel database", width="content"):
                 ins, upd = upsert_catalog(records)
-                st.success(f"✅ Import completato — **{ins}** inseriti, **{upd}** aggiornati.")
+                st.session_state["catalog_import_msg"] = (
+                    f"✅ Import completato — **{ins}** inseriti, **{upd}** aggiornati."
+                )
                 st.cache_data.clear()
+                st.rerun()  # aggiorna anche il tab Controllo
 
         except json.JSONDecodeError:
             st.error("File JSON non valido.")

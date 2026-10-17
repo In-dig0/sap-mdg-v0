@@ -10,6 +10,8 @@ description: >
     CK401-CK499  → CROSS_TABLE  (coerenza referenziale tra tabelle dello stesso ZIP)
     CK501-CK599  → CROSS_SOURCE (coerenza referenziale tra tabelle di ZIP/sorgenti diversi)
     CK801-CK899  → EXT_REF      (verifiche tramite servizi esterni)
+  Categorie (category): BP, MAT, BOM, ROUTING, PIR, CMIR, PRICE
+  (etichette in streamlit/app/pages/2_check_catalog.py).
 connection: mdg_postgres
 @bruin */
 
@@ -232,11 +234,11 @@ VALUES
      NULL,'Warning','EXISTENCE',FALSE,NOW()),
 
     ('CK205','Inforecord acquisti (S_COND#INFORCOND): campo KBETR_EXT obbligatorio e valorizzato',
-     'MAT','S_COND#INFORCOND','KBETR_EXT',
+     'PIR','S_COND#INFORCOND','KBETR_EXT',
      NULL,'Error','EXISTENCE',FALSE,NOW()),
 
     ('CK206','Inforecord acquisti (S_SCALES#INFORSCALES): campo KBETR obbligatorio, non nullo e diverso da zero',
-     'MAT','S_SCALES#INFORSCALES','KBETR',
+     'PIR','S_SCALES#INFORSCALES','KBETR',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
     ('CK207','BP: codice fiscale duplicato cross-tabella tra fornitori e clienti (TAXTYPE+TAXNUM), escluso IT4',
@@ -260,7 +262,7 @@ VALUES
      'S_SUPPL_GEN#ZBP_DatiGenerali (BU_GROUP)','Error','EXISTENCE',TRUE,NOW()),
 
     ('CK212','Distinte base (S_BOM_ITEM): quantità componente MENGE(*) non può essere zero',
-     'MAT','S_BOM_ITEM','MENGE(*)',
+     'BOM','S_BOM_ITEM','MENGE(*)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
     -- CROSS_TABLE — CK401-CK405 (CK401-CK404 is_active=FALSE come da DB locale)
@@ -285,15 +287,15 @@ VALUES
      'raw.S_MARA (PRODUCT(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
 
     ('CK406','Orfani flusso Distinte base: codice materiale (MATNR) e plant (WERKS) in S_BOM_ITEM devono essere presenti in S_BOM_HEADER',
-     'MAT','S_BOM_ITEM','MATNR(k/*) + WERKS(k)',
+     'BOM','S_BOM_ITEM','MATNR(k/*) + WERKS(k)',
      'raw.S_BOM_HEADER (MATNR(k/*)+WERKS(k))','Error','CROSS_TABLE',TRUE,NOW()),
 
     ('CK407','Orfani flusso Inforecord: INFNR(k/*) assente nella tab. master S_EINA#INFORMATFOR',
-     'MAT','S_EINE#INFORDATIACQ + S_SCALES#INFORSCALES + S_COND#INFORCOND','INFNR(k/*)',
+     'PIR','S_EINE#INFORDATIACQ + S_SCALES#INFORSCALES + S_COND#INFORCOND','INFNR(k/*)',
      'raw.S_EINA#INFORMATFOR (INFNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
 
     ('CK408','Orfani flusso Cicli di lavoro: codice ciclo di lavoro (PLNNR) assente nella tab. master S_OPERATION',
-     'MAT','S_MAPL + S_GROUP + S_PLKO','PLNNR(k/*)',
+     'ROUTING','S_MAPL + S_GROUP + S_PLKO','PLNNR(k/*)',
      'raw.S_OPERATION (PLNNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
 
     -- CROSS_SOURCE — CK501-CK506
@@ -314,7 +316,7 @@ VALUES
      'A2F_BO / A2F_FA (CODART)','Warning','CROSS_SOURCE',TRUE,NOW()),
 
     ('CK505','BOM (S_BOM_ITEM): componente IDNRK+WERKS deve essere presente in S_MARC come coppia PRODUCT(k/*)+WERKS(k/*)',
-     'MAT','S_BOM_ITEM','IDNRK + WERKS(k)',
+     'BOM','S_BOM_ITEM','IDNRK + WERKS(k)',
      'raw.S_MARC (PRODUCT(k/*) + WERKS(k/*))','Warning','CROSS_SOURCE',TRUE,NOW()),
 
     ('CK506','Codici doganali (S_MARITC): coppia MATNR(k/*)+PLANT(k/*) deve essere presente in S_MARC come coppia PRODUCT(k/*)+WERKS(k/*)',
@@ -342,15 +344,15 @@ VALUES
      'raw.S_MARA (PRODUCT(k/*))','Error','CROSS_SOURCE',TRUE,NOW()),
 
     ('CK512','Inforecord: MATNR deve essere presente in S_MARA e LIFNR(*) deve essere presente in S_SUPPL_GEN#ZBP_DatiGenerali o S_SUPPL_GEN#AddDatiGenerali',
-     'MAT','S_EINA#INFORMATFOR','MATNR + LIFNR(*)',
+     'PIR','S_EINA#INFORMATFOR','MATNR + LIFNR(*)',
      'raw.S_MARA (PRODUCT(k/*)) + raw.S_SUPPL_GEN#ZBP_DatiGenerali / AddDatiGenerali','Error','CROSS_SOURCE',TRUE,NOW()),
 
     ('CK513','Cicli di lavoro: coppia MATNR(k/*)+WERKS_MAT(k/*) in S_MAPL deve essere presente in S_MARC come PRODUCT(k/*)+WERKS(k/*)',
-     'MAT','S_MAPL','MATNR(k/*) + WERKS_MAT(k/*)',
+     'ROUTING','S_MAPL','MATNR(k/*) + WERKS_MAT(k/*)',
      'raw.S_MARC (PRODUCT(k/*)+WERKS(k/*))','Error','CROSS_SOURCE',TRUE,NOW()),
 
     ('CK514','Cicli di lavoro: coppia MATNR(k/*)+WERKS_MAT(k/*) in S_MAPL deve essere presente in S_BOM_HEADER come MATNR(k/*)+WERKS(k)',
-     'MAT','S_MAPL','MATNR(k/*) + WERKS_MAT(k/*)',
+     'ROUTING','S_MAPL','MATNR(k/*) + WERKS_MAT(k/*)',
      'raw.S_BOM_HEADER (MATNR(k/*)+WERKS(k))','Error','CROSS_SOURCE',TRUE,NOW()),
 
     ('CK515', 'Inforecord acquisti: EKGRP valorizzato in S_MARC',
@@ -358,11 +360,11 @@ VALUES
      'raw.S_MARC (PRODUCT(k/*))', 'Error', 'CROSS_SOURCE',TRUE,NOW()),
 
     ('CK516','Inforecord acquisti (S_EINE#INFORDATIACQ): APLFZ può essere vuoto solo se PLIFZ è valorizzato in S_MARC',
-     'MAT','S_EINE#INFORDATIACQ','APLFZ',
+     'PIR','S_EINE#INFORDATIACQ','APLFZ',
      'raw.S_MARC (PLIFZ) via S_EINA#INFORMATFOR (MATNR)','Error','CROSS_SOURCE',TRUE,NOW()),
 
     ('CK517','Inforecord acquisti (S_EINA#INFORMATFOR): MATNR non deve essere duplicato',
-     'MAT','S_EINA#INFORMATFOR','MATNR',
+     'PIR','S_EINA#INFORMATFOR','MATNR',
      NULL,'Error','DUPLICATE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
