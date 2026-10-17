@@ -11,14 +11,29 @@ esegue controlli di coerenza formale e di merito e ne mostra l'esito in una dash
 
 1. L'ERP genera N file **ZIP**, uno per step di migrazione (es. `01a_BP_Vettori.zip`,
    `01b_BP_Clienti.zip`, `01c_BP_Fornitori.zip`), ognuno con M file **CSV** con i campi dei modelli SAP.
-   Arrivano via **SFTP** (SFTPGo) nel datalake (`datalake/from_olderp`).
+   Arrivano via **SFTP** (SFTPGo) nel datalake (`in_source_pprod`).
 2. Le **tabelle di controllo SAP** (paesi, regioni, banche, ...) arrivano come file **XLSX**.
 3. La pipeline **Bruin**:
    - carica i CSV nello schema `raw` (una tabella per file CSV, stesso nome);
    - carica gli XLSX nello schema `ref`;
    - esegue i check (asset `stg.ckNNN_*`) e scrive gli esiti in `stg.check_results`;
-   - registra ogni esecuzione in `stg.pipeline_runs` (asset di apertura/chiusura run).
+   - registra ogni esecuzione in `stg.pipeline_runs` (asset di apertura/chiusura run);
+   - unisce i dati validati (`prd_merge_*`) ed esporta gli ZIP per SAP (`prd_export_*`).
 4. **Streamlit** mostra cockpit, dettaglio esiti, catalogo controlli e gestione pipeline.
+
+Cartelle del datalake (volumi Docker, montate in Bruin sotto `/project/datalake/`):
+
+| Cartella           | Contenuto                                                         | Caricata da / in                  |
+|--------------------|-------------------------------------------------------------------|-----------------------------------|
+| `in_source_pprod`  | ZIP/CSV estratti dall'ERP attuale (quello sostituito da S/4HANA); include il semaforo `DATASET_READY.txt` | `ingest_zip_to_raw` → `raw` |
+| `in_source_sap`    | Tabelle di controllo SAP in XLSX                                  | `ingest_xlsx_to_ref` → `ref`      |
+| `in_source_others` | Altri file XLSX di supporto                                       | `ingest_others_to_stg` → `stg`    |
+| `out_source_mdg`   | Output di MDG: ZIP per il caricamento in SAP e CSV degli scarti   | scritta da `prd_export_*`         |
+
+In Bruin le cartelle `in_source_*` sono montate in sola lettura.
+
+Asset Bruin (`bruin/assets/`): `setup/` (init db, catalogo check, apertura run),
+`ingestion/` (caricamento file), `stg/` (check `ckNNN_*`), `prd/` (merge, export, chiusura run).
 
 Schemi PostgreSQL (db `mdg`): `raw`, `ref`, `stg`, `prd`, `usr` (utenti applicativi).
 
@@ -32,7 +47,11 @@ Schemi PostgreSQL (db `mdg`): `raw`, `ref`, `stg`, `prd`, `usr` (utenti applicat
 | `bruin`     | `mdg_bruin`     | `bruin/`         | Orchestratore pipeline (`sleep infinity`, si usa con `docker exec`) |
 | `fastapi`   | `mdg_fastapi`   | `api/`           | API REST: avvio pipeline Bruin da Streamlit             |
 | `mdg_auth`  | `mdg_auth`      | `auth/api/`      | Autenticazione JWT (FastAPI-Users) e gestione utenti    |
-| `streamlit` | `mdg_streamlit` | `streamlit/app/` | Dashboard (`dashboard.py` + `pages/`)                   |
+| `streamlit` | `mdg_streamlit` | `streamlit/app/` | Dashboard (`dashboard.py` + `pages/`, vedi sotto)       |
+
+Pagine Streamlit (`streamlit/app/pages/`): profilo utente, esiti check, catalogo controlli,
+gestione pipeline, gestione utenti, consultazione dati, targhette matricola, targhette DiBa,
+modifica tabelle, info, log accessi. `pages/backup/` contiene vecchie versioni non attive.
 
 Ruoli applicativi (RBAC): `admin_role` (tutto, gestione utenti), `it_role`
 (dashboard, esiti, catalogo, gestione pipeline, PgAdmin), `business_role` (info, dashboard, esiti).
@@ -47,11 +66,13 @@ riagganciati a ogni avvio. **Mai** usare `docker compose down -v` senza conferma
 - `docker-compose.yml` + `docker-compose.override.yml` (letto automaticamente):
   espone le porte sull'host e imposta `restart: "no"`.
 - Porte (dal `.env` locale): Streamlit 8503, PgAdmin 8081, SFTPGo WebAdmin 8082,
-  SFTP 2222, FastAPI 8002, Auth 8001, PostgreSQL 5432.
+  SFTP 2222, FastAPI 8002, PostgreSQL 5432. Auth usa sempre la porta 8001
+  (fissa nei file compose, non letta dal `.env`).
 
 **Produzione** — VPS Oracle Cloud (OCI), **ARM64 / aarch64** (Ampere A1).
 - `docker-compose.yml` + `docker-compose.prod.yml` (l'override locale NON viene letto);
-  porte legate a `127.0.0.1`, `restart: unless-stopped`.
+  porte legate a `127.0.0.1` (dietro Nginx), tranne SFTP che è pubblica;
+  PostgreSQL non espone porte. `restart: unless-stopped`.
 - Bruin non ha un'immagine ARM64 ufficiale: il `bruin/Dockerfile` scarica il binario arm64.
   Ogni nuova immagine o dipendenza deve funzionare **sia su amd64 sia su arm64**.
 
@@ -86,9 +107,10 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 ## Flusso Git
 
-Repo: https://github.com/In-dig0/sap-mdg-v0 — branch principale `main`.
-1. Sviluppo e test in locale, su un branch dedicato.
-2. Merge su `main` e `git push`.
+Repo: https://github.com/In-dig0/sap-mdg-v0 — si lavora **direttamente su `main`**
+(niente branch, per semplicità).
+1. Sviluppo e test in locale su `main`, commit.
+2. `git push` (solo su richiesta esplicita).
 3. Sulla VPS: `git pull` + rebuild con i file di produzione.
 
 Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`).
@@ -97,7 +119,8 @@ Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `ch
 
 - **Non leggere, modificare o committare** `.env`, `sftpgo/keys/*` e qualunque credenziale.
   `.bruin.yml` è generato da `setup.sh` a partire dal `.env`: non modificarlo a mano.
-- **Fine riga LF** su tutti i file (gli script `.sh` girano nei container Linux).
+- **Fine riga LF** su tutti i file (girano nei container Linux), imposto da
+  `.gitattributes` (`* text=auto eol=lf`). Controllo: `git ls-files --eol | grep crlf` deve essere vuoto.
 - **Nomi file**: attenzione alle maiuscole (Windows non le distingue, Linux sì);
   per rinominare usare `git mv`.
 - Modifiche a `docker-compose.yml` impattano anche la produzione: verificare sempre
