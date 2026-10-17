@@ -4,7 +4,7 @@ type: python
 depends:
   - stg.clean_check_results
 description: >
-  CK403 — CROSS_TABLE: flusso 02-ZDM-Clienti.
+  CK403 — CROSS_TABLE: flusso ZDM-Clienti (file ZIP il cui nome contiene "ZDM-Clienti").
   Verifica che ogni KUNNR nelle tabelle secondarie del flusso
   esista nella master S_CUST_GEN#ZDM-DatiGenerali.
 @bruin """
@@ -23,7 +23,8 @@ DB_CONFIG = {
 }
 
 CHECK_ID     = "CK403"
-ZIP_PREFIX   = "02-ZDM-Clienti"
+# Nome del flusso cercato nel nome del file ZIP (es. "DM06-01a-ZBP-Vettori.zip" contiene "ZBP-Vettori")
+ZIP_FLOW     = "ZDM-Clienti"
 MASTER_TABLE = "S_CUST_GEN#ZDM-DatiGenerali"
 MASTER_FK    = "KUNNR(k/*)"
 SECONDARY_FK = "KUNNR(k/*)"
@@ -74,7 +75,7 @@ def main():
                           SELECT 1 FROM raw.{q(MASTER_TABLE)} mst
                           WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
                       )
-                """, (f"{ZIP_PREFIX}%",))
+                """, (f"%{ZIP_FLOW}%",))
 
                 rows_err = []
                 for rec in cur.fetchall():
@@ -106,7 +107,7 @@ def main():
                           SELECT 1 FROM raw.{q(MASTER_TABLE)} mst
                           WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
                       )
-                """, (f"{ZIP_PREFIX}%",))
+                """, (f"%{ZIP_FLOW}%",))
 
                 rows_ok = []
                 for rec in cur.fetchall():
@@ -127,7 +128,7 @@ def main():
 
         conn.commit()
         if total_orphans == 0:
-            print(f"[OK] {CHECK_ID} — nessun orfano nel flusso {ZIP_PREFIX}")
+            print(f"[OK] {CHECK_ID} — nessun orfano nel flusso {ZIP_FLOW}")
         else:
             print(f"[WARN] {CHECK_ID} — totale orfani: {total_orphans}")
     finally:

@@ -4,7 +4,7 @@ type: python
 depends:
   - stg.clean_check_results
 description: >
-  CK402 — CROSS_TABLE: flusso 04-ZBP-Fornitori.
+  CK402 — CROSS_TABLE: flusso ZBP-Fornitori (file ZIP il cui nome contiene "ZBP-Fornitori").
   Verifica che ogni LIFNR nelle tabelle secondarie del flusso
   esista nella master S_SUPPL_GEN#ZBP_DatiGenerali.
 @bruin """
@@ -23,7 +23,8 @@ DB_CONFIG = {
 }
 
 CHECK_ID     = "CK402"
-ZIP_PREFIX   = "04-ZBP-Fornitori"
+# Nome del flusso cercato nel nome del file ZIP (es. "DM06-01a-ZBP-Vettori.zip" contiene "ZBP-Vettori")
+ZIP_FLOW     = "ZBP-Fornitori"
 MASTER_TABLE = "S_SUPPL_GEN#ZBP_DatiGenerali"
 MASTER_FK    = "LIFNR(k/*)"
 SECONDARY_FK = "LIFNR(k/*)"
@@ -74,7 +75,7 @@ def main():
                           SELECT 1 FROM raw.{q(MASTER_TABLE)} mst
                           WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
                       )
-                """, (f"{ZIP_PREFIX}%",))
+                """, (f"%{ZIP_FLOW}%",))
 
                 rows_err = []
                 for rec in cur.fetchall():
@@ -106,7 +107,7 @@ def main():
                           SELECT 1 FROM raw.{q(MASTER_TABLE)} mst
                           WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
                       )
-                """, (f"{ZIP_PREFIX}%",))
+                """, (f"%{ZIP_FLOW}%",))
 
                 rows_ok = []
                 for rec in cur.fetchall():
@@ -127,7 +128,7 @@ def main():
 
         conn.commit()
         if total_orphans == 0:
-            print(f"[OK] {CHECK_ID} — nessun orfano nel flusso {ZIP_PREFIX}")
+            print(f"[OK] {CHECK_ID} — nessun orfano nel flusso {ZIP_FLOW}")
         else:
             print(f"[WARN] {CHECK_ID} — totale orfani: {total_orphans}")
     finally:

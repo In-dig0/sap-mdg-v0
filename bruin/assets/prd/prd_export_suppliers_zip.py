@@ -6,7 +6,7 @@ description: >
     - prd."S_SUPPL_GEN#ZBP_DatiGenerali"  (dati anagrafici con indirizzi normalizzati)
     - tutte le altre tabelle fornitori da schema raw
   Un ZIP separato viene creato per ogni valore distinto di _source
-  (es. "01-ZBP-Vettori.zip", "04-ZBP-Fornitori.zip").
+  (es. "DM06-01a-ZBP-Vettori.zip").
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
   Output: /project/datalake/out/<nome_source>.zip
 depends:
