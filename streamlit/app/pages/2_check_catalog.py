@@ -60,16 +60,16 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
     finally:
         conn.close()
 
-def save_state(check_id: str, new_state: bool):
-    """Aggiorna DB e JSON in modo sincrono."""
+def save_states(check_ids: list[str], new_state: bool):
+    """Aggiorna DB e JSON in modo sincrono per uno o più check."""
     conn = psycopg2.connect(**get_db_params())
     try:
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE stg.check_catalog
                 SET is_active = %s, updated_at = NOW()
-                WHERE check_id = %s
-            """, (new_state, check_id))
+                WHERE check_id = ANY(%s)
+            """, (new_state, list(check_ids)))
         conn.commit()
     finally:
         conn.close()
@@ -79,11 +79,32 @@ def save_state(check_id: str, new_state: bool):
                 states = json.load(f)
         else:
             states = {}
-        states[check_id] = new_state
+        for check_id in check_ids:
+            states[check_id] = new_state
         with open(STATES_PATH, "w") as f:
             json.dump(states, f, indent=2)
     except Exception as e:
         st.warning(f"DB aggiornato ma impossibile scrivere {STATES_PATH}: {e}")
+
+def save_state(check_id: str, new_state: bool):
+    save_states([check_id], new_state)
+
+@st.dialog("Conferma modifica massiva")
+def confirm_bulk_dialog(check_ids: list[str], new_state: bool, scope_label: str):
+    azione = "attivare" if new_state else "disattivare"
+    st.write(f"Vuoi {azione} **{len(check_ids)}** controlli ({scope_label})?")
+    col_ok, col_cancel = st.columns(2)
+    if col_ok.button("✅ Conferma", type="primary", width="stretch"):
+        save_states(check_ids, new_state)
+        # Il browser conserva il valore dei toggle finché la loro key non cambia:
+        # cambiando versione i toggle vengono ricreati con lo stato letto dal DB
+        # (altrimenti mostrerebbero, e risalverebbero, lo stato precedente).
+        st.session_state["catalog_toggle_ver"] = st.session_state.get("catalog_toggle_ver", 0) + 1
+        esito = "attivati ✅" if new_state else "disattivati ⏸️"
+        st.session_state["catalog_bulk_msg"] = f"{len(check_ids)} controlli {esito}"
+        st.rerun()
+    if col_cancel.button("Annulla", width="stretch"):
+        st.rerun()
 
 def export_catalog() -> list:
     """Esporta tutti i record di stg.check_catalog come lista di dict."""
@@ -258,6 +279,31 @@ def render_tab_controllo():
     c1.metric("Check totali", total)
     c2.metric("✅ Attivi",    attivi)
     c3.metric("⏸️ Inattivi",  inattivi)
+
+    # Attivazione / disattivazione massiva dei check visualizzati (categoria filtrata)
+    if "catalog_bulk_msg" in st.session_state:
+        st.toast(st.session_state.pop("catalog_bulk_msg"), icon="💾")
+    scope_label = (
+        "tutte le categorie" if category_filter == "Tutte"
+        else CATEGORY_LABELS.get(category_filter, category_filter)
+    )
+    ids_inattivi = df.loc[~df["is_active"].astype(bool), "check_id"].tolist()
+    ids_attivi   = df.loc[df["is_active"].astype(bool), "check_id"].tolist()
+    col_on, col_off, _ = st.columns([2, 2, 4])
+    if col_on.button(
+        f"✅ Attiva tutti ({len(ids_inattivi)})",
+        disabled=not ids_inattivi,
+        width="stretch",
+        help=f"Attiva tutti i controlli visualizzati: {scope_label}",
+    ):
+        confirm_bulk_dialog(ids_inattivi, True, scope_label)
+    if col_off.button(
+        f"⏸️ Disattiva tutti ({len(ids_attivi)})",
+        disabled=not ids_attivi,
+        width="stretch",
+        help=f"Disattiva tutti i controlli visualizzati: {scope_label}",
+    ):
+        confirm_bulk_dialog(ids_attivi, False, scope_label)
     st.divider()
 
     # Legenda
@@ -341,7 +387,7 @@ def render_tab_controllo():
                     new_state = st.toggle(
                         "Attivo",
                         value=is_active,
-                        key=f"toggle_{check_id}",
+                        key=f"toggle_{check_id}_v{st.session_state.get('catalog_toggle_ver', 0)}",
                     )
                     if new_state != is_active:
                         save_state(check_id, new_state)
@@ -448,6 +494,7 @@ with tab_backup:
                     f"✅ Import completato — **{ins}** inseriti, **{upd}** aggiornati."
                 )
                 st.cache_data.clear()
+                st.session_state["catalog_toggle_ver"] = st.session_state.get("catalog_toggle_ver", 0) + 1
                 st.rerun()  # aggiorna anche il tab Controllo
 
         except json.JSONDecodeError:
