@@ -45,7 +45,9 @@ services:
   # PgAdmin — interfaccia web per PostgreSQL
   # ---------------------------------------------------------------------------
   pgadmin:
-    image: dpage/pgadmin4:latest
+    # Versione fissata: "latest" non viene riscaricata da "up -d", e locale e VPS
+    # finivano con versioni diverse. Per aggiornare: cambiare il tag e "docker compose pull pgadmin".
+    image: dpage/pgadmin4:9.18
     container_name: mdg_pgadmin
     restart: unless-stopped
     environment:
