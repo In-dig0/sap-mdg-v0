@@ -11,6 +11,7 @@ description: >
 depends:
   - prd.export_suppliers_zip
   - prd.export_clienti_zip
+  - prd.export_clienti_add_zip
   - prd.export_dest_merci_zip
   - prd.export_materiali_zip
   - prd.export_bom_zip
