@@ -55,45 +55,50 @@ def check_vat_vies_exists(cur) -> bool:
     return cur.fetchone()[0] > 0
 
 
-def _log_vies_discards(cur, raw_fqt: str, raw_cols: list[str],
-                       vies_lifnr_col: str):
+VIES_TAXTYPE_COL = "TAXTYPE(k/*)"
+VIES_TAXNUM_COL  = "TAXNUM(*)"
+
+
+def _vat_number_sql(alias: str = "raw") -> str:
     """
-    Logga i record scartati dal filtro VIES: uno per LIFNR+TAXTYPE+TAXNUM.
-    Usa GROUP BY per evitare duplicati nel caso check_vat_vies abbia
-    più righe per lo stesso entity_id.
+    P.IVA normalizzata come in check_vat_vies.vat_number: CC + numero, senza
+    spazi, punti e trattini (stessa regola di normalize_taxnum() in CK801/CK803).
     """
-    taxtype_col = "TAXTYPE(k/*)"
-    taxnum_col  = "TAXNUM(*)"
-    has_taxtype = taxtype_col in raw_cols
-    has_taxnum  = taxnum_col  in raw_cols
+    num = f"regexp_replace(UPPER({alias}.{q(VIES_TAXNUM_COL)}), '[[:space:].-]', '', 'g')"
+    cc  = f"UPPER(LEFT({alias}.{q(VIES_TAXTYPE_COL)}, 2))"
+    return f"(CASE WHEN {num} LIKE {cc} || '%' THEN {num} ELSE {cc} || {num} END)"
 
-    select_parts = [f'raw.{q(vies_lifnr_col)}']
-    if has_taxtype:
-        select_parts.append(f'raw.{q(taxtype_col)}')
-    if has_taxnum:
-        select_parts.append(f'raw.{q(taxnum_col)}')
-    select_parts.append("MIN(v.vat_number) AS vat_number")
 
-    group_parts = [f'raw.{q(vies_lifnr_col)}']
-    if has_taxtype:
-        group_parts.append(f'raw.{q(taxtype_col)}')
-    if has_taxnum:
-        group_parts.append(f'raw.{q(taxnum_col)}')
+def _vies_invalid_sql(alias: str = "raw") -> str:
+    """
+    Condizione vera se il record è una P.IVA CEE (TAXTYPE '%0') il cui ULTIMO
+    esito reale in stg.check_vat_vies è "UE non valida". La validità VIES è della
+    P.IVA, quindi conta l'ultimo esito per quel numero, di qualunque cliente/fornitore
+    e di qualunque run. Esclusi CACHED/PENDING (segnaposto) ed ERROR (servizio
+    non raggiungibile: non dice nulla sulla validità).
+    """
+    return f"""(
+            {alias}.{q(VIES_TAXTYPE_COL)} LIKE '%0'
+            AND (
+                SELECT v.is_eu = TRUE AND v.vies_valid = FALSE
+                FROM stg.check_vat_vies v
+                WHERE v.vat_number = {_vat_number_sql(alias)}
+                  AND v.check_status NOT IN ('CACHED', 'PENDING', 'ERROR')
+                ORDER BY v.created_at DESC
+                LIMIT 1
+            ) IS TRUE
+        )"""
 
-    taxtype_filter = (
-        f"AND raw.{q(taxtype_col)} LIKE '%0'" if has_taxtype else ""
-    )
 
+def _log_vies_discards(cur, raw_fqt: str, vies_lifnr_col: str):
+    """Logga i record scartati dal filtro VIES: uno per codice + TAXTYPE + TAXNUM."""
     cur.execute(f"""
-        SELECT {', '.join(select_parts)}
+        SELECT DISTINCT
+            raw.{q(vies_lifnr_col)}, raw.{q(VIES_TAXTYPE_COL)}, raw.{q(VIES_TAXNUM_COL)},
+            {_vat_number_sql('raw')} AS vat_number
         FROM {raw_fqt} raw
-        JOIN stg.check_vat_vies v
-          ON v.entity_id  = raw.{q(vies_lifnr_col)}
-         AND v.is_eu      = TRUE
-         AND v.vies_valid = FALSE
-        {taxtype_filter}
-        GROUP BY {', '.join(group_parts)}
-        ORDER BY raw.{q(vies_lifnr_col)}
+        WHERE {_vies_invalid_sql('raw')}
+        ORDER BY 1
     """)
     discarded = cur.fetchall()
 
@@ -101,14 +106,11 @@ def _log_vies_discards(cur, raw_fqt: str, raw_cols: list[str],
         log.info("  ✓  VIES — nessun record scartato.")
         return
 
-    col_headers = [vies_lifnr_col]
-    if has_taxtype: col_headers.append(taxtype_col)
-    if has_taxnum:  col_headers.append(taxnum_col)
-    col_headers.append("vat_number (VIES)")
+    col_headers = [vies_lifnr_col, VIES_TAXTYPE_COL, VIES_TAXNUM_COL, "vat_number (VIES)"]
 
     log.warning(
         f"  ⚠  VIES — {len(discarded)} record scartati da "
-        f"{raw_fqt} (TAXTYPE LIKE '%0', is_eu=true, vies_valid=false):"
+        f"{raw_fqt} (P.IVA CEE con ultimo esito VIES non valido):"
     )
     header = "  " + " | ".join(f"{h:<30}" for h in col_headers)
     log.warning(header)
@@ -293,32 +295,17 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     # ---- Filtro VIES ----
     if vies_filter and vies_lifnr_col:
         if check_vat_vies_exists(cur):
-            taxtype_col = "TAXTYPE(k/*)"
-            if taxtype_col in raw_cols:
+            if VIES_TAXTYPE_COL in raw_cols and VIES_TAXNUM_COL in raw_cols:
                 log.info(
-                    f"  Filtro VIES attivo su {q(vies_lifnr_col)} "
-                    f"(solo TAXTYPE LIKE '%0')"
+                    f"  Filtro VIES attivo (P.IVA CEE, TAXTYPE LIKE '%0': "
+                    f"ultimo esito VIES per numero di P.IVA)"
                 )
-                where_clauses.append(f"""NOT (
-            raw.{q(taxtype_col)} LIKE '%0'
-            AND EXISTS (
-                SELECT 1 FROM stg.check_vat_vies v
-                WHERE v.entity_id = raw.{q(vies_lifnr_col)}
-                  AND v.is_eu      = TRUE
-                  AND v.vies_valid = FALSE
-            )
-        )""")
+                where_clauses.append(f"NOT {_vies_invalid_sql('raw')}")
             else:
-                log.info(
-                    f"  Filtro VIES attivo su {q(vies_lifnr_col)} "
-                    f"(colonna TAXTYPE assente — filtro su tutti i record)"
+                log.warning(
+                    f"  Filtro VIES saltato: colonne {VIES_TAXTYPE_COL} / "
+                    f"{VIES_TAXNUM_COL} assenti in {raw_table}."
                 )
-                where_clauses.append(f"""NOT EXISTS (
-            SELECT 1 FROM stg.check_vat_vies v
-            WHERE v.entity_id = raw.{q(vies_lifnr_col)}
-              AND v.is_eu      = TRUE
-              AND v.vies_valid = FALSE
-        )""")
         else:
             log.warning("  stg.check_vat_vies non trovata — filtro VIES saltato.")
 
@@ -349,12 +336,10 @@ def merge_table(cur, raw_schema: str, raw_table: str,
         else:
             log.warning("  stg.check_results non trovata — filtro CK047 saltato.")
 
-    where_clause = ("WHERE " + "\n          AND ".join(where_clauses)
-                    if where_clauses else "")
-
     # ---- Log record scartati da VIES (prima del DROP, un record per PIVA) ----
-    if vies_filter and vies_lifnr_col and check_vat_vies_exists(cur):
-        _log_vies_discards(cur, raw_fqt, raw_cols, vies_lifnr_col)
+    if (vies_filter and vies_lifnr_col and check_vat_vies_exists(cur)
+            and VIES_TAXTYPE_COL in raw_cols and VIES_TAXNUM_COL in raw_cols):
+        _log_vies_discards(cur, raw_fqt, vies_lifnr_col)
 
     # ---- Log record scartati da CK047 (prima del DROP) ----
     if ck047_filter and ck047_lifnr_col and check_ck047_results_exists(cur):
@@ -390,6 +375,11 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     # ---- Log record scartati da CK048 (prima del DROP) ----
     if ck048_filter and ck048_kunnr_col and check_ck047_results_exists(cur):
         _log_ck048_discards(cur, raw_fqt, ck048_kunnr_col)
+
+    # Costruita dopo TUTTI i filtri (prima il filtro CK048 veniva aggiunto
+    # quando la WHERE era già stata composta e non veniva mai applicato)
+    where_clause = ("WHERE " + "\n          AND ".join(where_clauses)
+                    if where_clauses else "")
 
     # ---- DROP + CREATE ----
     cur.execute(f"DROP TABLE IF EXISTS {prd_fqt}")
