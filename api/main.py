@@ -999,6 +999,139 @@ def truncate_schema(schema: str):
         raise HTTPException(status_code=503, detail=f"Errore DB durante il TRUNCATE SCHEMA: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Endpoints DB — Dati raw per file ZIP di origine (_source)
+# ---------------------------------------------------------------------------
+# I dati di uno ZIP restano in raw anche dopo la cancellazione del file dalla
+# inbox (voluto: l'opzione "Svuota inbox post-run" rimuove gli ZIP già caricati).
+# Questi endpoint permettono di ritirare esplicitamente i dati di uno ZIP.
+
+def _raw_tables_with_source(cur) -> list[str]:
+    cur.execute("""
+        SELECT table_name FROM information_schema.columns
+        WHERE table_schema = 'raw' AND column_name = '_source'
+        ORDER BY table_name
+    """)
+    return [r[0] for r in cur.fetchall()]
+
+
+@app.get("/db/raw/sources", tags=["Database"])
+def list_raw_sources():
+    """Elenca i file ZIP presenti in raw (_source) con le righe per tabella."""
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        sources: dict[str, dict] = {}
+        for table in _raw_tables_with_source(cur):
+            cur.execute(
+                f'SELECT "_source", COUNT(*), MAX("_loaded_at") FROM raw.'
+                f'{psycopg2.extensions.quote_ident(table, cur)} GROUP BY 1'
+            )
+            for source, n, loaded_at in cur.fetchall():
+                if source is None:
+                    continue
+                s = sources.setdefault(source, {"source": source, "rows": 0, "tables": [], "loaded_at": None})
+                s["rows"] += n
+                s["tables"].append({"table": table, "rows": n})
+                if loaded_at and (s["loaded_at"] is None or loaded_at > s["loaded_at"]):
+                    s["loaded_at"] = loaded_at
+        cur.close()
+        conn.close()
+        inbox = Path(SEMAPHORE_PATH).parent
+        result = []
+        for s in sorted(sources.values(), key=lambda x: x["source"]):
+            s["in_inbox"]  = (inbox / s["source"]).exists()
+            s["loaded_at"] = s["loaded_at"].isoformat() if s["loaded_at"] else None
+            result.append(s)
+        return {"sources": result}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante la lettura delle sorgenti raw: {e}")
+
+
+@app.delete("/db/raw/sources/{source}", tags=["Database"])
+def delete_raw_source(source: str):
+    """
+    Elimina da tutte le tabelle raw le righe con _source = {source} e, nelle tabelle
+    stg alimentate da detect_new_records, i record ancora in stato NEW la cui chiave
+    non esiste più nella tabella raw di origine. Tutto in un'unica transazione.
+    Le tabelle prd vengono ricostruite dalla pipeline al run successivo.
+    """
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        qi   = lambda name: psycopg2.extensions.quote_ident(name, cur)
+
+        deleted_raw = []
+        for table in _raw_tables_with_source(cur):
+            cur.execute(f'DELETE FROM raw.{qi(table)} WHERE "_source" = %s', (source,))
+            if cur.rowcount:
+                deleted_raw.append({"table": table, "rows": cur.rowcount})
+        if not deleted_raw:
+            conn.rollback()
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Nessun dato in raw con _source = '{source}'.")
+
+        # Record NEW in stg (inseriti da detect_new_records con _source = 'raw.<tabella>')
+        # rimasti senza corrispondenza in raw
+        cur.execute("""
+            SELECT c.table_name FROM information_schema.columns c
+            WHERE c.table_schema = 'stg' AND c.column_name = '_status'
+              AND EXISTS (SELECT 1 FROM information_schema.columns s
+                          WHERE s.table_schema = 'stg' AND s.table_name = c.table_name
+                            AND s.column_name = '_source')
+            ORDER BY 1
+        """)
+        deleted_stg = []
+        for stg_table in [r[0] for r in cur.fetchall()]:
+            cur.execute(
+                f'SELECT DISTINCT "_source" FROM stg.{qi(stg_table)} '
+                f"WHERE \"_status\" = 'NEW' AND \"_source\" LIKE 'raw.%%'"
+            )
+            for (stg_source,) in cur.fetchall():
+                raw_table = stg_source.split(".", 1)[1]
+                cur.execute(
+                    "SELECT 1 FROM pg_tables WHERE schemaname = 'raw' AND tablename = %s",
+                    (raw_table,),
+                )
+                if cur.fetchone() is None:
+                    continue
+                cur.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'stg' AND table_name = %s ORDER BY ordinal_position",
+                    (stg_table,),
+                )
+                # Colonne chiave: stesso criterio di detect_new_records ("(k" nel nome)
+                key_cols = [c for (c,) in cur.fetchall() if re.search(r"\(.*?k.*?\)", c)]
+                if not key_cols:
+                    continue
+                match = " AND ".join(f"r.{qi(k)} = s.{qi(k)}" for k in key_cols)
+                cur.execute(
+                    f'DELETE FROM stg.{qi(stg_table)} s '
+                    f"WHERE s.\"_status\" = 'NEW' AND s.\"_source\" = %s "
+                    f"AND NOT EXISTS (SELECT 1 FROM raw.{qi(raw_table)} r WHERE {match})",
+                    (stg_source,),
+                )
+                if cur.rowcount:
+                    deleted_stg.append({"table": stg_table, "rows": cur.rowcount})
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        n_raw = sum(d["rows"] for d in deleted_raw)
+        n_stg = sum(d["rows"] for d in deleted_stg)
+        return {
+            "source":      source,
+            "deleted_raw": deleted_raw,
+            "deleted_stg": deleted_stg,
+            "message":     f"Eliminate {n_raw} righe da raw e {n_stg} record NEW da stg.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante l'eliminazione dei dati di '{source}': {e}")
+
+
 
 # ---------------------------------------------------------------------------
 # Endpoints DB — Lettura e scrittura tabelle (Edit Tables)

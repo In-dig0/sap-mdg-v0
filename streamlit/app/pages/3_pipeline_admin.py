@@ -156,6 +156,49 @@ def api_delete_all_files(endpoint: str = "inbox"):
     except Exception as e:
         return None, str(e)
 
+def api_raw_sources():
+    """GET /db/raw/sources — file ZIP con dati caricati in raw."""
+    try:
+        r = requests.get(f"{API_BASE}/db/raw/sources", timeout=30)
+        r.raise_for_status()
+        return r.json().get("sources", []), None
+    except Exception as e:
+        return [], str(e)
+
+def api_delete_raw_source(source: str):
+    """DELETE /db/raw/sources/{source} — elimina da raw (e i NEW orfani in stg) i dati di uno ZIP."""
+    try:
+        r = requests.delete(f"{API_BASE}/db/raw/sources/{quote(source, safe='')}", timeout=60)
+        r.raise_for_status()
+        return r.json(), None
+    except requests.HTTPError as e:
+        return None, e.response.json().get("detail", str(e))
+    except Exception as e:
+        return None, str(e)
+
+@st.dialog("Elimina dati dal database")
+def confirm_delete_raw_source(src: dict):
+    st.write(f"Vuoi eliminare dal database tutti i dati caricati dal file **{src['source']}**?")
+    st.dataframe(
+        pd.DataFrame(src["tables"]).rename(columns={"table": "Tabella raw", "rows": "Righe"}),
+        hide_index=True, width="stretch",
+    )
+    st.caption(
+        f"Totale: {src['rows']} righe in raw. Verranno eliminati anche i record in stato NEW "
+        "delle tabelle _STG che non hanno più corrispondenza in raw. "
+        "Le tabelle prd si aggiornano al prossimo run della pipeline. Operazione non annullabile."
+    )
+    col_ok, col_cancel = st.columns(2)
+    if col_ok.button("🗑️ Elimina", type="primary", width="stretch"):
+        res, e = api_delete_raw_source(src["source"])
+        if e:
+            st.error(f"Errore: {e}")
+        else:
+            st.session_state["raw_source_msg"] = res["message"]
+            st.rerun()
+    if col_cancel.button("Annulla", width="stretch"):
+        st.rerun()
+
 def api_upload_file(file_bytes: bytes, filename: str, endpoint: str = "inbox"):
     try:
         r = requests.post(
@@ -468,6 +511,40 @@ with tab_sftp:
                         st.rerun()
     else:
         st.info(f"ℹ️ La cartella **{selected_label}** è di sola lettura (output pipeline). Upload e cancellazione non disponibili.")
+
+    # -----------------------------------------------------------------------
+    # Dati in database per file ZIP (solo cartella inbox)
+    # Cancellare uno ZIP dalla cartella NON ne rimuove i dati da raw: si fa qui.
+    # -----------------------------------------------------------------------
+    if has_semaphore:
+        st.divider()
+        st.markdown("#### 🗄️ Dati in database per file ZIP")
+        st.caption(
+            "Eliminare un file ZIP dalla cartella non ne cancella i dati già caricati nello schema raw: "
+            "al run successivo resterebbero in raw e verrebbero riproposti nelle tabelle _STG come NEW. "
+            "Per ritirare i dati di un file usa il pulsante **Elimina dati**."
+        )
+        if "raw_source_msg" in st.session_state:
+            st.success(f"✅ {st.session_state.pop('raw_source_msg')}")
+
+        raw_sources, e = api_raw_sources()
+        if e:
+            st.warning(f"Impossibile leggere i dati in raw: {e}")
+        elif not raw_sources:
+            st.info("Nessun dato caricato in raw.")
+        else:
+            h1, h2, h3, h4, h5 = st.columns([3, 1, 2, 2, 1])
+            h1.markdown("**File ZIP di origine**"); h2.markdown("**Righe raw**")
+            h3.markdown("**Caricato il**");         h4.markdown("**File in cartella**")
+            h5.markdown("**Elimina dati**")
+            for src in raw_sources:
+                c1, c2, c3, c4, c5 = st.columns([3, 1, 2, 2, 1])
+                c1.write(src["source"])
+                c2.write(src["rows"])
+                c3.write((src["loaded_at"] or "—").replace("T", " ")[:19])
+                c4.write("✅ Presente" if src["in_inbox"] else "⚠️ Non più presente")
+                if c5.button("🗑️", key=f"del_raw_{src['source']}", help=f"Elimina dal database i dati di {src['source']}"):
+                    confirm_delete_raw_source(src)
 
 # ===========================================================================
 # TAB 3 — STORICO RUN
