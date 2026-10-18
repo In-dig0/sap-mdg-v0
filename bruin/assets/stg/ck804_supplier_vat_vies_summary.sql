@@ -5,7 +5,9 @@ depends:
   - stg.ck803_supplier_vat_vies
 description: >
   CK804 — EXT_REF: Fornitori: sintesi verifica P.IVA EU/UK.
-  Legge i risultati di dettaglio da stg.check_vat_vies (scritti da CK803)
+  Per ogni P.IVA presente oggi in raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc" (TAXTYPE '%0')
+  prende l'ultimo esito reale in stg.check_vat_vies (scritto da CK803, anche
+  in un run precedente: i risultati riusati dalla cache non vengono riscritti)
   e scrive una riga in stg.check_results per ogni record anomalo:
     - INVALID           → status 'Error'
     - ERROR             → status 'Error' (servizio VIES/HMRC irraggiungibile)
@@ -18,10 +20,35 @@ INSERT INTO stg.check_results (
     source_table, category, object_key, check_id,
     message, status, run_id, zip_source, created_at
 )
+WITH vat_attuali AS (
+    -- Stessa normalizzazione di normalize_taxnum() in CK803: CC + numero senza spazi, punti, trattini
+    SELECT DISTINCT
+        raw."LIFNR(k/*)"                                    AS entity_id,
+        CASE
+            WHEN regexp_replace(UPPER(raw."TAXNUM(*)"), '[[:space:].-]', '', 'g')
+                 LIKE UPPER(LEFT(raw."TAXTYPE(k/*)", 2)) || '%'
+                THEN regexp_replace(UPPER(raw."TAXNUM(*)"), '[[:space:].-]', '', 'g')
+            ELSE UPPER(LEFT(raw."TAXTYPE(k/*)", 2))
+                 || regexp_replace(UPPER(raw."TAXNUM(*)"), '[[:space:].-]', '', 'g')
+        END                                            AS vat_number,
+        raw."_source"                                  AS zip_source
+    FROM raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc" raw
+    WHERE raw."TAXTYPE(k/*)" LIKE '%0'
+      AND raw."TAXNUM(*)" IS NOT NULL
+      AND TRIM(raw."TAXNUM(*)") <> ''
+),
+ultimo_esito AS (
+    SELECT DISTINCT ON (entity_id, vat_number)
+        entity_id, vat_number, check_status, is_gb, error_message
+    FROM stg.check_vat_vies
+    WHERE entity_type = 'vendor'
+      AND check_status NOT IN ('CACHED', 'PENDING')
+    ORDER BY entity_id, vat_number, created_at DESC
+)
 SELECT
     'S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc'          AS source_table,
     'BP'                                         AS category,
-    v.entity_id                                  AS object_key,
+    a.entity_id                                  AS object_key,
     'CK804'                                      AS check_id,
 
     CASE v.check_status
@@ -44,16 +71,18 @@ SELECT
         ELSE 'Ok'
     END                                          AS status,
 
-    (SELECT MAX(run_id) FROM stg.check_vat_vies
-     WHERE entity_type = 'vendor')             AS run_id,
+    (SELECT run_id::integer FROM stg.pipeline_runs
+     WHERE status = 'running'
+     ORDER BY started_at DESC LIMIT 1)           AS run_id,
 
-    v.zip_source                                 AS zip_source,
+    a.zip_source                                 AS zip_source,
     NOW()                                        AS created_at
 
-FROM stg.check_vat_vies v
-WHERE v.run_id = (SELECT MAX(run_id) FROM stg.check_vat_vies WHERE entity_type = 'vendor')
-  AND v.entity_type = 'vendor'
-  AND v.check_status IN ('INVALID', 'ERROR', 'GB_NO_CREDENTIALS')
+FROM vat_attuali a
+JOIN ultimo_esito v
+  ON v.entity_id  = a.entity_id
+ AND v.vat_number = a.vat_number
+WHERE v.check_status IN ('INVALID', 'ERROR', 'GB_NO_CREDENTIALS')
   AND (
     SELECT COALESCE(is_active, FALSE)
     FROM stg.check_catalog WHERE check_id = 'CK804'

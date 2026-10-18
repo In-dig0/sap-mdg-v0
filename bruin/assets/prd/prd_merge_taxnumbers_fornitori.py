@@ -12,6 +12,7 @@ description: >
   Strategia: DROP + CREATE ad ogni run (full refresh).
 depends:
   - stg.detect_new_records
+  - stg.ck803_supplier_vat_vies            # il filtro VIES usa gli esiti di questo check
 @bruin """
 
 import logging
