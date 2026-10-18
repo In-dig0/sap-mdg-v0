@@ -7,6 +7,7 @@ description: >
   CK202 — EXISTENCE: Fornitori: codice fiscale duplicato tra BP diversi.
   Segnala come Warning le coppie TAXTYPE+TAXNUM condivise da più LIFNR.
   Tabelle: S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc, S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc.
+  Escluso il TAXTYPE 'IT4' (codice destinatario SDI, condivisibile tra BP), come in CK207.
 connection: mdg_postgres
 @bruin */
 
@@ -39,12 +40,14 @@ JOIN (
            STRING_AGG(DISTINCT "LIFNR(k/*)", ', ' ORDER BY "LIFNR(k/*)") AS altri_lifnr
     FROM raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc"
     WHERE "TAXNUM(*)" IS NOT NULL AND "TAXNUM(*)" <> ''
+      AND "TAXTYPE(k/*)" <> 'IT4'
     GROUP BY "TAXTYPE(k/*)", "TAXNUM(*)"
     HAVING COUNT(DISTINCT "LIFNR(k/*)") > 1
 ) dup ON dup."TAXTYPE(k/*)" = t."TAXTYPE(k/*)"
       AND dup."TAXNUM(*)"   = t."TAXNUM(*)"
 WHERE t."TAXNUM(*)" IS NOT NULL
   AND t."TAXNUM(*)" <> ''
+  AND t."TAXTYPE(k/*)" <> 'IT4'
   AND (
     SELECT COALESCE(is_active, FALSE)
     FROM stg.check_catalog WHERE check_id = 'CK202'
@@ -76,12 +79,14 @@ JOIN (
            STRING_AGG(DISTINCT "LIFNR(k/*)", ', ' ORDER BY "LIFNR(k/*)") AS altri_lifnr
     FROM raw."S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc"
     WHERE "TAXNUM(*)" IS NOT NULL AND "TAXNUM(*)" <> ''
+      AND "TAXTYPE(k/*)" <> 'IT4'
     GROUP BY "TAXTYPE(k/*)", "TAXNUM(*)"
     HAVING COUNT(DISTINCT "LIFNR(k/*)") > 1
 ) dup ON dup."TAXTYPE(k/*)" = t."TAXTYPE(k/*)"
       AND dup."TAXNUM(*)"   = t."TAXNUM(*)"
 WHERE t."TAXNUM(*)" IS NOT NULL
   AND t."TAXNUM(*)" <> ''
+  AND t."TAXTYPE(k/*)" <> 'IT4'
   AND (
     SELECT COALESCE(is_active, FALSE)
     FROM stg.check_catalog WHERE check_id = 'CK202'

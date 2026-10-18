@@ -6,6 +6,7 @@ depends:
 description: >
   CK204 — EXISTENCE: Clienti: codice fiscale duplicato tra BP diversi.
   Segnala come Warning le coppie TAXTYPE+TAXNUM condivise da più KUNNR.
+  Escluso il TAXTYPE 'IT4' (codice destinatario SDI, condivisibile tra BP), come in CK207.
 connection: mdg_postgres
 @bruin */
 
@@ -34,12 +35,14 @@ JOIN (
            STRING_AGG(DISTINCT "KUNNR(k/*)", ', ' ORDER BY "KUNNR(k/*)") AS altri_kunnr
     FROM raw."S_CUST_TAXNUMBERS#ZBP-CodiciFisc"
     WHERE "TAXNUM(*)" IS NOT NULL AND "TAXNUM(*)" <> ''
+      AND "TAXTYPE(k/*)" <> 'IT4'
     GROUP BY "TAXTYPE(k/*)", "TAXNUM(*)"
     HAVING COUNT(DISTINCT "KUNNR(k/*)") > 1
 ) dup ON dup."TAXTYPE(k/*)" = t."TAXTYPE(k/*)"
       AND dup."TAXNUM(*)"   = t."TAXNUM(*)"
 WHERE t."TAXNUM(*)" IS NOT NULL
   AND t."TAXNUM(*)" <> ''
+  AND t."TAXTYPE(k/*)" <> 'IT4'
   AND (
     SELECT COALESCE(is_active, FALSE)
     FROM stg.check_catalog WHERE check_id = 'CK204'
