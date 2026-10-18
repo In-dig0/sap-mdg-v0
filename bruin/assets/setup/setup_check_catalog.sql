@@ -375,6 +375,14 @@ VALUES
      'PIR','S_EINA#INFORMATFOR','MATNR',
      NULL,'Error','DUPLICATE',TRUE,NOW()),
 
+    ('CK518','Clienti (flusso ZBP-AddInterlocutoreCli): KUNNR deve essere presente in ZBP-DatiGenerali/ZDM-DatiGenerali',
+     'BP','S_CUST_GEN#AddDatiGenerali + S_CUST_CONT#ZBP-AddInterlocutore + S_UNL_POINT#ZBP-AddPuntoScarico','KUNNR(k/*)',
+     'S_CUST_GEN#ZBP-DatiGenerali / ZDM-DatiGenerali','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK519','Clienti (flusso ZBP-GestioneCredito): KUNNR deve essere presente in ZBP-DatiGenerali/ZDM-DatiGenerali',
+     'BP','S_UKM_PROFILE#ZBP-Rischio + S_UKM_SEGMENT#ZBP-Fido','KUNNR(k/*)',
+     'S_CUST_GEN#ZBP-DatiGenerali / ZDM-DatiGenerali','Error','CROSS_SOURCE',TRUE,NOW()),
+
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',
      'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXNUM(*)',
