@@ -109,12 +109,26 @@ def truncate_table(schema: str, table: str) -> bool:
         return False
 
 
+def clean_cell(value) -> str:
+    """
+    Normalizza il valore di una cella come lo mostra la griglia.
+    Una cella svuotata in AG Grid torna come None, che st_aggrid converte in NaN:
+    va trattata come stringa vuota (stesso formato di load_table), altrimenti il
+    confronto fallisce e NaN non è serializzabile in JSON.
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value)
+
+
 def save_row(table: str, original_row: dict, updated_row: dict,
-             key_cols: list[str]) -> bool:
-    """Aggiorna una riga tramite FastAPI — PATCH /db/schema/stg/tables/{table}/rows."""
+             key_cols: list[str]) -> tuple[bool, str | None]:
+    """
+    Aggiorna una riga tramite FastAPI — PATCH /db/schema/stg/tables/{table}/rows.
+    Ritorna (aggiornata, errore): l'errore viene mostrato dal chiamante dopo il rerun.
+    """
     if not key_cols:
-        st.warning("⚠️ Tabella senza colonne chiave — UPDATE non supportato.")
-        return False
+        return False, "Tabella senza colonne chiave — UPDATE non supportato."
     try:
         r = requests.patch(
             f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/rows",
@@ -128,13 +142,11 @@ def save_row(table: str, original_row: dict, updated_row: dict,
             timeout=10,
         )
         r.raise_for_status()
-        return r.json().get("updated", False)
+        return r.json().get("updated", False), None
     except requests.HTTPError as e:
-        st.error(f"Errore UPDATE: {e.response.json().get('detail', str(e))}")
-        return False
+        return False, e.response.json().get("detail", str(e))
     except Exception as e:
-        st.error(f"Errore UPDATE: {e}")
-        return False
+        return False, str(e)
 
 
 def get_user_schemas() -> list[str]:
@@ -185,7 +197,7 @@ def delete_row(table: str, row: dict, key_cols: list[str]) -> bool:
         r = requests.delete(
             f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/rows",
             params={"table": table},
-            json={"row": row, "key_cols": key_cols},
+            json={"row": {k: clean_cell(v) for k, v in row.items()}, "key_cols": key_cols},
             timeout=10,
         )
         r.raise_for_status()
@@ -344,6 +356,8 @@ if "save_msg" in st.session_state:
     msg, msg_type = st.session_state.pop("save_msg")
     if msg_type == "success":
         st.success(msg)
+    elif msg_type == "error":
+        st.error(msg)
     else:
         st.info(msg)
 
@@ -516,17 +530,31 @@ if save_clicked:
         def make_key(row):
             return tuple(str(row.get(k, "")) for k in key_cols)
 
-        orig_by_key = {make_key(r): r for r in original_df.to_dict("records")}
+        orig_by_key = {make_key(r): {k: clean_cell(v) for k, v in r.items()}
+                       for r in original_df.to_dict("records")}
         n_saved = 0
+        errors  = []
 
         for upd in updated_df.to_dict("records"):
-            key = make_key(upd)
+            upd  = {k: clean_cell(v) for k, v in upd.items()}
+            key  = make_key(upd)
             orig = orig_by_key.get(key)
             if orig and orig != upd:
-                if save_row(selected_table, orig, upd, key_cols):
+                ok, err = save_row(selected_table, orig, upd, key_cols)
+                if ok:
                     n_saved += 1
+                elif err:
+                    errors.append(f"{' / '.join(key)}: {err}")
 
-        if n_saved:
+        # Il messaggio viene mostrato dopo st.rerun(): un st.error qui andrebbe perso
+        if errors:
+            st.session_state["save_msg"] = (
+                f"⚠️ {n_saved} righe salvate, {len(errors)} errori:\n\n"
+                + "\n".join(f"- {e}" for e in errors[:20]),
+                "error",
+            )
+            st.session_state["_orig_df"] = None
+        elif n_saved:
             st.session_state["save_msg"] = (f"✅ {n_saved} righe salvate.", "success")
             st.session_state["_orig_df"] = None
         else:
