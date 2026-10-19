@@ -48,6 +48,12 @@ PRD_TABLES = [
     ("prd", "S_CUST_TAXNUMBERS#ZDM-CodiciFisc"),
 ]
 
+# Nome del CSV nello ZIP per le tabelle prd il cui nome differisce dall'originale:
+# l'output deve avere gli stessi nomi del file in ingresso (usati dal caricamento in SAP)
+PRD_CSV_NAME = {
+    "S_CUST_GEN#ZDM_DatiGenerali": "S_CUST_GEN#ZDM-DatiGenerali",
+}
+
 # Tabelle da raw (filtrate per _source)
 RAW_TABLES = [
     "S_CUST_GEN#ZDM-DatiGenerali",            # sostituita da prd
@@ -240,7 +246,7 @@ def build_zip(conn, source_name: str) -> bytes:
             if prd_cols:
                 csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols)
                 n_rows = csv_bytes.count(b"\r\n") - 1
-                zf.writestr(f"{prd_table}.csv", csv_bytes)
+                zf.writestr(f"{PRD_CSV_NAME.get(prd_table, prd_table)}.csv", csv_bytes)
                 log.info(f"  + {prd_schema}.{prd_table}: {n_rows} righe")
             else:
                 log.warning(f"  Nessuna colonna trovata per {prd_schema}.{prd_table}")

@@ -60,6 +60,7 @@ PRD_TABLE_NAMES = {table for _, table in PRD_TABLES}
 RAW_TABLES = [
     "S_ROLES#ZBP_RuoliFornitori",
     "S_SUPPL_COMPANY#ZBP_DatiSocieta",
+    "S_SUPPL_CONT#ZBP-Interlocutore",
     "S_SUPPL_GEN#ZBP_DatiGenerali",           # sostituita da prd
     "S_SUPPL_INDUSTRY#ZBP_SettoriIndust",
     "S_SUPPL_PARTNER#ZBP_Partner",

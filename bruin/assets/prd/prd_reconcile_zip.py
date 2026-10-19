@@ -52,33 +52,16 @@ def get_connection():
 
 def get_raw_counts(conn) -> dict[str, int]:
     """
-    Restituisce il conteggio righe di tutte le tabelle nello schema raw,
-    usando pg_stat_user_tables per una stima rapida (n_live_tup).
-    Per le tabelle con 0 stimato, esegue COUNT(*) esatto.
+    Restituisce il conteggio righe esatto (COUNT(*)) di tutte le tabelle dello
+    schema raw. La stima di pg_stat_user_tables (n_live_tup) subito dopo il
+    caricamento può essere non aggiornata e produrre differenze inesistenti.
     """
     counts = {}
     with conn.cursor() as cur:
-        # Stima veloce
-        cur.execute("""
-            SELECT relname, n_live_tup
-            FROM pg_stat_user_tables
-            WHERE schemaname = 'raw'
-            ORDER BY relname
-        """)
-        rows = cur.fetchall()
-        for table, n in rows:
-            counts[table] = int(n)
-
-        # Per le tabelle con stima 0, conta esatto
-        for table, n in list(counts.items()):
-            if n == 0:
-                try:
-                    cur.execute(
-                        f'SELECT COUNT(*) FROM raw."{table}"'
-                    )
-                    counts[table] = cur.fetchone()[0]
-                except Exception:
-                    pass
+        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'raw' ORDER BY 1")
+        for (table,) in cur.fetchall():
+            cur.execute(f'SELECT COUNT(*) FROM raw."{table.replace(chr(34), chr(34) * 2)}"')
+            counts[table] = cur.fetchone()[0]
     return counts
 
 
@@ -155,27 +138,27 @@ def main():
         for table in all_tables:
             raw_n = raw_counts.get(table)
             zip_n = zip_counts.get(table)
-            src   = zip_source.get(table, "—")
+            src   = zip_source.get(table, "")
 
             if raw_n is None:
                 # Tabella nel ZIP ma non in raw — anomalia
-                status = "⚠ SOLO_ZIP"
+                status = "SOLO_ZIP"
                 n_missing_raw += 1
             elif zip_n is None:
                 # Tabella in raw ma non in nessun ZIP — normale per tabelle non esportate
-                status = "— NON_ESPORTATA"
+                status = "NON_ESPORTATA"
             elif raw_n == zip_n:
-                status = "✓ OK"
+                status = "OK"
                 n_ok += 1
             else:
                 diff = zip_n - raw_n
-                status = f"✗ DIFF ({diff:+d})"
+                status = f"DIFF ({diff:+d})"
                 n_diff += 1
 
             report_rows.append({
                 "tabella":    table,
-                "raw_count":  raw_n if raw_n is not None else "—",
-                "zip_count":  zip_n if zip_n is not None else "—",
+                "raw_count":  raw_n if raw_n is not None else "",
+                "zip_count":  zip_n if zip_n is not None else "",
                 "stato":      status,
                 "zip_source": src,
             })
@@ -203,12 +186,13 @@ def main():
             log.warning("  Tabelle con diff:    %d  ← VERIFICARE", n_diff)
         else:
             log.info("  Tabelle con diff:    %d", n_diff)
-        if n_missing_zip:
-            log.warning("  Solo nel ZIP:        %d  ← ANOMALIA", n_missing_zip)
+        if n_missing_raw:
+            log.warning("  Solo nel ZIP:        %d  ← ANOMALIA", n_missing_raw)
         log.info(sep)
 
         # ── 5. Scrivi CSV di riepilogo ───────────────────────────────────────
-        with open(REPORT_FILE, "w", encoding="utf-8", newline="") as f:
+        # utf-8-sig (con BOM): Excel riconosce la codifica e mostra correttamente i caratteri
+        with open(REPORT_FILE, "w", encoding="utf-8-sig", newline="") as f:
             writer = csv.DictWriter(
                 f, fieldnames=["tabella", "raw_count", "zip_count", "stato", "zip_source"],
                 delimiter=";", quoting=csv.QUOTE_MINIMAL

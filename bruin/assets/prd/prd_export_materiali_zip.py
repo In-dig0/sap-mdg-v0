@@ -2,13 +2,18 @@
 name: prd.export_materiali_zip
 type: python
 description: >
-  Genera l'archivio ZIP di output per i materiali.
+  Genera gli archivi ZIP di output per i materiali: uno per ogni file di
+  origine (_source) presente in raw.S_MARA, con lo stesso nome del file in
+  ingresso (come gli export di distinte base, cicli, inforecord).
   Tutte le tabelle vengono lette dallo schema raw e scritte integralmente —
   nessuna esclusione di record orfani (i check CK segnalano le anomalie nel
   report qualita, ma non bloccano la scrittura dell'output).
   Il CSV usa separatore ";" e non include colonne audit.
-  Output: /project/datalake/out_source_mdg/DM08_MATERIALI.zip
-depends: []
+  Output: /project/datalake/out_source_mdg/<nome_source>.zip
+  Se non ci sono materiali non viene creato nulla. Il vecchio file a nome fisso
+  DM08_MATERIALI.zip viene rimosso se ancora presente.
+depends:
+  - ingestion.ingest_zip_to_raw   # prima girava a inizio pipeline, su raw non ancora caricata
 @bruin """
 
 import os
@@ -35,7 +40,8 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR  = "/project/datalake/out_source_mdg"
-SOURCE_NAME = "DM08_MATERIALI.zip"
+MASTER_TABLE = "S_MARA"                    # i file di origine si leggono da qui
+LEGACY_OUTPUT = "DM08_MATERIALI.zip"       # vecchio nome fisso, non più generato
 AUDIT_COLS  = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 
 RAW_TABLES = [
@@ -59,6 +65,12 @@ def q(name):
     return '"' + name.replace('"', '""') + '"'
 
 
+def get_distinct_sources(conn):
+    with conn.cursor() as cur:
+        cur.execute(f'SELECT DISTINCT "_source" FROM raw.{q(MASTER_TABLE)} WHERE "_source" IS NOT NULL ORDER BY 1')
+        return [r[0] for r in cur.fetchall()]
+
+
 def get_columns(conn, table):
     with conn.cursor() as cur:
         cur.execute("""
@@ -78,13 +90,13 @@ def table_exists(conn, table):
         return cur.fetchone() is not None
 
 
-def fetch_table_csv(conn, table, cols):
+def fetch_table_csv(conn, table, cols, source_name):
     fqt      = "raw." + q(table)
     col_list = ", ".join(q(c) for c in cols)
     with conn.cursor() as cur:
         cur.execute(
             f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s ORDER BY 1',
-            (SOURCE_NAME,)
+            (source_name,)
         )
         rows = cur.fetchall()
 
@@ -101,7 +113,7 @@ def fetch_table_csv(conn, table, cols):
     return buf.getvalue().encode("utf-8")
 
 
-def build_zip(conn, cols_map):
+def build_zip(conn, source_name, cols_map):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for table in RAW_TABLES:
@@ -109,7 +121,7 @@ def build_zip(conn, cols_map):
             if not cols:
                 log.warning("  SKIP raw.%s — tabella non trovata o senza colonne", table)
                 continue
-            csv_bytes = fetch_table_csv(conn, table, cols)
+            csv_bytes = fetch_table_csv(conn, table, cols, source_name)
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
                 log.info("  raw.%s: 0 righe — skip", table)
@@ -120,10 +132,28 @@ def build_zip(conn, cols_map):
     return buf.read()
 
 
+def remove_legacy_output(sources):
+    """Rimuove il vecchio DM08_MATERIALI.zip a nome fisso (spesso vuoto), se non è più un output attuale."""
+    path = os.path.join(OUTPUT_DIR, LEGACY_OUTPUT)
+    if LEGACY_OUTPUT not in sources and os.path.exists(path):
+        os.remove(path)
+        log.warning("  Rimosso %s (vecchio output a nome fisso).", path)
+
+
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     conn = get_connection()
     try:
+        if not table_exists(conn, MASTER_TABLE):
+            log.warning("raw.%s non trovata — export annullato.", MASTER_TABLE)
+            remove_legacy_output([])
+            return
+        sources = get_distinct_sources(conn)
+        remove_legacy_output(sources)
+        if not sources:
+            log.info("Nessun materiale in raw.%s — nessuno ZIP da generare.", MASTER_TABLE)
+            return
+
         cols_map = {}
         for table in RAW_TABLES:
             if table_exists(conn, table):
@@ -135,16 +165,14 @@ def main():
             else:
                 log.warning("  raw.%s — tabella non trovata, verra omessa.", table)
 
-        if not cols_map:
-            log.warning("Nessuna tabella trovata — export annullato.")
-            return
-
-        log.info("=== Generazione ZIP: %s ===", SOURCE_NAME)
-        zip_bytes   = build_zip(conn, cols_map)
-        output_path = os.path.join(OUTPUT_DIR, SOURCE_NAME)
-        with open(output_path, "wb") as f:
-            f.write(zip_bytes)
-        log.info("  ✓  %s  (%.1f KB)", output_path, len(zip_bytes) / 1024)
+        log.info("Sorgenti trovate: %s", sources)
+        for source_name in sources:
+            log.info("=== Generazione ZIP: %s ===", source_name)
+            zip_bytes   = build_zip(conn, source_name, cols_map)
+            output_path = os.path.join(OUTPUT_DIR, source_name)
+            with open(output_path, "wb") as f:
+                f.write(zip_bytes)
+            log.info("  ✓  %s  (%.1f KB)", output_path, len(zip_bytes) / 1024)
     finally:
         conn.close()
     log.info("=== export_materiali_zip completato ===")
