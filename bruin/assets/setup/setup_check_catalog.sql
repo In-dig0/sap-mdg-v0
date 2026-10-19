@@ -216,22 +216,14 @@ VALUES
      'BP','S_CUST_CONT#ZBP-AddInterlocutore','E_MAIL_B',
      NULL,'Error','FORMAT',TRUE,NOW()),
 
-    -- EXISTENCE — CK201-CK204 (is_active=FALSE come da DB locale)
+    -- EXISTENCE — CK201, CK203 (is_active=FALSE come da DB locale; CK202/CK204 eliminati, vedi fondo file)
     ('CK201','Fornitori: partita IVA mancante per soggetti UE/ExtraUE',
      'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXNUM(*)',
      NULL,'Error','EXISTENCE',FALSE,NOW()),
 
-    ('CK202','Fornitori: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)',
-     'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXTYPE(k/*) + TAXNUM(*)',
-     NULL,'Warning','EXISTENCE',FALSE,NOW()),
-
     ('CK203','Clienti: partita IVA mancante per soggetti UE/ExtraUE',
      'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXNUM(*)',
      NULL,'Error','EXISTENCE',FALSE,NOW()),
-
-    ('CK204','Clienti: codice fiscale duplicato tra BP diversi (TAXTYPE+TAXNUM)',
-     'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXTYPE(k/*) + TAXNUM(*)',
-     NULL,'Warning','EXISTENCE',FALSE,NOW()),
 
     ('CK205','Inforecord acquisti (S_COND#INFORCOND): campo KBETR_EXT obbligatorio e valorizzato',
      'PIR','S_COND#INFORCOND','KBETR_EXT',
@@ -241,8 +233,8 @@ VALUES
      'PIR','S_SCALES#INFORSCALES','KBETR',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
-    ('CK207','BP: codice fiscale duplicato cross-tabella tra fornitori e clienti (TAXTYPE+TAXNUM), escluso IT4',
-     'BP','ZBP_CodiciFisc + ZBP_AddCodiciFisc (SUPPL) + ZBP-CodiciFisc (CUST)','TAXTYPE(k/*) + TAXNUM(*)',
+    ('CK207','BP: identità fiscale duplicata tra fornitori e clienti (stessi IT1+IT2, IT0+IT1 o identificativo estero)',
+     'BP','ZBP_CodiciFisc + ZBP_AddCodiciFisc (SUPPL) + ZBP-CodiciFisc (CUST)','IT0 / IT1 / IT2',
      NULL,'Warning','EXISTENCE',TRUE,NOW()),
 
     ('CK208','Clienti intercompany (BU_GROUP(*)=ZIC): campo VBUND obbligatorio mancante',
@@ -410,3 +402,9 @@ ON CONFLICT (check_id) DO UPDATE SET
     check_type   = EXCLUDED.check_type,
     updated_at   = NOW()
 ;
+
+-- Check eliminati: rimossi anche dai cataloghi già esistenti (es. VPS),
+-- dove l'INSERT ... ON CONFLICT da solo non li toglierebbe.
+--   CK202, CK204: duplicati codice fiscale solo fornitori / solo clienti,
+--                 sostituiti da CK207 (identità fiscale fornitori + clienti).
+DELETE FROM stg.check_catalog WHERE check_id IN ('CK202', 'CK204');

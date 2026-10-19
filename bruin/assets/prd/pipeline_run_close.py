@@ -7,9 +7,8 @@ depends:
   - stg.ck003_customer_country
   - stg.ck004_customer_country_region
   - stg.ck201_supplier_piva
-  - stg.ck202_supplier_taxnum_duplicati
   - stg.ck203_customer_piva
-  - stg.ck204_customer_taxnum_duplicati
+  - stg.ck207_bp_taxnum_duplicati_cross
   - stg.ck401_zbp_vettori_orphans
   - stg.ck402_zbp_fornitori_orphans
   - stg.ck403_zdm_clienti_orphans
