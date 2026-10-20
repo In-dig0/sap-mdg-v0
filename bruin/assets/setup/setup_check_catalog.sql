@@ -216,6 +216,14 @@ VALUES
      'BP','S_CUST_CONT#ZBP-AddInterlocutore','E_MAIL_B',
      NULL,'Error','FORMAT',TRUE,NOW()),
 
+    ('CK055','Fornitori (AppoggioBanca): banca estera (BANKL, IBAN o SWIFT) presente in BNKA (BANKS<>IT)',
+     'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKL(k) / IBAN(k) / BKREF (SWIFT)',
+     'ref.SAP_EXPORT_BNKA_UE (BANKS+BANKL)','Error','SAP_REF',TRUE,NOW()),
+
+    ('CK056','Clienti (AppoggioBanca): banca estera (BANKL, IBAN o SWIFT) presente in BNKA (BANKS<>IT)',
+     'BP','S_CUST_BANK_DATA#ZBP-AppoggioBanca','BANKL(k) / IBAN(k) / BKREF (SWIFT)',
+     'ref.SAP_EXPORT_BNKA_UE (BANKS+BANKL)','Error','SAP_REF',TRUE,NOW()),
+
     -- EXISTENCE — CK201, CK203 (is_active=FALSE come da DB locale; CK202/CK204 eliminati, vedi fondo file)
     ('CK201','Fornitori: partita IVA mancante per soggetti UE/ExtraUE',
      'BP','S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc','TAXNUM(*)',

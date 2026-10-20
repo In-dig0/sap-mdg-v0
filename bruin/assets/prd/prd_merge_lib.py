@@ -204,6 +204,71 @@ def _log_ck048_discards(cur, raw_fqt: str, ck048_kunnr_col: str):
         log.warning("  " + " | ".join(f"{str(v):<30}" for v in row))
 
 
+BANK_UE_REF = 'ref."SAP_EXPORT_BNKA_UE"'
+BANK_UE_COLS = ("BANKL(k)", "IBAN(k)", "BKREF")   # BKREF = SWIFT indicato dall'ERP
+
+
+def _bank_ue_call(banks_col: str, alias: str = "raw") -> str:
+    """
+    Chiamata a stg.fn_banca_estera (setup/fn_banca_estera.sql): unica regola per
+    determinare la chiave banca di una coordinata estera (BANKL esatto, poi IBAN,
+    poi SWIFT in BKREF), condivisa con i check CK055/CK056.
+    """
+    return (f'stg.fn_banca_estera({alias}.{q(banks_col)}, {alias}."BANKL(k)", '
+            f'{alias}."IBAN(k)", {alias}."BKREF")')
+
+
+def _bank_ue_invalid_sql(banks_col: str, alias: str = "raw") -> str:
+    """Vera per una coordinata estera (BANKS <> 'IT') la cui chiave banca non è determinabile."""
+    return (f"(COALESCE({alias}.{q(banks_col)}, '') <> 'IT' "
+            f"AND (SELECT r.esito FROM {_bank_ue_call(banks_col, alias)} r) <> 'OK')")
+
+
+def bank_ue_ready(cur) -> bool:
+    """Anagrafica BNKA UE caricata e funzione stg.fn_banca_estera presente."""
+    cur.execute("""
+        SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'ref' AND tablename = 'SAP_EXPORT_BNKA_UE')
+           AND EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                       WHERE n.nspname = 'stg' AND p.proname = 'fn_banca_estera')
+    """)
+    return cur.fetchone()[0]
+
+
+def _log_bank_ue(cur, raw_fqt: str, key_col: str, banks_col: str, check_id: str):
+    """
+    Logga le coordinate bancarie estere:
+      - scartate (chiave banca non determinabile), con il motivo;
+      - con chiave banca ricavata da IBAN o SWIFT e scritta in prd.
+    """
+    cur.execute(f"""
+        SELECT raw.{q(key_col)}, raw.{q(banks_col)}, raw."BANKL(k)", raw."IBAN(k)", raw."BKREF",
+               r.bankl, r.metodo, r.esito, r.dettaglio
+        FROM {raw_fqt} raw
+        CROSS JOIN LATERAL {_bank_ue_call(banks_col)} r
+        WHERE COALESCE(raw.{q(banks_col)}, '') <> 'IT'
+        ORDER BY 1, 2
+    """)
+    rows = cur.fetchall()
+    scartate = [r for r in rows if r[7] != "OK"]
+    ricavate = [r for r in rows if r[7] == "OK" and r[6] in ("IBAN", "SWIFT")]
+
+    if scartate:
+        log.warning(
+            f"  ⚠  {check_id} — {len(scartate)} record scartati da {raw_fqt} "
+            f"(BANKS<>IT, chiave banca non determinabile in {BANK_UE_REF}):"
+        )
+        for key, banks, bankl, iban, swift, _, _, esito, dettaglio in scartate:
+            log.warning(f"    {key:<14} {banks or '':<3} {esito:<14} {dettaglio or ''}")
+    else:
+        log.info(f"  ✓  {check_id} — nessun record scartato (coordinate bancarie estere tutte valide).")
+
+    if ricavate:
+        log.info(f"  {check_id} — {len(ricavate)} chiavi banca (BANKL) ricavate e scritte in prd (BKREF svuotato):")
+        for key, banks, _, iban, swift, bankl, metodo, _, _ in ricavate:
+            fonte = f"IBAN {iban}" if metodo == "IBAN" else f"SWIFT {swift}"
+            log.info(f"    {key:<14} {banks:<3} {fonte:<40} → BANKL {bankl}")
+
+
 def merge_table(cur, raw_schema: str, raw_table: str,
                 stg_schema: str, stg_table: str,
                 prd_table: str,
@@ -212,7 +277,11 @@ def merge_table(cur, raw_schema: str, raw_table: str,
                 ck047_filter: bool = False,
                 ck047_lifnr_col: str | None = None,
                 ck048_filter: bool = False,
-                ck048_kunnr_col: str | None = None):
+                ck048_kunnr_col: str | None = None,
+                bank_ue_filter: bool = False,
+                bank_ue_key_col: str | None = None,
+                bank_ue_banks_col: str | None = None,
+                bank_ue_check_id: str = "CK055/CK056"):
     """
     Merge raw + stg -> prd.
     - Colonne comuni: COALESCE(stg.col, raw.col) — preferenza a stg
@@ -223,6 +292,9 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     - vies_filter=True: esclude TAXTYPE LIKE '%0' con PIVA EU non valida.
     - ck047_filter=True: esclude record con BANKS=IT e BANKL non in ref.SAP_EXPORT_BNKA_IT (fornitori).
     - ck048_filter=True: esclude record con BANKS=IT e BANKL non in ref.SAP_EXPORT_BNKA_IT (clienti).
+    - bank_ue_filter=True: coordinate bancarie estere (BANKS<>IT), regola stg.fn_banca_estera
+      (CK055 fornitori, CK056 clienti): esclude quelle senza chiave banca determinabile,
+      scrive in prd la chiave ricavata (da IBAN o SWIFT) e svuota BKREF.
     """
     raw_fqt = f'{raw_schema}.{q(raw_table)}'
     stg_fqt = f'{stg_schema}.{q(stg_table)}'
@@ -261,18 +333,33 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     # vuoto. Usiamo RAW solo quando il record STG è assente (sentinel IS NULL).
     stg_sentinel = q(key_cols[0]) if key_cols else None
 
+    # Banche estere: chiave banca determinata da stg.fn_banca_estera (BANKL, IBAN o
+    # SWIFT) e scritta in prd; BKREF (usato dall'ERP per lo SWIFT) svuotato
+    fill_bank_ue = (
+        bank_ue_filter and bank_ue_key_col and bank_ue_banks_col
+        and all(c in raw_cols for c in (bank_ue_banks_col,) + BANK_UE_COLS)
+        and bank_ue_ready(cur)
+    )
+
     select_parts = []
     for col in raw_cols:
         if col in ("_source", "_loaded_at"):
             select_parts.append(f'raw.{q(col)}')
-        elif col in common_cols and stg_sentinel:
-            select_parts.append(
-                f'CASE WHEN stg.{stg_sentinel} IS NOT NULL '
-                f'THEN stg.{q(col)} '
-                f'ELSE raw.{q(col)} END AS {q(col)}'
-            )
+            continue
+        if col in common_cols and stg_sentinel:
+            expr = (f'CASE WHEN stg.{stg_sentinel} IS NOT NULL '
+                    f'THEN stg.{q(col)} ELSE raw.{q(col)} END')
         else:
-            select_parts.append(f'raw.{q(col)}')
+            expr = f'raw.{q(col)}'
+        if fill_bank_ue and col in ("BANKL(k)", "BKREF"):
+            estera = f"COALESCE(raw.{q(bank_ue_banks_col)}, '') <> 'IT'"
+            if col == "BANKL(k)":
+                expr = (f"CASE WHEN {estera} "
+                        f"THEN COALESCE((SELECT r.bankl FROM {_bank_ue_call(bank_ue_banks_col)} r), {expr}) "
+                        f"ELSE {expr} END")
+            else:
+                expr = f"CASE WHEN {estera} THEN '' ELSE {expr} END"
+        select_parts.append(expr if expr == f'raw.{q(col)}' else f'{expr} AS {q(col)}')
     select_sql = ",\n        ".join(select_parts)
 
     # ---- JOIN e WHERE condizionali alla presenza di STG ----
@@ -375,6 +462,21 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     # ---- Log record scartati da CK048 (prima del DROP) ----
     if ck048_filter and ck048_kunnr_col and check_ck047_results_exists(cur):
         _log_ck048_discards(cur, raw_fqt, ck048_kunnr_col)
+
+    # ---- Filtro banche estere (CK055 fornitori / CK056 clienti) ----
+    if bank_ue_filter and bank_ue_key_col and bank_ue_banks_col:
+        needed = [bank_ue_banks_col, *BANK_UE_COLS]
+        if not all(c in raw_cols for c in needed):
+            log.warning(f"  Filtro {bank_ue_check_id}: colonne {needed} non tutte presenti in {raw_fqt} — filtro saltato.")
+        elif not bank_ue_ready(cur):
+            log.warning(f"  {BANK_UE_REF} o stg.fn_banca_estera non disponibili — filtro {bank_ue_check_id} saltato.")
+        else:
+            log.info(
+                f"  Filtro {bank_ue_check_id} attivo su {q(bank_ue_key_col)} "
+                f"(BANKS<>IT: chiave banca da BANKL, IBAN o SWIFT in {BANK_UE_REF})"
+            )
+            where_clauses.append(f"NOT {_bank_ue_invalid_sql(bank_ue_banks_col)}")
+            _log_bank_ue(cur, raw_fqt, bank_ue_key_col, bank_ue_banks_col, bank_ue_check_id)
 
     # Costruita dopo TUTTI i filtri (prima il filtro CK048 veniva aggiunto
     # quando la WHERE era già stata composta e non veniva mai applicato)
