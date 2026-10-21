@@ -18,7 +18,8 @@ description: >
     - S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc
     - S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc
     - S_CUST_TAXNUMBERS#ZBP-CodiciFisc
-  Un esito per BP, con le combinazioni condivise e i BP coinvolti.
+  Un esito per ogni BP controllato: Ok, oppure Warning con le combinazioni
+  condivise e i BP coinvolti.
 connection: mdg_postgres
 @bruin */
 
@@ -88,27 +89,40 @@ dup AS (
     FROM identita
     GROUP BY combinazione
     HAVING COUNT(DISTINCT ruolo || ':' || bp_key) > 1
+),
+-- BP con identità fiscale condivisa: combinazioni condivise e BP coinvolti in un'unica riga
+duplicati AS (
+    SELECT
+        i.ruolo,
+        i.bp_key,
+        STRING_AGG(i.combinazione, ' ; ' ORDER BY i.combinazione) AS combinazioni,
+        MIN(d.bp_coinvolti)                                       AS bp_coinvolti
+    FROM identita i
+    JOIN dup d ON d.combinazione = i.combinazione
+    GROUP BY i.ruolo, i.bp_key
 )
--- Un esito per BP: le combinazioni condivise (IT1+IT2, IT0+IT1, identificativo estero) in un'unica riga
+-- Un esito per ogni BP controllato: Ok, oppure la segnalazione del duplicato
+-- (con zero duplicati il check resta visibile nel cockpit)
 SELECT
-    i.source_table                               AS source_table,
+    b.source_table                               AS source_table,
     'BP'                                         AS category,
-    i.bp_key                                     AS object_key,
+    b.bp_key                                     AS object_key,
     'CK207'                                      AS check_id,
-    'Identità fiscale condivisa [' || STRING_AGG(i.combinazione, ' ; ' ORDER BY i.combinazione)
-        || '] — BP coinvolti: ' || MIN(d.bp_coinvolti)
-                                                 AS message,
-    (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK207') AS status,
+    CASE WHEN x.bp_key IS NULL THEN 'Ok'
+         ELSE 'Identità fiscale condivisa [' || x.combinazioni || '] — BP coinvolti: ' || x.bp_coinvolti
+    END                                          AS message,
+    CASE WHEN x.bp_key IS NULL THEN 'Ok'
+         ELSE (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK207')
+    END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs
      WHERE status = 'running'
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
-    i.zip_source                                 AS zip_source,
+    b.zip_source                                 AS zip_source,
     NOW()                                        AS created_at
-FROM identita i
-JOIN dup d ON d.combinazione = i.combinazione
+FROM bp b
+LEFT JOIN duplicati x ON x.ruolo = b.ruolo AND x.bp_key = b.bp_key
 WHERE (
     SELECT COALESCE(is_active, FALSE)
     FROM stg.check_catalog WHERE check_id = 'CK207'
 )
-GROUP BY i.ruolo, i.bp_key, i.source_table, i.zip_source
 ;

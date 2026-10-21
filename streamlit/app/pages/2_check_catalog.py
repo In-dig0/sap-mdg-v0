@@ -380,7 +380,8 @@ def render_tab_controllo():
                     st.markdown("<br>", unsafe_allow_html=True)
                     st.caption(f"Tabella: `{row['target_table']}`")
                     st.caption(f"Campo: `{row['target_field']}`")
-                    if row["ref_table"]:
+                    # ref_table NULL arriva da pandas come NaN, che in un if risulta vero
+                    if pd.notna(row["ref_table"]) and str(row["ref_table"]).strip():
                         st.caption(f"Ref: `{row['ref_table']}`")
                 with col_toggle:
                     st.markdown("<br><br>", unsafe_allow_html=True)
