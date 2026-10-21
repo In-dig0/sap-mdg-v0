@@ -9,6 +9,8 @@ depends:
   - stg.ck201_supplier_piva
   - stg.ck203_customer_piva
   - stg.ck207_bp_taxnum_duplicati_cross
+  - stg.ck213_customer_bank_conto_iban
+  - stg.ck214_supplier_bank_conto_iban
   - stg.ck055_supplier_bankl_banche_ue
   - stg.ck056_customer_bankl_banche_ue
   - stg.ck401_zbp_vettori_orphans

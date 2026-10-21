@@ -261,6 +261,14 @@ VALUES
      'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','AKONT(*)',
      'S_SUPPL_GEN#ZBP_DatiGenerali (BU_GROUP)','Error','EXISTENCE',TRUE,NOW()),
 
+    ('CK213','Clienti (AppoggioBanca): con chiave banca BANKL valorizzata sono obbligatori BANKN e IBAN',
+     'BP','S_CUST_BANK_DATA#ZBP-AppoggioBanca','BANKN(k) + IBAN(k)',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
+    ('CK214','Fornitori (AppoggioBanca): con chiave banca BANKL valorizzata sono obbligatori BANKN e IBAN',
+     'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKN(k) + IBAN(k)',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
     ('CK212','Distinte base (S_BOM_ITEM): quantità componente MENGE(*) non può essere zero',
      'BOM','S_BOM_ITEM','MENGE(*)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),

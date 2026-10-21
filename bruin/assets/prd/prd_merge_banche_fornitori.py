@@ -12,6 +12,8 @@ description: >
     (BANKL esatto, poi codice banca dall'IBAN, poi SWIFT indicato dall'ERP in BKREF)
     su ref."SAP_EXPORT_BNKA_UE": la chiave ricavata viene scritta in BANKL(k) e BKREF
     viene svuotato; se non determinabile il record viene escluso e tracciato nel log.
+  - Filtro CK214: se BANKL è valorizzato ma BANKN o IBAN mancano, la coordinata
+    bancaria è incompleta: il record viene escluso e tracciato nel log.
   Strategia: DROP + CREATE ad ogni run (full refresh).
 depends:
   - stg.detect_new_records
@@ -49,6 +51,8 @@ def main():
                     bank_ue_key_col="LIFNR(k/*)",
                     bank_ue_banks_col="BANKS(k/*)",
                     bank_ue_check_id="CK055",
+                    bank_incomplete_filter=True,
+                    bank_incomplete_check_id="CK214",
                 )
     finally:
         conn.close()

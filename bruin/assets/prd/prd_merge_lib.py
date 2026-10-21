@@ -269,6 +269,28 @@ def _log_bank_ue(cur, raw_fqt: str, key_col: str, banks_col: str, check_id: str)
             log.info(f"    {key:<14} {banks:<3} {fonte:<40} → BANKL {bankl}")
 
 
+def _bank_incomplete_sql(alias: str = "raw") -> str:
+    """Coordinata bancaria incompleta (regola di CK213/CK214): BANKL valorizzato ma BANKN o IBAN vuoti."""
+    return (f"(COALESCE(TRIM({alias}.\"BANKL(k)\"), '') <> '' AND "
+            f"(COALESCE(TRIM({alias}.\"BANKN(k)\"), '') = '' OR COALESCE(TRIM({alias}.\"IBAN(k)\"), '') = ''))")
+
+
+def _log_bank_incomplete(cur, raw_fqt: str, key_col: str, banks_col: str, check_id: str):
+    cur.execute(f"""
+        SELECT raw.{q(key_col)}, raw.{q(banks_col)}, raw."BANKL(k)", raw."BANKN(k)", raw."IBAN(k)"
+        FROM {raw_fqt} raw WHERE {_bank_incomplete_sql()} ORDER BY 1
+    """)
+    rows = cur.fetchall()
+    if not rows:
+        log.info(f"  ✓  {check_id} — nessun record scartato (coordinate bancarie complete).")
+        return
+    log.warning(f"  ⚠  {check_id} — {len(rows)} record scartati da {raw_fqt} "
+                f"(BANKL valorizzato ma BANKN o IBAN mancanti):")
+    for key, banks, bankl, bankn, iban in rows:
+        mancano = ", ".join(n for n, v in (("BANKN", bankn), ("IBAN", iban)) if not (v or "").strip())
+        log.warning(f"    {key:<14} {banks or '':<3} BANKL {bankl:<12} mancano: {mancano}")
+
+
 def merge_table(cur, raw_schema: str, raw_table: str,
                 stg_schema: str, stg_table: str,
                 prd_table: str,
@@ -281,7 +303,9 @@ def merge_table(cur, raw_schema: str, raw_table: str,
                 bank_ue_filter: bool = False,
                 bank_ue_key_col: str | None = None,
                 bank_ue_banks_col: str | None = None,
-                bank_ue_check_id: str = "CK055/CK056"):
+                bank_ue_check_id: str = "CK055/CK056",
+                bank_incomplete_filter: bool = False,
+                bank_incomplete_check_id: str = "CK213/CK214"):
     """
     Merge raw + stg -> prd.
     - Colonne comuni: COALESCE(stg.col, raw.col) — preferenza a stg
@@ -295,6 +319,8 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     - bank_ue_filter=True: coordinate bancarie estere (BANKS<>IT), regola stg.fn_banca_estera
       (CK055 fornitori, CK056 clienti): esclude quelle senza chiave banca determinabile,
       scrive in prd la chiave ricavata (da IBAN o SWIFT) e svuota BKREF.
+    - bank_incomplete_filter=True: esclude le coordinate bancarie con BANKL valorizzato
+      ma BANKN o IBAN mancanti (CK213 clienti, CK214 fornitori).
     """
     raw_fqt = f'{raw_schema}.{q(raw_table)}'
     stg_fqt = f'{stg_schema}.{q(stg_table)}'
@@ -477,6 +503,18 @@ def merge_table(cur, raw_schema: str, raw_table: str,
             )
             where_clauses.append(f"NOT {_bank_ue_invalid_sql(bank_ue_banks_col)}")
             _log_bank_ue(cur, raw_fqt, bank_ue_key_col, bank_ue_banks_col, bank_ue_check_id)
+
+    # ---- Filtro coordinate bancarie incomplete (CK213 clienti / CK214 fornitori) ----
+    if bank_incomplete_filter:
+        needed = ["BANKL(k)", "BANKN(k)", "IBAN(k)"]
+        banks_col = bank_ue_banks_col or next((c for c in raw_cols if c.startswith("BANKS")), None)
+        key_col = bank_ue_key_col or ck047_lifnr_col or ck048_kunnr_col
+        if not all(c in raw_cols for c in needed) or not banks_col or not key_col:
+            log.warning(f"  Filtro {bank_incomplete_check_id}: colonne {needed} non presenti in {raw_fqt} — filtro saltato.")
+        else:
+            log.info(f"  Filtro {bank_incomplete_check_id} attivo (BANKL valorizzato: BANKN e IBAN obbligatori)")
+            where_clauses.append(f"NOT {_bank_incomplete_sql()}")
+            _log_bank_incomplete(cur, raw_fqt, key_col, banks_col, bank_incomplete_check_id)
 
     # Costruita dopo TUTTI i filtri (prima il filtro CK048 veniva aggiunto
     # quando la WHERE era già stata composta e non veniva mai applicato)
