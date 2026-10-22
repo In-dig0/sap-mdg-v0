@@ -31,6 +31,7 @@ import requests
 from psycopg2.extras import execute_values
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from zeep import Client
+from zeep.transports import Transport
 from zeep.exceptions import Fault, TransportError
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,8 @@ EU_COUNTRIES = {
 GB_COUNTRIES = {"GB"}
 
 INTER_CALL_DELAY = 0.5
+VIES_TIMEOUT     = 20    # secondi: limite per ogni chiamata VIES (senza, una chiamata può restare appesa)
+WRITE_BATCH_SIZE = 100   # risultati reali scritti e committati a blocchi durante la verifica
 
 HMRC_TOKEN_URL  = "https://api.service.hmrc.gov.uk/oauth/token"
 HMRC_LOOKUP_URL = "https://api.service.hmrc.gov.uk/organisations/vat/check-vat-number/lookup/{vat_number}"
@@ -152,7 +155,10 @@ def parse_vat(vat: str) -> tuple[str, str, bool, bool]:
 class ViesClient:
     def __init__(self):
         log.info("Inizializzazione client VIES...")
-        self._client = Client(VIES_WSDL)
+        self._client = Client(
+            VIES_WSDL,
+            transport=Transport(timeout=VIES_TIMEOUT, operation_timeout=VIES_TIMEOUT),
+        )
         log.info("Client VIES pronto.")
 
     @retry(
@@ -364,6 +370,36 @@ def check_single(
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+def write_results(conn, rows: list[dict]) -> None:
+    """Scrive in stg.check_vat_vies un blocco di risultati reali e fa commit."""
+    if not rows:
+        return
+    with conn.cursor() as cur:
+        execute_values(
+            cur,
+            """
+            INSERT INTO stg.check_vat_vies (
+                run_id, check_id, entity_type, entity_id, vat_number,
+                country_code, vat_local, is_eu, is_gb,
+                vies_valid, vies_name, vies_address, vies_request_date,
+                check_status, error_message, zip_source, created_at
+            ) VALUES %s
+            """,
+            [
+                (
+                    r["run_id"], r["check_id"], r["entity_type"], r["entity_id"],
+                    r["vat_number"], r["country_code"], r["vat_local"],
+                    r["is_eu"], r["is_gb"], r["vies_valid"], r["vies_name"],
+                    r["vies_address"], r["vies_request_date"], r["check_status"],
+                    r["error_message"], r["zip_source"], r["created_at"],
+                )
+                for r in rows
+            ],
+            page_size=200,
+        )
+    conn.commit()
+
+
 def main():
     conn = psycopg2.connect(**DB_CONFIG)
     try:
@@ -456,6 +492,7 @@ def main():
                 for r in cur.fetchall()
             }
             log.info(f"Cache VIES vendor: {len(cache)} risultati riusabili.")
+        conn.commit()   # chiude la transazione di lettura prima delle chiamate esterne
 
         # 4b. Inizializza client esterni
         vies = ViesClient()
@@ -463,6 +500,8 @@ def main():
 
         # 5. Esegui check su ogni record
         results = []
+        pending = []    # risultati reali non ancora scritti
+        written = 0
         cached_count = 0
         for i, (entity_id, taxtype, taxnum, zip_source) in enumerate(raw_rows, 1):
             vat_normalized = normalize_taxnum(taxtype, taxnum)
@@ -504,6 +543,12 @@ def main():
                 zip_source=zip_source,
             )
             results.append(result)
+            pending.append(result)
+            if len(pending) >= WRITE_BATCH_SIZE:
+                write_results(conn, pending)
+                written += len(pending)
+                pending = []
+                log.info(f"Avanzamento: {i}/{len(raw_rows)} record elaborati, {written} risultati scritti.")
 
             # Rate limiting: pausa dopo ogni chiamata reale
             if result["check_status"] not in ("NOT_EU", "GB_NO_CREDENTIALS", "CACHED"):
@@ -511,36 +556,13 @@ def main():
 
         log.info(f"CACHED: {cached_count} | Da verificare: {len(raw_rows) - cached_count}")
 
-        # 6. Scrivi in stg.check_vat_vies SOLO i risultati reali (non i CACHED).
-        #    I record CACHED sono già presenti nella tabella da run precedenti:
-        #    riscriverli creerebbe duplicati a ogni run.
-        real_results = [r for r in results if r["check_status"] != "CACHED"]
-        if real_results:
-            with conn.cursor() as cur:
-                execute_values(
-                    cur,
-                    """
-                    INSERT INTO stg.check_vat_vies (
-                        run_id, check_id, entity_type, entity_id, vat_number,
-                        country_code, vat_local, is_eu, is_gb,
-                        vies_valid, vies_name, vies_address, vies_request_date,
-                        check_status, error_message, zip_source, created_at
-                    ) VALUES %s
-                    """,
-                    [
-                        (
-                            r["run_id"], r["check_id"], r["entity_type"], r["entity_id"],
-                            r["vat_number"], r["country_code"], r["vat_local"],
-                            r["is_eu"], r["is_gb"], r["vies_valid"], r["vies_name"],
-                            r["vies_address"], r["vies_request_date"], r["check_status"],
-                            r["error_message"], r["zip_source"], r["created_at"],
-                        )
-                        for r in real_results
-                    ],
-                    page_size=200,
-                )
-            conn.commit()
-            log.info(f"Scritti {len(real_results)} record reali in stg.check_vat_vies "
+        # 6. Scrive gli ultimi risultati reali (i blocchi precedenti sono già scritti).
+        #    I record CACHED non vengono scritti: sono già presenti nella tabella
+        #    da run precedenti e riscriverli creerebbe duplicati a ogni run.
+        write_results(conn, pending)
+        written += len(pending)
+        if written:
+            log.info(f"Scritti {written} record reali in stg.check_vat_vies "
                      f"({cached_count} record riusati dalla cache, non riscritti).")
         else:
             log.info(f"Nessun nuovo record da scrivere ({cached_count} tutti da cache).")
