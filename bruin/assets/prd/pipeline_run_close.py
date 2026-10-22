@@ -19,6 +19,7 @@ depends:
   - stg.ck404_zbp_clienti_orphans
   - stg.ck409_supplier_gen_without_children
   - stg.ck410_customer_gen_without_children
+  - stg.ck411_zdm_partner_we
   - stg.ck518_add_interlocutore_cli_customer
   - stg.ck519_gestione_credito_customer
   - stg.ck802_customer_vat_vies_summary
