@@ -330,6 +330,14 @@ VALUES
      'BP','S_CUST_SALES_PARTNER#ZDM-Partner','KUNNR(k/*) + PARVW(k/*)=WE',
      'raw.S_CUST_GEN#ZDM-DatiGenerali (KUNNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
 
+    ('CK412','Destinatari merci: ogni KUNNR in ZDM-DatiGenerali deve avere un ruolo in ZBP-RuoliDM',
+     'BP','S_ROLES#ZBP-RuoliDM','KUNNR(k/*) + BP_ROLE(k/*)',
+     'raw.S_CUST_GEN#ZDM-DatiGenerali (KUNNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
+
+    ('CK413','Clienti: ogni KUNNR in ZBP-DatiGenerali deve avere un ruolo in ZBP-RuoliClienti',
+     'BP','S_ROLES#ZBP-RuoliClienti','KUNNR(k/*) + BP_ROLE(k/*)',
+     'raw.S_CUST_GEN#ZBP-DatiGenerali (KUNNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
+
     -- CROSS_SOURCE — CK501-CK506
     ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X); esclusi MSTAE 01/08',
      'MAT','S_MARC','BESKZ',
