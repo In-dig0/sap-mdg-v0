@@ -11,6 +11,9 @@ depends:
   - stg.ck207_bp_taxnum_duplicati_cross
   - stg.ck213_customer_bank_conto_iban
   - stg.ck214_supplier_bank_conto_iban
+  - stg.ck215_customer_ragione_sociale
+  - stg.ck216_supplier_ragione_sociale
+  - stg.ck217_zdm_ragione_sociale
   - stg.ck055_supplier_bankl_banche_ue
   - stg.ck056_customer_bankl_banche_ue
   - stg.ck401_zbp_vettori_orphans

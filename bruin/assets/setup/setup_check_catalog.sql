@@ -269,6 +269,18 @@ VALUES
      'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKN(k) + IBAN(k)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
+    ('CK215','Clienti (ZBP-DatiGenerali): ragione sociale obbligatoria, NAMORG1/NAMORG2/NAME_FIRST/NAME_LAST non tutti vuoti',
+     'BP','S_CUST_GEN#ZBP-DatiGenerali','NAMORG1 + NAMORG2 + NAME_FIRST + NAME_LAST',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
+    ('CK216','Fornitori (ZBP_DatiGenerali): ragione sociale obbligatoria, NAME_FIRST/NAME_LAST/NAME_FIRST_P/NAME_LAST_P non tutti vuoti',
+     'BP','S_SUPPL_GEN#ZBP_DatiGenerali','NAME_FIRST + NAME_LAST + NAME_FIRST_P + NAME_LAST_P',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
+    ('CK217','Destinatari merci (ZDM-DatiGenerali): ragione sociale obbligatoria, NAMORG1/NAMORG2/NAME_FIRST/NAME_LAST non tutti vuoti',
+     'BP','S_CUST_GEN#ZDM-DatiGenerali','NAMORG1 + NAMORG2 + NAME_FIRST + NAME_LAST',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
     ('CK212','Distinte base (S_BOM_ITEM): quantità componente MENGE(*) non può essere zero',
      'BOM','S_BOM_ITEM','MENGE(*)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
