@@ -12,6 +12,7 @@ description: >
 depends:
   - prd.merge_dest_merci
   - prd.merge_taxnumbers_dest_merci
+  - prd.merge_dati_vendite
 @bruin """
 
 import os
@@ -68,6 +69,12 @@ RAW_REPLACED_BY_PRD = {
     "S_CUST_GEN#ZDM-DatiGenerali",         # con -
     "S_CUST_TAXNUMBERS#ZDM-CodiciFisc",
 }
+# Tabelle secondarie lette da prd invece che da raw (stesso nome, stesso filtro orfani):
+# prd.merge_dati_vendite imposta i default Incoterm INCO1='EXW' / INCO2='.' (CK218/CK219)
+RAW_FROM_PRD = {
+    "S_CUST_SALES_DATA#ZDM-DatiVendite",
+}
+
 
 def get_connection():
     return psycopg2.connect(**DB_CONFIG)
@@ -257,13 +264,14 @@ def build_zip(conn, source_name: str) -> bytes:
                 log.info(f"  SKIP raw.{raw_table} — sostituito da prd")
                 continue
 
-            if not table_exists(conn, "raw", raw_table):
-                log.warning(f"  SKIP raw.{raw_table} — tabella non trovata")
+            src_schema = "prd" if raw_table in RAW_FROM_PRD else "raw"
+            if not table_exists(conn, src_schema, raw_table):
+                log.warning(f"  SKIP {src_schema}.{raw_table} — tabella non trovata")
                 continue
 
-            raw_cols = get_columns(conn, "raw", raw_table)
+            raw_cols = get_columns(conn, src_schema, raw_table)
             if not raw_cols:
-                log.warning(f"  SKIP raw.{raw_table} — nessuna colonna")
+                log.warning(f"  SKIP {src_schema}.{raw_table} — nessuna colonna")
                 continue
 
             _is_master = raw_table in {'S_CUST_GEN#ZDM-DatiGenerali'}
@@ -271,7 +279,7 @@ def build_zip(conn, source_name: str) -> bytes:
                 write_discarded_csv(conn, raw_table, source_name,
                                    raw_cols, orphan_keys, "KUNNR(k/*)")
             csv_bytes = fetch_table_csv(
-                conn, "raw", raw_table, source_name, raw_cols,
+                conn, src_schema, raw_table, source_name, raw_cols,
                 excluded_keys=None if _is_master else orphan_keys,
                 fk_col=None if _is_master else "KUNNR(k/*)",
             )
@@ -281,7 +289,7 @@ def build_zip(conn, source_name: str) -> bytes:
                 continue
 
             zf.writestr(f"{raw_table}.csv", csv_bytes)
-            log.info(f"  + raw.{raw_table}: {n_rows} righe")
+            log.info(f"  + {src_schema}.{raw_table}: {n_rows} righe")
 
     buf.seek(0)
     return buf.read()

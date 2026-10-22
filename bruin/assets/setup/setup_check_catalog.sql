@@ -281,6 +281,14 @@ VALUES
      'BP','S_CUST_GEN#ZDM-DatiGenerali','NAMORG1 + NAMORG2 + NAME_FIRST + NAME_LAST',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
+    ('CK218','Clienti (DatiVendite): Incoterm INCO1 e INCO2 obbligatori (in output default EXW / .)',
+     'BP','S_CUST_SALES_DATA#ZBP-DatiVendite','INCO1 + INCO2',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
+    ('CK219','Destinatari merci (DatiVendite): Incoterm INCO1 e INCO2 obbligatori (in output default EXW / .)',
+     'BP','S_CUST_SALES_DATA#ZDM-DatiVendite','INCO1 + INCO2',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
     ('CK212','Distinte base (S_BOM_ITEM): quantità componente MENGE(*) non può essere zero',
      'BOM','S_BOM_ITEM','MENGE(*)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
