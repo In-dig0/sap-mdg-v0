@@ -15,6 +15,7 @@ import pandas as pd
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from mdg_auth import require_login, render_sidebar_menu
+from mdg_export import issues_filename, issues_to_xlsx
 
 st.set_page_config(
     page_title="Dashboard",
@@ -45,6 +46,19 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
         conn.close()
 
 
+def export_issues(check_id: str, source_table: str, description: str, category: str) -> bytes:
+    """Excel dei record in Error/Warning di un controllo (stesso formato della pagina di dettaglio)."""
+    df_issues = run_query("""
+        SELECT
+            object_key  AS "Codice oggetto",
+            status      AS "Stato",
+            message     AS "Messaggio",
+            zip_source  AS "File ZIP"
+        FROM stg.check_results
+        WHERE check_id = %s AND source_table = %s AND status IN ('Error', 'Warning')
+        ORDER BY message, object_key
+    """, (check_id, source_table))
+    return issues_to_xlsx(df_issues, check_id, description, category)
 
 
 # ---------------------------------------------------------------------------
@@ -241,3 +255,15 @@ else:
                     st.session_state["detail_check_id"]     = check_id
                     st.session_state["detail_source_table"] = source_table
                     st.switch_page("pages/1_check_results.py")
+
+                if num_error > 0 or num_warning > 0:
+                    st.download_button(
+                        "⬇️ Excel errori",
+                        # Il file viene generato solo al clic (callable senza argomenti)
+                        data=lambda c=check_id, t=source_table, d=description, g=category:
+                            export_issues(c, t, d, g),
+                        file_name=issues_filename(check_id, source_table),
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"xlsx_{check_id}_{source_table}_{category}",
+                        use_container_width=True,
+                    )

@@ -6,14 +6,13 @@ Check Results — dettaglio completo per un check
 """
 
 import os
-import io
-from datetime import date
 import streamlit as st
 import pandas as pd
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from mdg_auth import require_login, render_sidebar_menu
+from mdg_export import df_to_xlsx, issues_filename
 
 st.set_page_config(
     page_title="Check Results",
@@ -42,59 +41,6 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
         return pd.DataFrame(rows)
     finally:
         conn.close()
-
-
-def df_to_xlsx(
-    df,
-    sheet_name: str = "Risultati",
-    legenda_rows: list | None = None,
-) -> bytes:
-    from openpyxl.styles import Font, PatternFill
-
-    def _style_header(ws):
-        from openpyxl.styles import Border, Side, Alignment
-        header_font = Font(bold=True)
-        header_fill = PatternFill("solid", start_color="BFBFBF", end_color="BFBFBF")
-        border_side = Side(style="thin", color="000000")
-        header_border = Border(
-            left=border_side, right=border_side,
-            top=border_side, bottom=border_side,
-        )
-        for cell in ws[1]:
-            cell.font      = header_font
-            cell.fill      = header_fill
-            cell.border    = header_border
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-        # Filtro automatico su tutto il range dati
-        ws.auto_filter.ref = ws.dimensions
-
-    def _autofit(ws):
-        for col in ws.columns:
-            max_len = max(
-                len(str(cell.value)) if cell.value is not None else 0
-                for cell in col
-            )
-            ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 80)
-
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        # Foglio principale
-        df.to_excel(writer, index=False, sheet_name=sheet_name)
-        ws_main = writer.sheets[sheet_name]
-        _style_header(ws_main)
-        _autofit(ws_main)
-
-        # Foglio Legenda
-        df_legenda = pd.DataFrame(
-            legenda_rows or [],
-            columns=["Codice controllo", "Descrizione controllo", "Categoria", "Stato"],
-        )
-        df_legenda.to_excel(writer, index=False, sheet_name="Legenda")
-        ws_leg = writer.sheets["Legenda"]
-        _style_header(ws_leg)
-        _autofit(ws_leg)
-
-    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -398,6 +344,6 @@ else:
     st.download_button(
         label=export_label,
         data=xlsx_data,
-        file_name=f"{check_id}_issues_{date.today().strftime('%Y%m%d')}.xlsx",
+        file_name=issues_filename(check_id, source_table),
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
