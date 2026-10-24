@@ -5,6 +5,9 @@ description: >
   Genera gli archivi ZIP di output per i destinatari merci combinando:
     - prd."S_CUST_GEN#ZDM_DatiGenerali"  (dati anagrafici con indirizzi normalizzati)
     - tutte le altre tabelle dest. merci da schema raw
+    - interlocutori e punti di scarico dei destinatari merci, entrati con il
+      flusso ZBP-AddInterlocutoreCli (in SAP i DM si caricano prima dei clienti;
+      prd.export_clienti_add_zip esclude queste righe dal proprio ZIP)
   Un ZIP separato viene creato per ogni valore distinto di _source
   trovato in prd."S_CUST_GEN#ZDM_DatiGenerali".
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
@@ -21,7 +24,11 @@ import csv
 import zipfile
 import logging
 import math
+import sys
 import psycopg2
+
+sys.path.insert(0, os.path.dirname(__file__))
+from prd_export_clienti_add_zip import DM_SPLIT_FLOW, DM_MOVED_TABLES, KEY_COL
 
 logging.basicConfig(
     level=logging.INFO,
@@ -222,6 +229,20 @@ def write_discarded_csv(conn, table: str, source_name: str,
     )
 
 
+def remove_discarded_csv(tables: list[str]):
+    """
+    Cancella i file <table>_discarded.csv delle tabelle gestite da questo export:
+    vanno eliminati a ogni run, altrimenti resterebbero gli scarti di run precedenti
+    (write_discarded_csv scrive il file solo se ci sono scarti).
+    """
+    for table in tables:
+        safe_table = table.replace("#", "_").replace("/", "_")
+        out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+        if os.path.exists(out_path):
+            os.remove(out_path)
+            log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)
+
+
 def table_exists(conn, schema: str, table: str) -> bool:
     with conn.cursor() as cur:
         cur.execute("""
@@ -229,6 +250,39 @@ def table_exists(conn, schema: str, table: str) -> bool:
             WHERE table_schema = %s AND table_name = %s
         """, (schema, table))
         return cur.fetchone() is not None
+
+
+def fetch_dm_moved_csv(conn, table: str, source_name: str) -> bytes:
+    """
+    Righe di una tabella del flusso ZBP-AddInterlocutoreCli relative ai destinatari
+    merci di questo ZIP (KUNNR in ZDM-DatiGenerali con lo stesso _source e non in
+    ZBP-DatiGenerali: stesso criterio con cui prd.export_clienti_add_zip le esclude).
+    """
+    cols     = get_columns(conn, "raw", table)
+    col_list = ", ".join(f"x.{q(c)}" for c in cols)
+    with conn.cursor() as cur:
+        cur.execute(
+            f'SELECT {col_list} FROM raw.{q(table)} x '
+            f'WHERE x."_source" ILIKE %s '
+            f'AND EXISTS (SELECT 1 FROM raw.{q("S_CUST_GEN#ZDM-DatiGenerali")} dm '
+            f'            WHERE dm.{q(KEY_COL)} = x.{q(KEY_COL)} AND dm."_source" = %s) '
+            f'AND NOT EXISTS (SELECT 1 FROM raw.{q("S_CUST_GEN#ZBP-DatiGenerali")} bp '
+            f'                WHERE bp.{q(KEY_COL)} = x.{q(KEY_COL)}) '
+            f'ORDER BY 1',
+            (f"%{DM_SPLIT_FLOW}%", source_name),
+        )
+        rows = cur.fetchall()
+
+    def sanitize(val):
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return ""
+        return val
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
+    writer.writerow(cols)
+    writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
+    return buf.getvalue().encode("utf-8")
 
 
 def build_zip(conn, source_name: str) -> bytes:
@@ -291,12 +345,27 @@ def build_zip(conn, source_name: str) -> bytes:
             zf.writestr(f"{raw_table}.csv", csv_bytes)
             log.info(f"  + {src_schema}.{raw_table}: {n_rows} righe")
 
+        # 3. Interlocutori e punti di scarico dei DM entrati con il flusso ZBP-AddInterlocutoreCli
+        required = DM_MOVED_TABLES + ["S_CUST_GEN#ZDM-DatiGenerali", "S_CUST_GEN#ZBP-DatiGenerali"]
+        if all(table_exists(conn, "raw", t) for t in required):
+            for moved_table in DM_MOVED_TABLES:
+                csv_bytes = fetch_dm_moved_csv(conn, moved_table, source_name)
+                n_rows = csv_bytes.count(b"\r\n") - 1
+                if n_rows <= 0:
+                    log.info(f"  raw.{moved_table} ({DM_SPLIT_FLOW}): 0 righe di DM — skip")
+                    continue
+                zf.writestr(f"{moved_table}.csv", csv_bytes)
+                log.info(f"  + raw.{moved_table} ({DM_SPLIT_FLOW}): {n_rows} righe di DM")
+        else:
+            log.info(f"  Flusso {DM_SPLIT_FLOW} non caricato — nessun interlocutore/punto di scarico DM")
+
     buf.seek(0)
     return buf.read()
 
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    remove_discarded_csv(RAW_TABLES)
     conn = get_connection()
 
     try:

@@ -12,6 +12,10 @@ description: >
   includono colonne audit (stesso formato di prd.export_clienti_zip).
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
   e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.csv.
+  Flusso ZBP-AddInterlocutoreCli: le righe dei destinatari merci (KUNNR solo in
+  S_CUST_GEN#ZDM-DatiGenerali) sono escluse da questo ZIP: interlocutori e punti
+  di scarico dei DM sono esportati nello ZIP dei destinatari merci
+  (prd.export_dest_merci_zip), che in SAP si carica prima di quello dei clienti.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
 depends:
   - ingestion.ingest_zip_to_raw
@@ -26,7 +30,7 @@ import logging
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import (
     OUTPUT_DIR, get_connection, q, get_columns, table_exists,
-    fetch_table_csv, write_discarded_csv,
+    fetch_table_csv, write_discarded_csv, remove_discarded_csv,
 )
 
 logging.basicConfig(
@@ -54,6 +58,19 @@ FLOWS = {
 # Anagrafiche clienti: una riga dei flussi aggiuntivi è valida solo se il
 # cliente esiste in almeno una di queste tabelle
 MASTER_TABLES = ["S_CUST_GEN#ZBP-DatiGenerali", "S_CUST_GEN#ZDM-DatiGenerali"]
+
+# Flusso le cui righe dei destinatari merci passano nello ZIP dei DM
+DM_SPLIT_FLOW = "ZBP-AddInterlocutoreCli"
+# Tabelle del flusso esportate anche nello ZIP dei DM (con le sole righe dei DM)
+DM_MOVED_TABLES = [
+    "S_CUST_CONT#ZBP-AddInterlocutore",
+    "S_UNL_POINT#ZBP-AddPuntoScarico",
+]
+# Condizione SQL: il cliente x è un destinatario merci (in ZDM-DatiGenerali, non in ZBP-DatiGenerali)
+DM_KEY_COND = (
+    f'EXISTS (SELECT 1 FROM raw.{q("S_CUST_GEN#ZDM-DatiGenerali")} dm WHERE dm.{q(KEY_COL)} = x.{q(KEY_COL)}) '
+    f'AND NOT EXISTS (SELECT 1 FROM raw.{q("S_CUST_GEN#ZBP-DatiGenerali")} bp WHERE bp.{q(KEY_COL)} = x.{q(KEY_COL)})'
+)
 
 
 def get_flow_sources(conn, flow: str, tables: list[str]) -> list[str]:
@@ -93,7 +110,25 @@ def get_orphan_keys(conn, source_name: str, tables: list[str]) -> set:
     return orphans
 
 
-def build_zip(conn, source_name: str, tables: list[str]) -> bytes:
+def get_dm_keys(conn, source_name: str, tables: list[str]) -> set:
+    """Destinatari merci presenti nelle tabelle del flusso (esportati nello ZIP dei DM)."""
+    if not all(table_exists(conn, "raw", m) for m in MASTER_TABLES):
+        return set()
+    keys = set()
+    with conn.cursor() as cur:
+        for table in tables:
+            if not table_exists(conn, "raw", table) or KEY_COL not in get_columns(conn, "raw", table):
+                continue
+            cur.execute(
+                f'SELECT DISTINCT x.{q(KEY_COL)} FROM raw.{q(table)} x '
+                f'WHERE x."_source" = %s AND {DM_KEY_COND}',
+                (source_name,),
+            )
+            keys.update(r[0] for r in cur.fetchall() if r[0])
+    return keys
+
+
+def build_zip(conn, source_name: str, tables: list[str], split_dm: bool = False) -> bytes:
     buf = io.BytesIO()
 
     orphan_keys = get_orphan_keys(conn, source_name, tables)
@@ -105,6 +140,15 @@ def build_zip(conn, source_name: str, tables: list[str]) -> bytes:
         )
     else:
         log.info("  Tutti i clienti di '%s' sono presenti in anagrafica.", source_name)
+
+    # Destinatari merci: esclusi da questo ZIP (non scartati), esportati nello ZIP dei DM
+    dm_keys = get_dm_keys(conn, source_name, tables) if split_dm else set()
+    if dm_keys:
+        log.info(
+            "  %d destinatari merci esclusi da '%s' (esportati nello ZIP dei DM): %s",
+            len(dm_keys), source_name, sorted(dm_keys),
+        )
+    excluded_keys = orphan_keys | dm_keys
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for raw_table in tables:
@@ -120,7 +164,7 @@ def build_zip(conn, source_name: str, tables: list[str]) -> bytes:
                 write_discarded_csv(conn, raw_table, source_name, raw_cols, orphan_keys, KEY_COL)
             csv_bytes = fetch_table_csv(
                 conn, "raw", raw_table, source_name, raw_cols,
-                excluded_keys=orphan_keys or None, fk_col=KEY_COL,
+                excluded_keys=excluded_keys or None, fk_col=KEY_COL,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
@@ -135,6 +179,7 @@ def build_zip(conn, source_name: str, tables: list[str]) -> bytes:
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    remove_discarded_csv([t for tables in FLOWS.values() for t in tables])
     conn = get_connection()
     try:
         for flow, tables in FLOWS.items():
@@ -144,7 +189,7 @@ def main():
                 continue
             for source_name in sources:
                 log.info(f"=== Generazione ZIP: {source_name} (flusso {flow}) ===")
-                zip_bytes   = build_zip(conn, source_name, tables)
+                zip_bytes   = build_zip(conn, source_name, tables, split_dm=(flow == DM_SPLIT_FLOW))
                 output_path = os.path.join(OUTPUT_DIR, source_name)
                 with open(output_path, "wb") as f:
                     f.write(zip_bytes)

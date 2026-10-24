@@ -6,7 +6,11 @@ description: >
   con il numero di righe scritte nei corrispondenti CSV dentro i file ZIP
   nella cartella out_source_mdg.
   Produce un report di quadratura nel log della pipeline con evidenza
-  di eventuali discrepanze. Scrive anche un file CSV di riepilogo in
+  di eventuali discrepanze. Le righe escluse di proposito dagli export sono
+  sottratte dal conteggio raw e indicate nella colonna "esclusi":
+    - righe filtrate nel merge verso prd (VIES, coordinate bancarie IT/UE
+      o incomplete, record STG cancellati): differenza tra raw e prd;
+    - intestazioni dei destinatari merci nel flusso ZBP-AddInterlocutoreCli. Scrive anche un file CSV di riepilogo in
   out_source_mdg/reconcile_report.csv.
 depends:
   - prd.export_suppliers_zip
@@ -25,7 +29,16 @@ import io
 import csv
 import zipfile
 import logging
+import sys
 import psycopg2
+
+sys.path.insert(0, os.path.dirname(__file__))
+from prd_export_clienti_add_zip import FLOWS, DM_SPLIT_FLOW, DM_MOVED_TABLES, DM_KEY_COND
+from prd_export_clienti_zip import PRD_CSV_NAME as PRD_CSV_NAME_CLIENTI
+from prd_export_dest_merci_zip import PRD_CSV_NAME as PRD_CSV_NAME_DM
+
+# Tabelle prd con nome diverso dalla tabella raw corrispondente
+PRD_TO_RAW = {**PRD_CSV_NAME_CLIENTI, **PRD_CSV_NAME_DM}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,6 +78,52 @@ def get_raw_counts(conn) -> dict[str, int]:
     return counts
 
 
+def get_expected_exclusions(conn) -> dict[str, int]:
+    """
+    Righe raw escluse di proposito dagli export: nel flusso ZBP-AddInterlocutoreCli
+    le righe dei destinatari merci delle tabelle non spostate nello ZIP dei DM
+    (es. S_CUST_GEN#AddDatiGenerali). Stesso criterio di prd.export_clienti_add_zip.
+    """
+    excluded = {}
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('raw.\"S_CUST_GEN#ZDM-DatiGenerali\"'), to_regclass('raw.\"S_CUST_GEN#ZBP-DatiGenerali\"')")
+        if None in cur.fetchone():
+            return excluded
+        for table in FLOWS[DM_SPLIT_FLOW]:
+            if table in DM_MOVED_TABLES:
+                continue
+            cur.execute("SELECT to_regclass(%s)", (f'raw."{table}"',))
+            if cur.fetchone()[0] is None:
+                continue
+            cur.execute(
+                f'SELECT COUNT(*) FROM raw."{table}" x WHERE x."_source" ILIKE %s AND {DM_KEY_COND}',
+                (f"%{DM_SPLIT_FLOW}%",),
+            )
+            n = cur.fetchone()[0]
+            if n:
+                excluded[table] = n
+    return excluded
+
+
+def get_prd_exclusions(conn, raw_counts: dict[str, int]) -> dict[str, int]:
+    """
+    Righe raw filtrate nel merge verso prd (le tabelle prd sostituiscono le raw
+    nell'export): raw - prd per ogni tabella prd con la corrispondente tabella raw.
+    """
+    excluded = {}
+    with conn.cursor() as cur:
+        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'prd' ORDER BY 1")
+        for (prd_table,) in cur.fetchall():
+            raw_table = PRD_TO_RAW.get(prd_table, prd_table)
+            if raw_table not in raw_counts:
+                continue
+            cur.execute(f'SELECT COUNT(*) FROM prd."{prd_table.replace(chr(34), chr(34) * 2)}"')
+            n = raw_counts[raw_table] - cur.fetchone()[0]
+            if n > 0:
+                excluded[raw_table] = n
+    return excluded
+
+
 def count_csv_rows(zip_path: str) -> dict[str, int]:
     """
     Conta le righe dati (esclusa l'intestazione) in ogni CSV dentro uno ZIP.
@@ -100,6 +159,12 @@ def main():
         # ── 1. Conteggio tabelle raw ─────────────────────────────────────────
         raw_counts = get_raw_counts(conn)
         log.info("  Tabelle raw trovate: %d", len(raw_counts))
+        excluded_counts = get_expected_exclusions(conn)
+        for table, n in excluded_counts.items():
+            log.info("  Esclusi di proposito: %s — %d righe di destinatari merci", table, n)
+        for table, n in get_prd_exclusions(conn, raw_counts).items():
+            excluded_counts[table] = excluded_counts.get(table, 0) + n
+            log.info("  Esclusi di proposito: %s — %d righe filtrate nel merge verso prd", table, n)
 
         # ── 2. Conteggio CSV nei ZIP ─────────────────────────────────────────
         zip_counts: dict[str, int] = {}   # {table: nr_righe_nel_zip}
@@ -139,6 +204,7 @@ def main():
             raw_n = raw_counts.get(table)
             zip_n = zip_counts.get(table)
             src   = zip_source.get(table, "")
+            excl  = excluded_counts.get(table, 0)
 
             if raw_n is None:
                 # Tabella nel ZIP ma non in raw — anomalia
@@ -147,11 +213,11 @@ def main():
             elif zip_n is None:
                 # Tabella in raw ma non in nessun ZIP — normale per tabelle non esportate
                 status = "NON_ESPORTATA"
-            elif raw_n == zip_n:
-                status = "OK"
+            elif raw_n - excl == zip_n:
+                status = f"OK ({excl} esclusi)" if excl else "OK"
                 n_ok += 1
             else:
-                diff = zip_n - raw_n
+                diff = zip_n - (raw_n - excl)
                 status = f"DIFF ({diff:+d})"
                 n_diff += 1
 
@@ -159,6 +225,7 @@ def main():
                 "tabella":    table,
                 "raw_count":  raw_n if raw_n is not None else "",
                 "zip_count":  zip_n if zip_n is not None else "",
+                "esclusi":    excl or "",
                 "stato":      status,
                 "zip_source": src,
             })
@@ -194,7 +261,7 @@ def main():
         # utf-8-sig (con BOM): Excel riconosce la codifica e mostra correttamente i caratteri
         with open(REPORT_FILE, "w", encoding="utf-8-sig", newline="") as f:
             writer = csv.DictWriter(
-                f, fieldnames=["tabella", "raw_count", "zip_count", "stato", "zip_source"],
+                f, fieldnames=["tabella", "raw_count", "zip_count", "esclusi", "stato", "zip_source"],
                 delimiter=";", quoting=csv.QUOTE_MINIMAL
             )
             writer.writeheader()

@@ -125,6 +125,20 @@ def write_discarded_csv(conn, table: str, source_name: str,
     )
 
 
+def remove_discarded_csv(tables: list[str]):
+    """
+    Cancella i file <table>_discarded.csv delle tabelle gestite da questo export:
+    vanno eliminati a ogni run, altrimenti resterebbero gli scarti di run precedenti
+    (write_discarded_csv scrive il file solo se ci sono scarti).
+    """
+    for table in tables:
+        safe_table = table.replace("#", "_").replace("/", "_")
+        out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+        if os.path.exists(out_path):
+            os.remove(out_path)
+            log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)
+
+
 def get_distinct_sources(conn) -> list[str]:
     """Recupera i valori distinti di _source dalla tabella prd principale."""
     schema, table = PRD_TABLES[0]
@@ -303,6 +317,7 @@ def build_zip(conn, source_name: str) -> bytes:
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    remove_discarded_csv(RAW_TABLES)
     conn = get_connection()
 
     try:

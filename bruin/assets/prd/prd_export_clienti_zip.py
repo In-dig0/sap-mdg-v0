@@ -156,7 +156,7 @@ def fetch_table_csv(conn, schema: str, table: str,
             )
             n_excl = len(excluded_keys)
             log.warning(
-                "  [%s] %s.%s: %d record orfani esclusi (_source=%s)",
+                "  [%s] %s.%s: %d chiavi escluse (orfani o spostate in altro ZIP, _source=%s)",
                 fk_col, schema, table, n_excl, source_filter
             )
         else:
@@ -225,6 +225,20 @@ def write_discarded_csv(conn, table: str, source_name: str,
         "  [DISCARDED] %s: %d record orfani scritti in %s",
         table, len(rows), out_path
     )
+
+
+def remove_discarded_csv(tables: list[str]):
+    """
+    Cancella i file <table>_discarded.csv delle tabelle gestite da questo export:
+    vanno eliminati a ogni run, altrimenti resterebbero gli scarti di run precedenti
+    (write_discarded_csv scrive il file solo se ci sono scarti).
+    """
+    for table in tables:
+        safe_table = table.replace("#", "_").replace("/", "_")
+        out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+        if os.path.exists(out_path):
+            os.remove(out_path)
+            log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)
 
 
 def table_exists(conn, schema: str, table: str) -> bool:
@@ -305,6 +319,7 @@ def build_zip(conn, source_name: str) -> bytes:
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    remove_discarded_csv(RAW_TABLES)
     conn = get_connection()
 
     try:
