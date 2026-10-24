@@ -7,7 +7,7 @@ description: >
     - tutte le altre tabelle dest. merci da schema raw
     - interlocutori e punti di scarico dei destinatari merci, entrati con il
       flusso ZBP-AddInterlocutoreCli (in SAP i DM si caricano prima dei clienti;
-      prd.export_clienti_add_zip esclude queste righe dal proprio ZIP)
+      quelli dei clienti ZBP vanno nello ZIP dei clienti)
   Un ZIP separato viene creato per ogni valore distinto di _source
   trovato in prd."S_CUST_GEN#ZDM_DatiGenerali".
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
@@ -28,7 +28,7 @@ import sys
 import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
-from prd_export_clienti_add_zip import DM_SPLIT_FLOW, DM_MOVED_TABLES, KEY_COL
+from prd_export_clienti_zip import write_add_tables
 
 logging.basicConfig(
     level=logging.INFO,
@@ -252,39 +252,6 @@ def table_exists(conn, schema: str, table: str) -> bool:
         return cur.fetchone() is not None
 
 
-def fetch_dm_moved_csv(conn, table: str, source_name: str) -> bytes:
-    """
-    Righe di una tabella del flusso ZBP-AddInterlocutoreCli relative ai destinatari
-    merci di questo ZIP (KUNNR in ZDM-DatiGenerali con lo stesso _source e non in
-    ZBP-DatiGenerali: stesso criterio con cui prd.export_clienti_add_zip le esclude).
-    """
-    cols     = get_columns(conn, "raw", table)
-    col_list = ", ".join(f"x.{q(c)}" for c in cols)
-    with conn.cursor() as cur:
-        cur.execute(
-            f'SELECT {col_list} FROM raw.{q(table)} x '
-            f'WHERE x."_source" ILIKE %s '
-            f'AND EXISTS (SELECT 1 FROM raw.{q("S_CUST_GEN#ZDM-DatiGenerali")} dm '
-            f'            WHERE dm.{q(KEY_COL)} = x.{q(KEY_COL)} AND dm."_source" = %s) '
-            f'AND NOT EXISTS (SELECT 1 FROM raw.{q("S_CUST_GEN#ZBP-DatiGenerali")} bp '
-            f'                WHERE bp.{q(KEY_COL)} = x.{q(KEY_COL)}) '
-            f'ORDER BY 1',
-            (f"%{DM_SPLIT_FLOW}%", source_name),
-        )
-        rows = cur.fetchall()
-
-    def sanitize(val):
-        if val is None or (isinstance(val, float) and math.isnan(val)):
-            return ""
-        return val
-
-    buf = io.StringIO()
-    writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
-    writer.writerow(cols)
-    writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
-    return buf.getvalue().encode("utf-8")
-
-
 def build_zip(conn, source_name: str) -> bytes:
     buf = io.BytesIO()
 
@@ -346,18 +313,9 @@ def build_zip(conn, source_name: str) -> bytes:
             log.info(f"  + {src_schema}.{raw_table}: {n_rows} righe")
 
         # 3. Interlocutori e punti di scarico dei DM entrati con il flusso ZBP-AddInterlocutoreCli
-        required = DM_MOVED_TABLES + ["S_CUST_GEN#ZDM-DatiGenerali", "S_CUST_GEN#ZBP-DatiGenerali"]
-        if all(table_exists(conn, "raw", t) for t in required):
-            for moved_table in DM_MOVED_TABLES:
-                csv_bytes = fetch_dm_moved_csv(conn, moved_table, source_name)
-                n_rows = csv_bytes.count(b"\r\n") - 1
-                if n_rows <= 0:
-                    log.info(f"  raw.{moved_table} ({DM_SPLIT_FLOW}): 0 righe di DM — skip")
-                    continue
-                zf.writestr(f"{moved_table}.csv", csv_bytes)
-                log.info(f"  + raw.{moved_table} ({DM_SPLIT_FLOW}): {n_rows} righe di DM")
-        else:
-            log.info(f"  Flusso {DM_SPLIT_FLOW} non caricato — nessun interlocutore/punto di scarico DM")
+        #    (esclusi i codici presenti anche tra i clienti ZBP: vanno nello ZIP dei clienti)
+        write_add_tables(conn, zf, "S_CUST_GEN#ZDM-DatiGenerali", source_name,
+                         exclude_master="S_CUST_GEN#ZBP-DatiGenerali")
 
     buf.seek(0)
     return buf.read()

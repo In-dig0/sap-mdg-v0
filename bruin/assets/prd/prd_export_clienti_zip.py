@@ -5,6 +5,8 @@ description: >
   Genera gli archivi ZIP di output per i clienti combinando:
     - prd."S_CUST_GEN#ZBP_DatiGenerali"  (dati anagrafici con indirizzi normalizzati)
     - tutte le altre tabelle clienti da schema raw
+    - interlocutori e punti di scarico dei clienti, entrati con il flusso
+      ZBP-AddInterlocutoreCli (per il quale non viene più generato uno ZIP)
   Un ZIP separato viene creato per ogni valore distinto di _source
   trovato in prd."S_CUST_GEN#ZBP_DatiGenerali".
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
@@ -79,6 +81,15 @@ RAW_REPLACED_BY_PRD = {
 RAW_FROM_PRD = {
     "S_CUST_SALES_DATA#ZBP-DatiVendite",
 }
+
+# Flusso aggiuntivo i cui interlocutori e punti di scarico sono esportati negli ZIP
+# delle anagrafiche: clienti ZBP (questo export) e destinatari merci (export DM)
+ADD_FLOW = "ZBP-AddInterlocutoreCli"
+ADD_MOVED_TABLES = [
+    "S_CUST_CONT#ZBP-AddInterlocutore",
+    "S_UNL_POINT#ZBP-AddPuntoScarico",
+]
+ADD_KEY_COL = "KUNNR(k/*)"
 
 
 def get_connection():
@@ -250,6 +261,61 @@ def table_exists(conn, schema: str, table: str) -> bool:
         return cur.fetchone() is not None
 
 
+def fetch_add_rows_csv(conn, table: str, master_table: str, source_name: str,
+                       exclude_master: str | None = None) -> bytes:
+    """
+    Righe di una tabella del flusso ZBP-AddInterlocutoreCli relative ai clienti
+    dell'anagrafica raw master_table con lo stesso _source dello ZIP in costruzione.
+    exclude_master: anagrafica i cui clienti vanno esclusi (evita righe in due ZIP).
+    """
+    cols     = get_columns(conn, "raw", table)
+    col_list = ", ".join(f"x.{q(c)}" for c in cols)
+    k        = q(ADD_KEY_COL)
+    exclude  = (
+        f'AND NOT EXISTS (SELECT 1 FROM raw.{q(exclude_master)} ex WHERE ex.{k} = x.{k}) '
+        if exclude_master else ""
+    )
+    with conn.cursor() as cur:
+        cur.execute(
+            f'SELECT {col_list} FROM raw.{q(table)} x '
+            f'WHERE x."_source" ILIKE %s '
+            f'AND EXISTS (SELECT 1 FROM raw.{q(master_table)} mst '
+            f'            WHERE mst.{k} = x.{k} AND mst."_source" = %s) '
+            f'{exclude}'
+            f'ORDER BY 1',
+            (f"%{ADD_FLOW}%", source_name),
+        )
+        rows = cur.fetchall()
+
+    def sanitize(val):
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return ""
+        return val
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
+    writer.writerow(cols)
+    writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
+    return buf.getvalue().encode("utf-8")
+
+
+def write_add_tables(conn, zf, master_table: str, source_name: str,
+                     exclude_master: str | None = None):
+    """Aggiunge allo ZIP interlocutori e punti di scarico dei clienti di master_table."""
+    required = ADD_MOVED_TABLES + [master_table] + ([exclude_master] if exclude_master else [])
+    if not all(table_exists(conn, "raw", t) for t in required):
+        log.info(f"  Flusso {ADD_FLOW} non caricato — nessun interlocutore/punto di scarico")
+        return
+    for table in ADD_MOVED_TABLES:
+        csv_bytes = fetch_add_rows_csv(conn, table, master_table, source_name, exclude_master)
+        n_rows = csv_bytes.count(b"\r\n") - 1
+        if n_rows <= 0:
+            log.info(f"  raw.{table} ({ADD_FLOW}): 0 righe — skip")
+            continue
+        zf.writestr(f"{table}.csv", csv_bytes)
+        log.info(f"  + raw.{table} ({ADD_FLOW}): {n_rows} righe")
+
+
 def build_zip(conn, source_name: str) -> bytes:
     buf = io.BytesIO()
 
@@ -312,6 +378,9 @@ def build_zip(conn, source_name: str) -> bytes:
 
             zf.writestr(f"{raw_table}.csv", csv_bytes)
             log.info(f"  + {src_schema}.{raw_table}: {n_rows} righe")
+
+        # 3. Interlocutori e punti di scarico dei clienti entrati con il flusso ZBP-AddInterlocutoreCli
+        write_add_tables(conn, zf, "S_CUST_GEN#ZBP-DatiGenerali", source_name)
 
     buf.seek(0)
     return buf.read()
