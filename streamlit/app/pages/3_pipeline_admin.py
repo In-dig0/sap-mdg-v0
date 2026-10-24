@@ -345,7 +345,8 @@ with tab_ctrl:
     st.subheader("🧪 Estrazione ristretta (test)")
     st.caption(
         "Se l'elenco contiene codici cliente, la pipeline genera **anche** gli ZIP con i soli clienti indicati "
-        "(con i loro destinatari merci e la gestione credito) nella cartella **out_source_mdg/test**. "
+        "(anagrafica clienti e gestione credito) nella cartella **out_source_mdg/test**. "
+        "I destinatari merci non sono inclusi: devono essere già caricati in SAP e presenti in SAP_EXPORT_BUT000. "
         "Gli ZIP completi in out_source_mdg non cambiano. Elenco vuoto = nessuna estrazione ristretta."
     )
     filter_codes, filter_err = api_get_export_filter()

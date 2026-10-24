@@ -8,8 +8,8 @@ description: >
     - interlocutori e punti di scarico dei destinatari merci, entrati con il
       flusso ZBP-AddInterlocutoreCli (in SAP i DM si caricano prima dei clienti;
       quelli dei clienti ZBP vanno nello ZIP dei clienti)
-  Estrazione ristretta (test): se stg.export_filter contiene codici cliente, viene
-  generato anche lo ZIP con i soli DM collegati (partner WE) in out_source_mdg/test.
+  Estrazione ristretta (test): nessuno ZIP dei DM (si presuppongono già caricati in SAP
+  e presenti in SAP_EXPORT_BUT000); l'eventuale ZIP di test precedente viene rimosso.
   Un ZIP separato viene creato per ogni valore distinto di _source
   trovato in prd."S_CUST_GEN#ZDM_DatiGenerali".
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
@@ -30,9 +30,7 @@ import sys
 import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
-from prd_export_clienti_zip import (
-    write_add_tables, get_export_filter, get_filter_dm_codes, write_test_zip,
-)
+from prd_export_clienti_zip import write_add_tables, TEST_DIR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -145,26 +143,31 @@ def get_orphan_keys(conn, check_id: str) -> set:
 def fetch_table_csv(conn, schema: str, table: str,
                     source_filter: str, cols: list[str],
                     excluded_keys: set | None = None,
-                    fk_col: str | None = None,
-                    key_filter: tuple[str, set] | None = None) -> bytes:
-    """key_filter: (colonna, valori) — solo le righe con quei valori (estrazione ristretta)."""
+                    fk_col: str | None = None) -> bytes:
     fqt      = f'{schema}.{q(table)}'
     col_list = ", ".join(q(c) for c in cols)
-    where    = ['"_source" = %s']
-    params   = [source_filter]
-    # Esclude in SQL i record orfani (solo tabelle secondarie)
-    if excluded_keys and fk_col and fk_col in cols:
-        where.append(f'{q(fk_col)} NOT IN ({",".join(["%s"] * len(excluded_keys))})')
-        params.extend(excluded_keys)
-        log.warning(
-            "  [%s] %s.%s: %d record orfani esclusi (_source=%s)",
-            fk_col, schema, table, len(excluded_keys), source_filter
-        )
-    if key_filter and key_filter[0] in cols:
-        where.append(f'{q(key_filter[0])} = ANY(%s)')
-        params.append(sorted(key_filter[1]))
     with conn.cursor() as cur:
-        cur.execute(f'SELECT {col_list} FROM {fqt} WHERE {" AND ".join(where)} ORDER BY 1', params)
+        # Esclude in SQL i record orfani (solo tabelle secondarie)
+        if excluded_keys and fk_col and fk_col in cols:
+            fk_quoted = q(fk_col)
+            placeholders = ",".join(["%s"] * len(excluded_keys))
+            cur.execute(
+                f'SELECT {col_list} FROM {fqt}'
+                f' WHERE "_source" = %s'
+                f' AND {fk_quoted} NOT IN ({placeholders})'
+                f' ORDER BY 1',
+                (source_filter, *excluded_keys)
+            )
+            n_excl = len(excluded_keys)
+            log.warning(
+                "  [%s] %s.%s: %d record orfani esclusi (_source=%s)",
+                fk_col, schema, table, n_excl, source_filter
+            )
+        else:
+            cur.execute(
+                f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s ORDER BY 1',
+                (source_filter,)
+            )
         rows = cur.fetchall()
 
     def sanitize(val):
@@ -251,10 +254,8 @@ def table_exists(conn, schema: str, table: str) -> bool:
         return cur.fetchone() is not None
 
 
-def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
-    """key_filter: codici DM dell'estrazione ristretta (None = output completo)."""
+def build_zip(conn, source_name: str) -> bytes:
     buf = io.BytesIO()
-    kf  = ("KUNNR(k/*)", key_filter) if key_filter else None
 
     # Carica le chiavi orfane (CK403) — solo tabelle secondarie raw
     orphan_keys = get_orphan_keys(conn, "CK403")
@@ -273,10 +274,8 @@ def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
         for prd_schema, prd_table in PRD_TABLES:
             prd_cols = get_columns(conn, prd_schema, prd_table)
             if prd_cols:
-                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols, key_filter=kf)
+                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols)
                 n_rows = csv_bytes.count(b"\r\n") - 1
-                if n_rows <= 0 and key_filter:
-                    continue
                 zf.writestr(f"{PRD_CSV_NAME.get(prd_table, prd_table)}.csv", csv_bytes)
                 log.info(f"  + {prd_schema}.{prd_table}: {n_rows} righe")
             else:
@@ -299,14 +298,13 @@ def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
                 continue
 
             _is_master = raw_table in {'S_CUST_GEN#ZDM-DatiGenerali'}
-            if not _is_master and orphan_keys and not key_filter:
+            if not _is_master and orphan_keys:
                 write_discarded_csv(conn, raw_table, source_name,
                                    raw_cols, orphan_keys, "KUNNR(k/*)")
             csv_bytes = fetch_table_csv(
                 conn, src_schema, raw_table, source_name, raw_cols,
                 excluded_keys=None if _is_master else orphan_keys,
                 fk_col=None if _is_master else "KUNNR(k/*)",
-                key_filter=kf,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
@@ -319,7 +317,7 @@ def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
         # 3. Interlocutori e punti di scarico dei DM entrati con il flusso ZBP-AddInterlocutoreCli
         #    (esclusi i codici presenti anche tra i clienti ZBP: vanno nello ZIP dei clienti)
         write_add_tables(conn, zf, "S_CUST_GEN#ZDM-DatiGenerali", source_name,
-                         exclude_master="S_CUST_GEN#ZBP-DatiGenerali", key_filter=key_filter)
+                         exclude_master="S_CUST_GEN#ZBP-DatiGenerali")
 
     buf.seek(0)
     return buf.read()
@@ -347,11 +345,12 @@ def main():
             size_kb = len(zip_bytes) / 1024
             log.info(f"  ✓  {output_path}  ({size_kb:.1f} KB)")
 
-        # Estrazione ristretta (test): solo i DM collegati (partner WE) ai clienti di stg.export_filter
-        dm_codes = get_filter_dm_codes(conn, get_export_filter(conn))
+        # Estrazione ristretta (test): nessuno ZIP dei DM — rimuove quello di run precedenti
         for source_name in sources:
-            write_test_zip(source_name, lambda: build_zip(conn, source_name, key_filter=dm_codes),
-                           dm_codes, "destinatari merci")
+            test_path = os.path.join(TEST_DIR, source_name)
+            if os.path.exists(test_path):
+                os.remove(test_path)
+                log.info(f"  [TEST] rimosso {test_path} (i DM non fanno parte dell'estrazione ristretta)")
 
     finally:
         conn.close()

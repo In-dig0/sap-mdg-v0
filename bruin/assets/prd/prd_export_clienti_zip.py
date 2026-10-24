@@ -275,21 +275,6 @@ def get_export_filter(conn) -> set:
         return {r[0] for r in cur.fetchall()}
 
 
-def get_filter_dm_codes(conn, customers: set) -> set:
-    """Destinatari merci (partner WE) dei clienti dell'estrazione ristretta."""
-    if not customers or not all(table_exists(conn, "raw", t) for t in (PARTNER_TABLE, "S_CUST_GEN#ZDM-DatiGenerali")):
-        return set()
-    with conn.cursor() as cur:
-        cur.execute(
-            f'SELECT DISTINCT p.{q(PARTNER_COL)} FROM raw.{q(PARTNER_TABLE)} p '
-            f'WHERE p."KUNNR(k/*)" = ANY(%s) AND p."PARVW(k/*)" = \'WE\' '
-            f'AND EXISTS (SELECT 1 FROM raw.{q("S_CUST_GEN#ZDM-DatiGenerali")} dm '
-            f'            WHERE dm."KUNNR(k/*)" = p.{q(PARTNER_COL)})',
-            (sorted(customers),),
-        )
-        return {r[0] for r in cur.fetchall()}
-
-
 def write_test_zip(source_name: str, build, keys: set, what: str):
     """
     Estrazione ristretta: rimuove lo ZIP di test precedente e, se ci sono chiavi,
