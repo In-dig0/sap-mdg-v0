@@ -5,9 +5,10 @@ description: >
   Genera gli archivi ZIP di output per i clienti combinando:
     - prd."S_CUST_GEN#ZBP_DatiGenerali"  (dati anagrafici con indirizzi normalizzati)
     - tutte le altre tabelle clienti da schema raw
-    - interlocutori e punti di scarico dei clienti, entrati con il flusso
-      ZBP-AddInterlocutoreCli (per il quale non viene più generato uno ZIP)
-  In S_CUST_SALES_PARTNER#ZBP-Partner il partner KUNN2(k) è trascodificato con il
+    - punti di scarico dei clienti, entrati con il flusso ZBP-AddInterlocutoreCli
+      (gli interlocutori restano nello ZIP di quel flusso: si caricano in un secondo momento)
+  In S_CUST_SALES_PARTNER#ZBP-Partner la funzione partner RA è scritta come SP
+  (spedizioniere) e il partner KUNN2(k) è trascodificato con il
   nuovo codice SAP (PARTNER di ref.SAP_EXPORT_BUT000): destinatari merci tramite
   BU_SORT2, spedizionieri tramite BU_SORT1. Senza corrispondenza resta il codice originale.
   Le righe partner senza alcun riferimento (KUNN2, LIFNR, PERNR, PARNR vuoti) sono escluse
@@ -90,11 +91,11 @@ RAW_FROM_PRD = {
     "S_CUST_SALES_DATA#ZBP-DatiVendite",
 }
 
-# Flusso aggiuntivo i cui interlocutori e punti di scarico sono esportati negli ZIP
-# delle anagrafiche: clienti ZBP (questo export) e destinatari merci (export DM)
+# Flusso aggiuntivo i cui punti di scarico sono esportati negli ZIP delle anagrafiche:
+# clienti ZBP (questo export) e destinatari merci (export DM). Gli interlocutori
+# (S_CUST_CONT) restano nello ZIP del flusso, caricato in SAP in un secondo momento.
 ADD_FLOW = "ZBP-AddInterlocutoreCli"
 ADD_MOVED_TABLES = [
-    "S_CUST_CONT#ZBP-AddInterlocutore",
     "S_UNL_POINT#ZBP-AddPuntoScarico",
 ]
 ADD_KEY_COL = "KUNNR(k/*)"
@@ -102,6 +103,9 @@ ADD_KEY_COL = "KUNNR(k/*)"
 # Trascodifica del partner con i codici assegnati da SAP ai BP già caricati
 PARTNER_TABLE = "S_CUST_SALES_PARTNER#ZBP-Partner"
 PARTNER_COL   = "KUNN2(k)"
+# Funzioni partner con codice diverso in SAP: RA (spedizioniere nell'ERP) -> SP
+PARVW_COL = "PARVW(k/*)"
+PARVW_MAP = {"RA": "SP"}
 BUT000_TABLE  = "SAP_EXPORT_BUT000"
 # Riferimenti al partner: una riga senza nessuno di questi valori è esclusa dall'output
 PARTNER_REF_COLS = ["KUNN2(k)", "LIFNR(k)", "PERNR(k)", "PARNR(k)"]
@@ -417,10 +421,10 @@ def fetch_add_rows_csv(conn, table: str, master_table: str, source_name: str,
 
 def write_add_tables(conn, zf, master_table: str, source_name: str,
                      exclude_master: str | None = None, key_filter: set | None = None):
-    """Aggiunge allo ZIP interlocutori e punti di scarico dei clienti di master_table."""
+    """Aggiunge allo ZIP le tabelle ADD_MOVED_TABLES (punti di scarico) dei clienti di master_table."""
     required = ADD_MOVED_TABLES + [master_table] + ([exclude_master] if exclude_master else [])
     if not all(table_exists(conn, "raw", t) for t in required):
-        log.info(f"  Flusso {ADD_FLOW} non caricato — nessun interlocutore/punto di scarico")
+        log.info(f"  Flusso {ADD_FLOW} non caricato — nessun punto di scarico")
         return
     for table in ADD_MOVED_TABLES:
         csv_bytes = fetch_add_rows_csv(conn, table, master_table, source_name, exclude_master, key_filter)
@@ -488,7 +492,8 @@ def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
                 conn, src_schema, raw_table, source_name, raw_cols,
                 excluded_keys=None if _is_master else orphan_keys,
                 fk_col=None if _is_master else "KUNNR(k/*)",
-                value_map={PARTNER_COL: get_but000_map(conn)} if raw_table == PARTNER_TABLE else None,
+                value_map={PARTNER_COL: get_but000_map(conn), PARVW_COL: PARVW_MAP}
+                          if raw_table == PARTNER_TABLE else None,
                 drop_if_all_empty=PARTNER_REF_COLS if raw_table == PARTNER_TABLE else None,
                 sort_cols=PARTNER_KEY_COLS if raw_table == PARTNER_TABLE else None,
                 key_filter=kf,
@@ -502,7 +507,7 @@ def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
             zf.writestr(f"{raw_table}.csv", csv_bytes)
             log.info(f"  + {src_schema}.{raw_table}: {n_rows} righe")
 
-        # 3. Interlocutori e punti di scarico dei clienti entrati con il flusso ZBP-AddInterlocutoreCli
+        # 3. Punti di scarico dei clienti entrati con il flusso ZBP-AddInterlocutoreCli
         write_add_tables(conn, zf, "S_CUST_GEN#ZBP-DatiGenerali", source_name, key_filter=key_filter)
 
     buf.seek(0)

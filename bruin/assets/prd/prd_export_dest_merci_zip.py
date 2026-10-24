@@ -5,9 +5,10 @@ description: >
   Genera gli archivi ZIP di output per i destinatari merci combinando:
     - prd."S_CUST_GEN#ZDM_DatiGenerali"  (dati anagrafici con indirizzi normalizzati)
     - tutte le altre tabelle dest. merci da schema raw
-    - interlocutori e punti di scarico dei destinatari merci, entrati con il
-      flusso ZBP-AddInterlocutoreCli (in SAP i DM si caricano prima dei clienti;
-      quelli dei clienti ZBP vanno nello ZIP dei clienti)
+    - punti di scarico dei destinatari merci, entrati con il flusso
+      ZBP-AddInterlocutoreCli (in SAP i DM si caricano prima dei clienti; quelli
+      dei clienti ZBP vanno nello ZIP dei clienti; gli interlocutori restano nello
+      ZIP del flusso, caricato in un secondo momento)
   Estrazione ristretta (test): nessuno ZIP dei DM (si presuppongono già caricati in SAP
   e presenti in SAP_EXPORT_BUT000); l'eventuale ZIP di test precedente viene rimosso.
   Un ZIP separato viene creato per ogni valore distinto di _source
@@ -314,7 +315,7 @@ def build_zip(conn, source_name: str) -> bytes:
             zf.writestr(f"{raw_table}.csv", csv_bytes)
             log.info(f"  + {src_schema}.{raw_table}: {n_rows} righe")
 
-        # 3. Interlocutori e punti di scarico dei DM entrati con il flusso ZBP-AddInterlocutoreCli
+        # 3. Punti di scarico dei DM entrati con il flusso ZBP-AddInterlocutoreCli
         #    (esclusi i codici presenti anche tra i clienti ZBP: vanno nello ZIP dei clienti)
         write_add_tables(conn, zf, "S_CUST_GEN#ZDM-DatiGenerali", source_name,
                          exclude_master="S_CUST_GEN#ZBP-DatiGenerali")

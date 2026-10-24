@@ -7,12 +7,12 @@ description: >
       Un ZIP per ogni file di origine (_source il cui nome contiene il flusso),
       con lo stesso nome del file in ingresso. I CSV usano separatore ";" e non
       includono colonne audit (stesso formato di prd.export_clienti_zip).
-    - ZBP-AddInterlocutoreCli: nessuno ZIP. Interlocutori e punti di scarico
-      sono esportati negli ZIP delle anagrafiche (prd.export_clienti_zip e
-      prd.export_dest_merci_zip); qui si scrivono solo gli scarti e si rimuove
-      lo ZIP di output del flusso eventualmente rimasto da run precedenti.
-  Estrazione ristretta (test): se stg.export_filter contiene codici cliente, viene
-  generato anche lo ZIP della gestione credito dei soli clienti indicati in out_source_mdg/test.
+    - ZBP-AddInterlocutoreCli: ZIP con dati generali aggiuntivi e interlocutori
+      (email) di clienti e destinatari merci, da caricare in SAP in un secondo
+      momento. I punti di scarico sono esportati negli ZIP delle anagrafiche
+      (prd.export_clienti_zip e prd.export_dest_merci_zip): qui solo i loro scarti.
+  Estrazione ristretta (test): se stg.export_filter contiene codici cliente, vengono
+  generati anche gli ZIP dei soli clienti indicati in out_source_mdg/test.
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
   e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.csv.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
@@ -29,7 +29,7 @@ import logging
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import (
     OUTPUT_DIR, get_connection, q, get_columns, table_exists,
-    fetch_table_csv, write_discarded_csv, remove_discarded_csv, ADD_FLOW,
+    fetch_table_csv, write_discarded_csv, remove_discarded_csv, ADD_FLOW, ADD_MOVED_TABLES,
     get_export_filter, write_test_zip,
 )
 
@@ -58,10 +58,6 @@ FLOWS = {
 # Anagrafiche clienti: una riga dei flussi aggiuntivi è valida solo se il
 # cliente esiste in almeno una di queste tabelle
 MASTER_TABLES = ["S_CUST_GEN#ZBP-DatiGenerali", "S_CUST_GEN#ZDM-DatiGenerali"]
-
-# Flussi senza ZIP proprio: le tabelle sono esportate negli ZIP delle anagrafiche
-NO_ZIP_FLOWS = {ADD_FLOW}
-
 
 def get_flow_sources(conn, flow: str, tables: list[str]) -> list[str]:
     """File ZIP di origine (_source) del flusso presenti nelle sue tabelle raw."""
@@ -101,7 +97,7 @@ def get_orphan_keys(conn, source_name: str, tables: list[str]) -> set:
 
 
 def write_discards(conn, source_name: str, tables: list[str]):
-    """Solo scarti (righe di clienti assenti dall'anagrafica) per un flusso senza ZIP."""
+    """Solo scarti (righe di clienti assenti dall'anagrafica) per tabelle esportate altrove."""
     orphan_keys = get_orphan_keys(conn, source_name, tables)
     if not orphan_keys:
         log.info("  Tutti i clienti di '%s' sono presenti in anagrafica.", source_name)
@@ -114,14 +110,6 @@ def write_discards(conn, source_name: str, tables: list[str]):
         if table_exists(conn, "raw", raw_table):
             write_discarded_csv(conn, raw_table, source_name,
                                 get_columns(conn, "raw", raw_table), orphan_keys, KEY_COL)
-
-
-def remove_flow_zips(flow: str):
-    """Rimuove gli ZIP di output di un flusso che non genera più uno ZIP proprio."""
-    for name in os.listdir(OUTPUT_DIR):
-        if name.endswith(".zip") and flow in name:
-            os.remove(os.path.join(OUTPUT_DIR, name))
-            log.info(f"  Rimosso ZIP di output non più generato: {name}")
 
 
 def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None = None) -> bytes:
@@ -173,26 +161,24 @@ def main():
     conn = get_connection()
     try:
         for flow, tables in FLOWS.items():
-            if flow in NO_ZIP_FLOWS:
-                remove_flow_zips(flow)
             sources = get_flow_sources(conn, flow, tables)
             if not sources:
                 log.info(f"Flusso {flow}: nessun file caricato in raw — nulla da esportare.")
                 continue
+            # Tabelle esportate negli ZIP delle anagrafiche (punti di scarico): qui solo gli scarti
+            zip_tables = [t for t in tables if t not in ADD_MOVED_TABLES] if flow == ADD_FLOW else tables
             for source_name in sources:
-                if flow in NO_ZIP_FLOWS:
-                    log.info(f"=== Scarti: {source_name} (flusso {flow}, esportato negli ZIP delle anagrafiche) ===")
-                    write_discards(conn, source_name, tables)
-                    continue
+                if flow == ADD_FLOW:
+                    write_discards(conn, source_name, ADD_MOVED_TABLES)
                 log.info(f"=== Generazione ZIP: {source_name} (flusso {flow}) ===")
-                zip_bytes   = build_zip(conn, source_name, tables)
+                zip_bytes   = build_zip(conn, source_name, zip_tables)
                 output_path = os.path.join(OUTPUT_DIR, source_name)
                 with open(output_path, "wb") as f:
                     f.write(zip_bytes)
                 log.info(f"  ✓  {output_path}  ({len(zip_bytes) / 1024:.1f} KB)")
                 # Estrazione ristretta (test): solo i clienti di stg.export_filter
                 customers = get_export_filter(conn)
-                write_test_zip(source_name, lambda: build_zip(conn, source_name, tables, key_filter=customers),
+                write_test_zip(source_name, lambda: build_zip(conn, source_name, zip_tables, key_filter=customers),
                                customers, "clienti")
     finally:
         conn.close()
