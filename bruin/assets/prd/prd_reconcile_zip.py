@@ -6,9 +6,12 @@ description: >
   con il numero di righe scritte nei corrispondenti CSV dentro i file ZIP
   nella cartella out_source_mdg.
   Produce un report di quadratura nel log della pipeline con evidenza
-  di eventuali discrepanze. Le righe filtrate di proposito nel merge verso prd
-  (VIES, coordinate bancarie IT/UE o incomplete, record STG cancellati) sono
-  sottratte dal conteggio raw e indicate nella colonna "esclusi". Scrive anche un file CSV di riepilogo in
+  di eventuali discrepanze. Le righe escluse di proposito sono sottratte dal
+  conteggio raw e indicate nella colonna "esclusi":
+    - righe filtrate nel merge verso prd (VIES, coordinate bancarie IT/UE o
+      incomplete, record STG cancellati);
+    - righe scritte dagli export nei file <tabella>_discarded.csv (orfani,
+      partner senza riferimento). Scrive anche un file CSV di riepilogo in
   out_source_mdg/reconcile_report.csv.
 depends:
   - prd.export_suppliers_zip
@@ -94,6 +97,21 @@ def get_prd_exclusions(conn, raw_counts: dict[str, int]) -> dict[str, int]:
     return excluded
 
 
+def get_discard_exclusions(raw_tables) -> dict[str, int]:
+    """Righe scritte dagli export in <tabella>_discarded.csv (stesso nome file degli export)."""
+    excluded = {}
+    for table in raw_tables:
+        safe_table = table.replace("#", "_").replace("/", "_")
+        path = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8", newline="") as f:
+            n = sum(1 for _ in csv.reader(f, delimiter=";")) - 1   # esclusa l'intestazione
+        if n > 0:
+            excluded[table] = n
+    return excluded
+
+
 def count_csv_rows(zip_path: str) -> dict[str, int]:
     """
     Conta le righe dati (esclusa l'intestazione) in ogni CSV dentro uno ZIP.
@@ -132,6 +150,9 @@ def main():
         excluded_counts = get_prd_exclusions(conn, raw_counts)
         for table, n in excluded_counts.items():
             log.info("  Esclusi di proposito: %s — %d righe filtrate nel merge verso prd", table, n)
+        for table, n in get_discard_exclusions(raw_counts).items():
+            excluded_counts[table] = excluded_counts.get(table, 0) + n
+            log.info("  Esclusi di proposito: %s — %d righe nel file di scarto", table, n)
 
         # ── 2. Conteggio CSV nei ZIP ─────────────────────────────────────────
         zip_counts: dict[str, int] = {}   # {table: nr_righe_nel_zip}

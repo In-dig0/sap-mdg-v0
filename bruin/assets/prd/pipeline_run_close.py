@@ -27,6 +27,7 @@ depends:
   - stg.ck411_zdm_partner_we
   - stg.ck412_zdm_ruoli
   - stg.ck413_customer_ruoli
+  - stg.ck414_customer_partner_we_sap
   - stg.ck518_add_interlocutore_cli_customer
   - stg.ck519_gestione_credito_customer
   - stg.ck802_customer_vat_vies_summary

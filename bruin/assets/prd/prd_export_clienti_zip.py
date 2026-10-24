@@ -7,11 +7,17 @@ description: >
     - tutte le altre tabelle clienti da schema raw
     - interlocutori e punti di scarico dei clienti, entrati con il flusso
       ZBP-AddInterlocutoreCli (per il quale non viene più generato uno ZIP)
+  In S_CUST_SALES_PARTNER#ZBP-Partner il partner KUNN2(k) è trascodificato con il
+  nuovo codice SAP (PARTNER di ref.SAP_EXPORT_BUT000): destinatari merci tramite
+  BU_SORT2, spedizionieri tramite BU_SORT1. Senza corrispondenza resta il codice originale.
+  Le righe partner senza alcun riferimento (KUNN2, LIFNR, PERNR, PARNR vuoti) sono escluse
+  e scritte negli scarti; il file è ordinato per le colonne chiave.
   Un ZIP separato viene creato per ogni valore distinto di _source
   trovato in prd."S_CUST_GEN#ZBP_DatiGenerali".
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
 depends:
+  - ingestion.ingest_xlsx_to_ref
   - prd.merge_clienti
   - prd.merge_taxnumbers_clienti
   - prd.merge_dati_vendite
@@ -91,6 +97,15 @@ ADD_MOVED_TABLES = [
 ]
 ADD_KEY_COL = "KUNNR(k/*)"
 
+# Trascodifica del partner con i codici assegnati da SAP ai BP già caricati
+PARTNER_TABLE = "S_CUST_SALES_PARTNER#ZBP-Partner"
+PARTNER_COL   = "KUNN2(k)"
+BUT000_TABLE  = "SAP_EXPORT_BUT000"
+# Riferimenti al partner: una riga senza nessuno di questi valori è esclusa dall'output
+PARTNER_REF_COLS = ["KUNN2(k)", "LIFNR(k)", "PERNR(k)", "PARNR(k)"]
+# Ordinamento dell'output: chiave del file
+PARTNER_KEY_COLS = ["KUNNR(k/*)", "VKORG(k/*)", "VTWEG(k/*)", "SPART(k/*)", "PARVW(k/*)"] + PARTNER_REF_COLS
+
 
 def get_connection():
     return psycopg2.connect(**DB_CONFIG)
@@ -150,7 +165,15 @@ def get_orphan_keys(conn, check_id: str) -> set:
 def fetch_table_csv(conn, schema: str, table: str,
                     source_filter: str, cols: list[str],
                     excluded_keys: set | None = None,
-                    fk_col: str | None = None) -> bytes:
+                    fk_col: str | None = None,
+                    value_map: dict[str, dict] | None = None,
+                    drop_if_all_empty: list[str] | None = None,
+                    sort_cols: list[str] | None = None) -> bytes:
+    """
+    value_map:         {colonna: {valore_originale: nuovo_valore}} applicato in uscita.
+    drop_if_all_empty: righe con tutte queste colonne vuote escluse e scritte negli scarti.
+    sort_cols:         ordinamento dell'output (dopo la trascodifica).
+    """
     fqt      = f'{schema}.{q(table)}'
     col_list = ", ".join(q(c) for c in cols)
     with conn.cursor() as cur:
@@ -187,11 +210,58 @@ def fetch_table_csv(conn, schema: str, table: str,
             return ""
         return val
 
+    if value_map:
+        rows = [list(r) for r in rows]
+        for col, mapping in value_map.items():
+            if col not in cols:
+                continue
+            i = cols.index(col)
+            n = 0
+            for r in rows:
+                if r[i] in mapping:
+                    r[i] = mapping[r[i]]
+                    n += 1
+            log.info("  [%s] %s.%s: %d valori trascodificati", col, schema, table, n)
+
+    if drop_if_all_empty:
+        idx  = [cols.index(c) for c in drop_if_all_empty if c in cols]
+        keep = [r for r in rows if any(str(sanitize(r[i])).strip() for i in idx)]
+        dropped = [r for r in rows if not any(str(sanitize(r[i])).strip() for i in idx)]
+        if dropped:
+            write_discarded_rows(table, cols, [tuple(sanitize(v) for v in r) for r in dropped])
+            log.warning("  %s.%s: %d righe senza %s escluse", schema, table, len(dropped), "/".join(drop_if_all_empty))
+        rows = keep
+
+    if sort_cols:
+        idx = [cols.index(c) for c in sort_cols if c in cols]
+        rows = sorted(rows, key=lambda r: tuple(str(sanitize(r[i])) for i in idx))
+
     buf = io.StringIO()
     writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
     writer.writerow(cols)
     writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
     return buf.getvalue().encode("utf-8")
+
+
+def get_but000_map(conn) -> dict[str, str]:
+    """
+    Vecchio codice -> nuovo codice SAP (PARTNER) da ref.SAP_EXPORT_BUT000:
+    destinatari merci tramite BU_SORT2, spedizionieri tramite BU_SORT1.
+    Vuoto se la tabella non è stata caricata.
+    """
+    if not table_exists(conn, "ref", BUT000_TABLE):
+        log.warning(f"  ref.{BUT000_TABLE} non trovata — {PARTNER_COL} non trascodificato")
+        return {}
+    mapping = {}
+    with conn.cursor() as cur:
+        for sort_col in ("BU_SORT2", "BU_SORT1"):
+            cur.execute(
+                f'SELECT {q(sort_col)}, "PARTNER" FROM ref.{q(BUT000_TABLE)} '
+                f'WHERE COALESCE(TRIM({q(sort_col)}), \'\') <> \'\' AND COALESCE("PARTNER", \'\') <> \'\''
+            )
+            for old, new in cur.fetchall():
+                mapping.setdefault(old.strip(), new)
+    return mapping
 
 
 def write_discarded_csv(conn, table: str, source_name: str,
@@ -236,6 +306,19 @@ def write_discarded_csv(conn, table: str, source_name: str,
         "  [DISCARDED] %s: %d record orfani scritti in %s",
         table, len(rows), out_path
     )
+
+
+def write_discarded_rows(table: str, cols: list, rows: list):
+    """Accoda righe escluse a <table>_discarded.csv (intestazione solo se il file è nuovo)."""
+    safe_table = table.replace("#", "_").replace("/", "_")
+    out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+    new_file   = not os.path.exists(out_path)
+    with open(out_path, "a", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
+        if new_file:
+            writer.writerow(cols)
+        writer.writerows(rows)
+    log.warning("  [DISCARDED] %s: %d righe scritte in %s", table, len(rows), out_path)
 
 
 def remove_discarded_csv(tables: list[str]):
@@ -370,6 +453,9 @@ def build_zip(conn, source_name: str) -> bytes:
                 conn, src_schema, raw_table, source_name, raw_cols,
                 excluded_keys=None if _is_master else orphan_keys,
                 fk_col=None if _is_master else "KUNNR(k/*)",
+                value_map={PARTNER_COL: get_but000_map(conn)} if raw_table == PARTNER_TABLE else None,
+                drop_if_all_empty=PARTNER_REF_COLS if raw_table == PARTNER_TABLE else None,
+                sort_cols=PARTNER_KEY_COLS if raw_table == PARTNER_TABLE else None,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:

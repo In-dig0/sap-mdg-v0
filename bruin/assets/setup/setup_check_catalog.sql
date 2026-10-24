@@ -346,6 +346,10 @@ VALUES
      'BP','S_ROLES#ZBP-RuoliClienti','KUNNR(k/*) + BP_ROLE(k/*)',
      'raw.S_CUST_GEN#ZBP-DatiGenerali (KUNNR(k/*))','Error','CROSS_TABLE',TRUE,NOW()),
 
+    ('CK414','Clienti (ZBP-Partner): partner WE valorizzato e destinatario merci con codice SAP in SAP_EXPORT_BUT000',
+     'BP','S_CUST_SALES_PARTNER#ZBP-Partner','KUNN2(k) (PARVW=WE)',
+     'ref.SAP_EXPORT_BUT000 (BU_SORT2)','Warning','CROSS_TABLE',TRUE,NOW()),
+
     -- CROSS_SOURCE — CK501-CK506
     ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X); esclusi MSTAE 01/08',
      'MAT','S_MARC','BESKZ',
