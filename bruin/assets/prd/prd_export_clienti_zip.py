@@ -12,6 +12,8 @@ description: >
   BU_SORT2, spedizionieri tramite BU_SORT1. Senza corrispondenza resta il codice originale.
   Le righe partner senza alcun riferimento (KUNN2, LIFNR, PERNR, PARNR vuoti) sono escluse
   e scritte negli scarti; il file è ordinato per le colonne chiave.
+  Estrazione ristretta (test): se stg.export_filter contiene codici cliente, viene
+  generato anche lo ZIP con i soli clienti indicati in out_source_mdg/test.
   Un ZIP separato viene creato per ogni valore distinto di _source
   trovato in prd."S_CUST_GEN#ZBP_DatiGenerali".
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
@@ -106,6 +108,9 @@ PARTNER_REF_COLS = ["KUNN2(k)", "LIFNR(k)", "PERNR(k)", "PARNR(k)"]
 # Ordinamento dell'output: chiave del file
 PARTNER_KEY_COLS = ["KUNNR(k/*)", "VKORG(k/*)", "VTWEG(k/*)", "SPART(k/*)", "PARVW(k/*)"] + PARTNER_REF_COLS
 
+# Estrazione ristretta (test): codici cliente in stg.export_filter -> ZIP in out_source_mdg/test
+TEST_DIR = os.path.join(OUTPUT_DIR, "test")
+
 
 def get_connection():
     return psycopg2.connect(**DB_CONFIG)
@@ -168,36 +173,33 @@ def fetch_table_csv(conn, schema: str, table: str,
                     fk_col: str | None = None,
                     value_map: dict[str, dict] | None = None,
                     drop_if_all_empty: list[str] | None = None,
-                    sort_cols: list[str] | None = None) -> bytes:
+                    sort_cols: list[str] | None = None,
+                    key_filter: tuple[str, set] | None = None,
+                    write_discards: bool = True) -> bytes:
     """
     value_map:         {colonna: {valore_originale: nuovo_valore}} applicato in uscita.
     drop_if_all_empty: righe con tutte queste colonne vuote escluse e scritte negli scarti.
     sort_cols:         ordinamento dell'output (dopo la trascodifica).
+    key_filter:        (colonna, valori) — solo le righe con quei valori (estrazione ristretta).
+    write_discards:    False nell'estrazione ristretta (non tocca gli scarti dell'output completo).
     """
     fqt      = f'{schema}.{q(table)}'
     col_list = ", ".join(q(c) for c in cols)
+    where    = ['"_source" = %s']
+    params   = [source_filter]
+    # Esclude in SQL i record orfani (solo tabelle secondarie)
+    if excluded_keys and fk_col and fk_col in cols:
+        where.append(f'{q(fk_col)} NOT IN ({",".join(["%s"] * len(excluded_keys))})')
+        params.extend(excluded_keys)
+        log.warning(
+            "  [%s] %s.%s: %d chiavi escluse (orfani o spostate in altro ZIP, _source=%s)",
+            fk_col, schema, table, len(excluded_keys), source_filter
+        )
+    if key_filter and key_filter[0] in cols:
+        where.append(f'{q(key_filter[0])} = ANY(%s)')
+        params.append(sorted(key_filter[1]))
     with conn.cursor() as cur:
-        # Esclude in SQL i record orfani (solo tabelle secondarie)
-        if excluded_keys and fk_col and fk_col in cols:
-            fk_quoted = q(fk_col)
-            placeholders = ",".join(["%s"] * len(excluded_keys))
-            cur.execute(
-                f'SELECT {col_list} FROM {fqt}'
-                f' WHERE "_source" = %s'
-                f' AND {fk_quoted} NOT IN ({placeholders})'
-                f' ORDER BY 1',
-                (source_filter, *excluded_keys)
-            )
-            n_excl = len(excluded_keys)
-            log.warning(
-                "  [%s] %s.%s: %d chiavi escluse (orfani o spostate in altro ZIP, _source=%s)",
-                fk_col, schema, table, n_excl, source_filter
-            )
-        else:
-            cur.execute(
-                f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s ORDER BY 1',
-                (source_filter,)
-            )
+        cur.execute(f'SELECT {col_list} FROM {fqt} WHERE {" AND ".join(where)} ORDER BY 1', params)
         rows = cur.fetchall()
 
     def sanitize(val):
@@ -227,7 +229,7 @@ def fetch_table_csv(conn, schema: str, table: str,
         idx  = [cols.index(c) for c in drop_if_all_empty if c in cols]
         keep = [r for r in rows if any(str(sanitize(r[i])).strip() for i in idx)]
         dropped = [r for r in rows if not any(str(sanitize(r[i])).strip() for i in idx)]
-        if dropped:
+        if dropped and write_discards:
             write_discarded_rows(table, cols, [tuple(sanitize(v) for v in r) for r in dropped])
             log.warning("  %s.%s: %d righe senza %s escluse", schema, table, len(dropped), "/".join(drop_if_all_empty))
         rows = keep
@@ -262,6 +264,50 @@ def get_but000_map(conn) -> dict[str, str]:
             for old, new in cur.fetchall():
                 mapping.setdefault(old.strip(), new)
     return mapping
+
+
+def get_export_filter(conn) -> set:
+    """Codici cliente dell'estrazione ristretta (stg.export_filter); vuoto = nessun filtro."""
+    if not table_exists(conn, "stg", "export_filter"):
+        return set()
+    with conn.cursor() as cur:
+        cur.execute("SELECT TRIM(kunnr) FROM stg.export_filter WHERE COALESCE(TRIM(kunnr), '') <> ''")
+        return {r[0] for r in cur.fetchall()}
+
+
+def get_filter_dm_codes(conn, customers: set) -> set:
+    """Destinatari merci (partner WE) dei clienti dell'estrazione ristretta."""
+    if not customers or not all(table_exists(conn, "raw", t) for t in (PARTNER_TABLE, "S_CUST_GEN#ZDM-DatiGenerali")):
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(
+            f'SELECT DISTINCT p.{q(PARTNER_COL)} FROM raw.{q(PARTNER_TABLE)} p '
+            f'WHERE p."KUNNR(k/*)" = ANY(%s) AND p."PARVW(k/*)" = \'WE\' '
+            f'AND EXISTS (SELECT 1 FROM raw.{q("S_CUST_GEN#ZDM-DatiGenerali")} dm '
+            f'            WHERE dm."KUNNR(k/*)" = p.{q(PARTNER_COL)})',
+            (sorted(customers),),
+        )
+        return {r[0] for r in cur.fetchall()}
+
+
+def write_test_zip(source_name: str, build, keys: set, what: str):
+    """
+    Estrazione ristretta: rimuove lo ZIP di test precedente e, se ci sono chiavi,
+    scrive in TEST_DIR lo ZIP prodotto da build() (solo se contiene almeno un CSV).
+    """
+    test_path = os.path.join(TEST_DIR, source_name)
+    if os.path.exists(test_path):
+        os.remove(test_path)
+    if not keys:
+        return
+    zip_bytes = build()
+    if not zipfile.ZipFile(io.BytesIO(zip_bytes)).namelist():
+        log.info(f"  [TEST] {source_name}: nessuna riga per {what} {sorted(keys)} — ZIP non generato")
+        return
+    os.makedirs(TEST_DIR, exist_ok=True)
+    with open(test_path, "wb") as f:
+        f.write(zip_bytes)
+    log.info(f"  [TEST] ✓  {test_path}  ({what}: {sorted(keys)})")
 
 
 def write_discarded_csv(conn, table: str, source_name: str,
@@ -345,7 +391,7 @@ def table_exists(conn, schema: str, table: str) -> bool:
 
 
 def fetch_add_rows_csv(conn, table: str, master_table: str, source_name: str,
-                       exclude_master: str | None = None) -> bytes:
+                       exclude_master: str | None = None, key_filter: set | None = None) -> bytes:
     """
     Righe di una tabella del flusso ZBP-AddInterlocutoreCli relative ai clienti
     dell'anagrafica raw master_table con lo stesso _source dello ZIP in costruzione.
@@ -358,15 +404,17 @@ def fetch_add_rows_csv(conn, table: str, master_table: str, source_name: str,
         f'AND NOT EXISTS (SELECT 1 FROM raw.{q(exclude_master)} ex WHERE ex.{k} = x.{k}) '
         if exclude_master else ""
     )
+    only     = f'AND x.{k} = ANY(%s) ' if key_filter else ""
+    params   = [f"%{ADD_FLOW}%", source_name] + ([sorted(key_filter)] if key_filter else [])
     with conn.cursor() as cur:
         cur.execute(
             f'SELECT {col_list} FROM raw.{q(table)} x '
             f'WHERE x."_source" ILIKE %s '
             f'AND EXISTS (SELECT 1 FROM raw.{q(master_table)} mst '
             f'            WHERE mst.{k} = x.{k} AND mst."_source" = %s) '
-            f'{exclude}'
+            f'{exclude}{only}'
             f'ORDER BY 1',
-            (f"%{ADD_FLOW}%", source_name),
+            params,
         )
         rows = cur.fetchall()
 
@@ -383,14 +431,14 @@ def fetch_add_rows_csv(conn, table: str, master_table: str, source_name: str,
 
 
 def write_add_tables(conn, zf, master_table: str, source_name: str,
-                     exclude_master: str | None = None):
+                     exclude_master: str | None = None, key_filter: set | None = None):
     """Aggiunge allo ZIP interlocutori e punti di scarico dei clienti di master_table."""
     required = ADD_MOVED_TABLES + [master_table] + ([exclude_master] if exclude_master else [])
     if not all(table_exists(conn, "raw", t) for t in required):
         log.info(f"  Flusso {ADD_FLOW} non caricato — nessun interlocutore/punto di scarico")
         return
     for table in ADD_MOVED_TABLES:
-        csv_bytes = fetch_add_rows_csv(conn, table, master_table, source_name, exclude_master)
+        csv_bytes = fetch_add_rows_csv(conn, table, master_table, source_name, exclude_master, key_filter)
         n_rows = csv_bytes.count(b"\r\n") - 1
         if n_rows <= 0:
             log.info(f"  raw.{table} ({ADD_FLOW}): 0 righe — skip")
@@ -399,8 +447,10 @@ def write_add_tables(conn, zf, master_table: str, source_name: str,
         log.info(f"  + raw.{table} ({ADD_FLOW}): {n_rows} righe")
 
 
-def build_zip(conn, source_name: str) -> bytes:
+def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
+    """key_filter: codici cliente dell'estrazione ristretta (None = output completo)."""
     buf = io.BytesIO()
+    kf  = ("KUNNR(k/*)", key_filter) if key_filter else None
 
     # Carica le chiavi orfane (CK404) — solo tabelle secondarie raw
     orphan_keys = get_orphan_keys(conn, "CK404")
@@ -419,7 +469,7 @@ def build_zip(conn, source_name: str) -> bytes:
         for prd_schema, prd_table in PRD_TABLES:
             prd_cols = get_columns(conn, prd_schema, prd_table)
             if prd_cols:
-                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols)
+                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols, key_filter=kf)
                 n_rows = csv_bytes.count(b"\r\n") - 1
                 if n_rows <= 0:
                     log.info(f"  {prd_schema}.{prd_table}: 0 righe per '{source_name}' — skip")
@@ -446,7 +496,7 @@ def build_zip(conn, source_name: str) -> bytes:
                 continue
 
             _is_master = raw_table in {'S_CUST_GEN#ZBP-DatiGenerali'}
-            if not _is_master and orphan_keys:
+            if not _is_master and orphan_keys and not key_filter:
                 write_discarded_csv(conn, raw_table, source_name,
                                    raw_cols, orphan_keys, "KUNNR(k/*)")
             csv_bytes = fetch_table_csv(
@@ -456,6 +506,8 @@ def build_zip(conn, source_name: str) -> bytes:
                 value_map={PARTNER_COL: get_but000_map(conn)} if raw_table == PARTNER_TABLE else None,
                 drop_if_all_empty=PARTNER_REF_COLS if raw_table == PARTNER_TABLE else None,
                 sort_cols=PARTNER_KEY_COLS if raw_table == PARTNER_TABLE else None,
+                key_filter=kf,
+                write_discards=not key_filter,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
@@ -466,7 +518,7 @@ def build_zip(conn, source_name: str) -> bytes:
             log.info(f"  + {src_schema}.{raw_table}: {n_rows} righe")
 
         # 3. Interlocutori e punti di scarico dei clienti entrati con il flusso ZBP-AddInterlocutoreCli
-        write_add_tables(conn, zf, "S_CUST_GEN#ZBP-DatiGenerali", source_name)
+        write_add_tables(conn, zf, "S_CUST_GEN#ZBP-DatiGenerali", source_name, key_filter=key_filter)
 
     buf.seek(0)
     return buf.read()
@@ -493,6 +545,12 @@ def main():
                 f.write(zip_bytes)
             size_kb = len(zip_bytes) / 1024
             log.info(f"  ✓  {output_path}  ({size_kb:.1f} KB)")
+
+        # Estrazione ristretta (test): solo i clienti di stg.export_filter
+        customers = get_export_filter(conn)
+        for source_name in sources:
+            write_test_zip(source_name, lambda: build_zip(conn, source_name, key_filter=customers),
+                           customers, "clienti")
 
     finally:
         conn.close()

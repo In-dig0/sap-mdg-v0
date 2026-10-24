@@ -11,6 +11,8 @@ description: >
       sono esportati negli ZIP delle anagrafiche (prd.export_clienti_zip e
       prd.export_dest_merci_zip); qui si scrivono solo gli scarti e si rimuove
       lo ZIP di output del flusso eventualmente rimasto da run precedenti.
+  Estrazione ristretta (test): se stg.export_filter contiene codici cliente, viene
+  generato anche lo ZIP della gestione credito dei soli clienti indicati in out_source_mdg/test.
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
   e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.csv.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
@@ -28,6 +30,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import (
     OUTPUT_DIR, get_connection, q, get_columns, table_exists,
     fetch_table_csv, write_discarded_csv, remove_discarded_csv, ADD_FLOW,
+    get_export_filter, write_test_zip,
 )
 
 logging.basicConfig(
@@ -121,7 +124,8 @@ def remove_flow_zips(flow: str):
             log.info(f"  Rimosso ZIP di output non più generato: {name}")
 
 
-def build_zip(conn, source_name: str, tables: list[str]) -> bytes:
+def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None = None) -> bytes:
+    """key_filter: codici cliente dell'estrazione ristretta (None = output completo)."""
     buf = io.BytesIO()
 
     orphan_keys = get_orphan_keys(conn, source_name, tables)
@@ -144,11 +148,13 @@ def build_zip(conn, source_name: str, tables: list[str]) -> bytes:
                 log.warning(f"  SKIP raw.{raw_table} — nessuna colonna")
                 continue
 
-            if orphan_keys:
+            if orphan_keys and not key_filter:
                 write_discarded_csv(conn, raw_table, source_name, raw_cols, orphan_keys, KEY_COL)
             csv_bytes = fetch_table_csv(
                 conn, "raw", raw_table, source_name, raw_cols,
                 excluded_keys=orphan_keys or None, fk_col=KEY_COL,
+                key_filter=(KEY_COL, key_filter) if key_filter else None,
+                write_discards=not key_filter,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
@@ -184,6 +190,10 @@ def main():
                 with open(output_path, "wb") as f:
                     f.write(zip_bytes)
                 log.info(f"  ✓  {output_path}  ({len(zip_bytes) / 1024:.1f} KB)")
+                # Estrazione ristretta (test): solo i clienti di stg.export_filter
+                customers = get_export_filter(conn)
+                write_test_zip(source_name, lambda: build_zip(conn, source_name, tables, key_filter=customers),
+                               customers, "clienti")
     finally:
         conn.close()
 

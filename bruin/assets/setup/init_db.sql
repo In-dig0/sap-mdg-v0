@@ -88,3 +88,14 @@ CREATE INDEX IF NOT EXISTS idx_check_results_run_id
     ON stg.check_results (run_id);
 CREATE INDEX IF NOT EXISTS idx_check_results_created_at
     ON stg.check_results (created_at DESC);
+
+-- =============================================================================
+-- stg.export_filter — estrazione ristretta (test): codici cliente da esportare
+-- Se contiene righe, gli export generano anche ZIP ristretti in out_source_mdg/test.
+-- Gestita dalla pagina Gestione Pipeline (API /db/export-filter).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS stg.export_filter (
+    kunnr           VARCHAR(20)  NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_export_filter PRIMARY KEY (kunnr)
+);

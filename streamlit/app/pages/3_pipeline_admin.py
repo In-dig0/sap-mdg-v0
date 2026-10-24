@@ -176,6 +176,26 @@ def api_delete_raw_source(source: str):
     except Exception as e:
         return None, str(e)
 
+def api_get_export_filter():
+    """GET /db/export-filter — codici cliente dell'estrazione ristretta."""
+    try:
+        r = requests.get(f"{API_BASE}/db/export-filter", timeout=10)
+        r.raise_for_status()
+        return r.json().get("kunnr", []), None
+    except Exception as e:
+        return [], str(e)
+
+def api_set_export_filter(codes: list[str]):
+    """PUT /db/export-filter — sostituisce l'elenco (lista vuota = filtro disattivato)."""
+    try:
+        r = requests.put(f"{API_BASE}/db/export-filter", json={"kunnr": codes}, timeout=10)
+        r.raise_for_status()
+        return r.json().get("kunnr", []), None
+    except requests.HTTPError as e:
+        return None, e.response.json().get("detail", str(e))
+    except Exception as e:
+        return None, str(e)
+
 @st.dialog("Elimina dati dal database")
 def confirm_delete_raw_source(src: dict):
     st.write(f"Vuoi eliminare dal database tutti i dati caricati dal file **{src['source']}**?")
@@ -318,6 +338,48 @@ tab_ctrl, tab_sftp, tab_storico, tab_log_file = st.tabs([
 # TAB 1 — CONTROLLO
 # ===========================================================================
 with tab_ctrl:
+
+    st.divider()
+
+    # ── 1. Estrazione ristretta (test) ───────────────────────────────────
+    st.subheader("🧪 Estrazione ristretta (test)")
+    st.caption(
+        "Se l'elenco contiene codici cliente, la pipeline genera **anche** gli ZIP con i soli clienti indicati "
+        "(con i loro destinatari merci e la gestione credito) nella cartella **out_source_mdg/test**. "
+        "Gli ZIP completi in out_source_mdg non cambiano. Elenco vuoto = nessuna estrazione ristretta."
+    )
+    filter_codes, filter_err = api_get_export_filter()
+    if filter_err:
+        st.warning(f"Impossibile leggere l'elenco: {filter_err}")
+    else:
+        if filter_codes:
+            st.info(f"Estrazione ristretta **attiva** — {len(filter_codes)} clienti: {', '.join(filter_codes)}")
+        else:
+            st.caption("Estrazione ristretta non attiva.")
+        edited = st.data_editor(
+            pd.DataFrame({"Codice cliente (KUNNR)": filter_codes}, dtype="string"),
+            num_rows="dynamic",
+            hide_index=True,
+            key=f"export_filter_editor_{st.session_state.get('export_filter_ver', 0)}",
+            column_config={"Codice cliente (KUNNR)": st.column_config.TextColumn(
+                help="Codice cliente come nel file ERP, con gli zeri iniziali (es. 07010005)")},
+        )
+        col_save, col_clear, _ = st.columns([1, 1, 4])
+        if col_save.button("💾 Salva elenco", type="primary"):
+            codes = [str(c).strip() for c in edited["Codice cliente (KUNNR)"].dropna() if str(c).strip()]
+            saved, err = api_set_export_filter(codes)
+            if err:
+                st.error(f"Errore salvataggio: {err}")
+            else:
+                st.session_state["export_filter_ver"] = st.session_state.get("export_filter_ver", 0) + 1
+                st.rerun()
+        if col_clear.button("🧹 Svuota elenco", disabled=not filter_codes):
+            _, err = api_set_export_filter([])
+            if err:
+                st.error(f"Errore: {err}")
+            else:
+                st.session_state["export_filter_ver"] = st.session_state.get("export_filter_ver", 0) + 1
+                st.rerun()
 
     st.divider()
 

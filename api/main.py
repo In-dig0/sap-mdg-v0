@@ -39,6 +39,8 @@ FOLDER_REGISTRY: dict[str, dict] = {
     "sap":     {"path": lambda: SAP_PATH,                    "label": "in_source_sap",     "semaphore": False, "readonly": False},
     "others":  {"path": lambda: OTHERS_PATH,                 "label": "in_source_others",  "semaphore": False, "readonly": False},
     "out_mdg": {"path": lambda: OUT_MDG_PATH,                "label": "out_source_mdg",    "semaphore": False, "readonly": False},
+    # ZIP dell'estrazione ristretta (test), generati se stg.export_filter contiene codici
+    "out_mdg_test": {"path": lambda: OUT_MDG_PATH / "test",  "label": "out_source_mdg/test", "semaphore": False, "readonly": False},
 }
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -750,6 +752,23 @@ def delete_out_mdg_file(filename: str):
 def delete_all_out_mdg_files():
     return _delete_all_files("out_mdg")
 
+# ── Endpoints per cartella out_mdg_test (out_source_mdg/test) — estrazione ristretta ──
+
+@app.get("/files/out_mdg_test", tags=["File"])
+def list_out_mdg_test():
+    """Lista gli ZIP dell'estrazione ristretta (test). Cartella vuota se non ancora creata."""
+    if not (OUT_MDG_PATH / "test").exists():
+        return {"path": str(OUT_MDG_PATH / "test"), "count": 0, "files": []}
+    return _list_folder("out_mdg_test")
+
+@app.delete("/files/out_mdg_test/{filename}", tags=["File"])
+def delete_out_mdg_test_file(filename: str):
+    return _delete_file("out_mdg_test", filename)
+
+@app.delete("/files/out_mdg_test", tags=["File"])
+def delete_all_out_mdg_test_files():
+    return _delete_all_files("out_mdg_test")
+
 # ---------------------------------------------------------------------------
 # Endpoints DB — Gestione tabelle PostgreSQL
 # ---------------------------------------------------------------------------
@@ -1013,6 +1032,55 @@ def _raw_tables_with_source(cur) -> list[str]:
         ORDER BY table_name
     """)
     return [r[0] for r in cur.fetchall()]
+
+
+# ── Estrazione ristretta (test): elenco codici cliente in stg.export_filter ──
+
+EXPORT_FILTER_DDL = """
+    CREATE TABLE IF NOT EXISTS stg.export_filter (
+        kunnr      VARCHAR(20) NOT NULL,
+        created_at TIMESTAMP   NOT NULL DEFAULT NOW(),
+        CONSTRAINT pk_export_filter PRIMARY KEY (kunnr)
+    )
+"""
+
+
+class ExportFilterRequest(BaseModel):
+    kunnr: list[str]
+
+
+@app.get("/db/export-filter", tags=["Database"])
+def get_export_filter():
+    """Codici cliente dell'estrazione ristretta (vuoto = nessun filtro)."""
+    try:
+        conn = get_db_connection()
+        with conn, conn.cursor() as cur:
+            cur.execute("CREATE SCHEMA IF NOT EXISTS stg")
+            cur.execute(EXPORT_FILTER_DDL)
+            cur.execute("SELECT kunnr FROM stg.export_filter ORDER BY kunnr")
+            codes = [r[0] for r in cur.fetchall()]
+        conn.close()
+        return {"kunnr": codes}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante la lettura del filtro di estrazione: {e}")
+
+
+@app.put("/db/export-filter", tags=["Database"])
+def set_export_filter(req: ExportFilterRequest):
+    """Sostituisce l'elenco dei codici cliente dell'estrazione ristretta (lista vuota = filtro disattivato)."""
+    codes = sorted({c.strip() for c in req.kunnr if c and c.strip()})
+    try:
+        conn = get_db_connection()
+        with conn, conn.cursor() as cur:
+            cur.execute("CREATE SCHEMA IF NOT EXISTS stg")
+            cur.execute(EXPORT_FILTER_DDL)
+            cur.execute("DELETE FROM stg.export_filter")
+            if codes:
+                psycopg2.extras.execute_values(cur, "INSERT INTO stg.export_filter (kunnr) VALUES %s", [(c,) for c in codes])
+        conn.close()
+        return {"kunnr": codes}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante il salvataggio del filtro di estrazione: {e}")
 
 
 @app.get("/db/raw/sources", tags=["Database"])
