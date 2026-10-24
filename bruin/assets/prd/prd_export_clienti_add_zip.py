@@ -13,11 +13,15 @@ description: >
       (prd.export_clienti_zip e prd.export_dest_merci_zip): qui solo i loro scarti.
   Estrazione ristretta (test): se stg.export_filter contiene codici cliente, vengono
   generati anche gli ZIP dei soli clienti indicati in out_source_mdg/test.
+  KUNNR(k/*) è trascodificato con il codice SAP (PARTNER di ref.SAP_EXPORT_BUT000,
+  tramite BU_SORT2): questi ZIP si caricano quando clienti e DM esistono già in SAP.
+  Senza corrispondenza resta il codice originale.
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
   e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.csv.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
 depends:
   - ingestion.ingest_zip_to_raw
+  - ingestion.ingest_xlsx_to_ref
 @bruin """
 
 import os
@@ -30,7 +34,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import (
     OUTPUT_DIR, get_connection, q, get_columns, table_exists,
     fetch_table_csv, write_discarded_csv, remove_discarded_csv, ADD_FLOW, ADD_MOVED_TABLES,
-    get_export_filter, write_test_zip,
+    get_export_filter, write_test_zip, get_but000_map,
 )
 
 logging.basicConfig(
@@ -115,6 +119,8 @@ def write_discards(conn, source_name: str, tables: list[str]):
 def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None = None) -> bytes:
     """key_filter: codici cliente dell'estrazione ristretta (None = output completo)."""
     buf = io.BytesIO()
+    # Clienti e DM già caricati in SAP: KUNNR con il nuovo codice (BUT000, BU_SORT2)
+    sap_codes = get_but000_map(conn, sort_cols=("BU_SORT2",))
 
     orphan_keys = get_orphan_keys(conn, source_name, tables)
     if orphan_keys:
@@ -143,6 +149,7 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
                 excluded_keys=orphan_keys or None, fk_col=KEY_COL,
                 key_filter=(KEY_COL, key_filter) if key_filter else None,
                 write_discards=not key_filter,
+                value_map={KEY_COL: sap_codes},
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:

@@ -11,6 +11,8 @@ description: >
   (spedizioniere) e il partner KUNN2(k) è trascodificato con il
   nuovo codice SAP (PARTNER di ref.SAP_EXPORT_BUT000): destinatari merci tramite
   BU_SORT2, spedizionieri tramite BU_SORT1. Senza corrispondenza resta il codice originale.
+  Non sono trascodificati i riferimenti al cliente stesso (KUNN2 = KUNNR): il file crea il
+  cliente con il codice originale.
   Le righe partner senza alcun riferimento (KUNN2, LIFNR, PERNR, PARNR vuoti) sono escluse
   e scritte negli scarti; il file è ordinato per le colonne chiave.
   Estrazione ristretta (test): se stg.export_filter contiene codici cliente, viene
@@ -176,12 +178,14 @@ def fetch_table_csv(conn, schema: str, table: str,
                     excluded_keys: set | None = None,
                     fk_col: str | None = None,
                     value_map: dict[str, dict] | None = None,
+                    value_map_skip_if_equal: dict[str, str] | None = None,
                     drop_if_all_empty: list[str] | None = None,
                     sort_cols: list[str] | None = None,
                     key_filter: tuple[str, set] | None = None,
                     write_discards: bool = True) -> bytes:
     """
     value_map:         {colonna: {valore_originale: nuovo_valore}} applicato in uscita.
+    value_map_skip_if_equal: {colonna: altra_colonna} — non trascodifica se i due valori coincidono.
     drop_if_all_empty: righe con tutte queste colonne vuote escluse e scritte negli scarti.
     sort_cols:         ordinamento dell'output (dopo la trascodifica).
     key_filter:        (colonna, valori) — solo le righe con quei valori (estrazione ristretta).
@@ -222,8 +226,12 @@ def fetch_table_csv(conn, schema: str, table: str,
             if col not in cols:
                 continue
             i = cols.index(col)
+            skip = (value_map_skip_if_equal or {}).get(col)
+            j = cols.index(skip) if skip in cols else None
             n = 0
             for r in rows:
+                if j is not None and r[i] == r[j]:
+                    continue
                 if r[i] in mapping:
                     r[i] = mapping[r[i]]
                     n += 1
@@ -249,18 +257,18 @@ def fetch_table_csv(conn, schema: str, table: str,
     return buf.getvalue().encode("utf-8")
 
 
-def get_but000_map(conn) -> dict[str, str]:
+def get_but000_map(conn, sort_cols: tuple = ("BU_SORT2", "BU_SORT1")) -> dict[str, str]:
     """
     Vecchio codice -> nuovo codice SAP (PARTNER) da ref.SAP_EXPORT_BUT000:
-    destinatari merci tramite BU_SORT2, spedizionieri tramite BU_SORT1.
-    Vuoto se la tabella non è stata caricata.
+    clienti e destinatari merci tramite BU_SORT2, spedizionieri tramite BU_SORT1.
+    sort_cols: colonne usate, in ordine di priorità. Vuoto se la tabella non è stata caricata.
     """
     if not table_exists(conn, "ref", BUT000_TABLE):
         log.warning(f"  ref.{BUT000_TABLE} non trovata — {PARTNER_COL} non trascodificato")
         return {}
     mapping = {}
     with conn.cursor() as cur:
-        for sort_col in ("BU_SORT2", "BU_SORT1"):
+        for sort_col in sort_cols:
             cur.execute(
                 f'SELECT {q(sort_col)}, "PARTNER" FROM ref.{q(BUT000_TABLE)} '
                 f'WHERE COALESCE(TRIM({q(sort_col)}), \'\') <> \'\' AND COALESCE("PARTNER", \'\') <> \'\''
@@ -494,6 +502,7 @@ def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
                 fk_col=None if _is_master else "KUNNR(k/*)",
                 value_map={PARTNER_COL: get_but000_map(conn), PARVW_COL: PARVW_MAP}
                           if raw_table == PARTNER_TABLE else None,
+                value_map_skip_if_equal={PARTNER_COL: "KUNNR(k/*)"} if raw_table == PARTNER_TABLE else None,
                 drop_if_all_empty=PARTNER_REF_COLS if raw_table == PARTNER_TABLE else None,
                 sort_cols=PARTNER_KEY_COLS if raw_table == PARTNER_TABLE else None,
                 key_filter=kf,
