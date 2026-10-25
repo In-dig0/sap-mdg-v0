@@ -17,6 +17,8 @@ description: >
   e scritte negli scarti; il file è ordinato per le colonne chiave.
   Estrazione ristretta (test): se stg.export_filter contiene codici cliente, viene
   generato anche lo ZIP con i soli clienti indicati in out_source_mdg/test.
+  I clienti già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT2) sono esclusi da tutte le
+  tabelle: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP non è generato.
   Un ZIP separato viene creato per ogni valore distinto di _source
   trovato in prd."S_CUST_GEN#ZBP_DatiGenerali".
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
@@ -200,7 +202,7 @@ def fetch_table_csv(conn, schema: str, table: str,
         where.append(f'{q(fk_col)} NOT IN ({",".join(["%s"] * len(excluded_keys))})')
         params.extend(excluded_keys)
         log.warning(
-            "  [%s] %s.%s: %d chiavi escluse (orfani o spostate in altro ZIP, _source=%s)",
+            "  [%s] %s.%s: %d chiavi escluse (orfani o BP già in SAP, _source=%s)",
             fk_col, schema, table, len(excluded_keys), source_filter
         )
     if key_filter and key_filter[0] in cols:
@@ -287,6 +289,15 @@ def get_export_filter(conn) -> set:
         return {r[0] for r in cur.fetchall()}
 
 
+def get_exclude_add(conn) -> set:
+    """Clienti con dati aggiuntivi già caricati in SAP (stg.export_exclude_add): esclusi da 03b e 07a."""
+    if not table_exists(conn, "stg", "export_exclude_add"):
+        return set()
+    with conn.cursor() as cur:
+        cur.execute("SELECT TRIM(kunnr) FROM stg.export_exclude_add WHERE COALESCE(TRIM(kunnr), '') <> ''")
+        return {r[0] for r in cur.fetchall()}
+
+
 def write_test_zip(source_name: str, build, keys: set, what: str):
     """
     Estrazione ristretta: rimuove lo ZIP di test precedente e, se ci sono chiavi,
@@ -305,6 +316,60 @@ def write_test_zip(source_name: str, build, keys: set, what: str):
     with open(test_path, "wb") as f:
         f.write(zip_bytes)
     log.info(f"  [TEST] ✓  {test_path}  ({what}: {sorted(keys)})")
+
+
+def already_in_sap_rows(conn, schema: str, table: str, source_name: str,
+                        key_col: str, sap_map: dict[str, str]) -> list[tuple]:
+    """
+    Righe di una tabella (per _source) dei BP già presenti in SAP (chiave in sap_map):
+    [(tabella, codice, codice_sap, n_righe)]. Le righe sono escluse dallo ZIP.
+    """
+    if not sap_map or key_col not in get_columns(conn, schema, table):
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            f'SELECT {q(key_col)}, COUNT(*) FROM {schema}.{q(table)} '
+            f'WHERE "_source" = %s AND {q(key_col)} = ANY(%s) GROUP BY 1 ORDER BY 1',
+            (source_name, sorted(sap_map)),
+        )
+        return [(table, code, sap_map[code], n) for code, n in cur.fetchall()]
+
+
+def already_in_sap_path(source_name: str) -> str:
+    """Riepilogo dei BP esclusi da uno ZIP perché già in SAP: <nome ZIP>_gia_in_SAP.csv."""
+    return os.path.join(OUTPUT_DIR, f"{os.path.splitext(source_name)[0]}_gia_in_SAP.csv")
+
+
+def write_already_in_sap(source_name: str, entries: list[tuple], csv_names: dict | None = None):
+    """
+    Scrive (o rimuove, se non ci sono esclusioni) il riepilogo dei BP già in SAP esclusi
+    dallo ZIP: TABELLA;CODICE;CODICE_SAP;RIGHE. TABELLA è il nome del CSV nello ZIP.
+    """
+    path = already_in_sap_path(source_name)
+    if os.path.exists(path):
+        os.remove(path)
+    if not entries:
+        return
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
+        writer.writerow(["TABELLA", "CODICE", "CODICE_SAP", "RIGHE"])
+        writer.writerows([((csv_names or {}).get(t, t), c, s, n) for t, c, s, n in entries])
+    codes = sorted({c for _, c, _, _ in entries})
+    log.info("  [GIA' IN SAP] %d BP esclusi da '%s' (%d righe): riepilogo in %s",
+             len(codes), source_name, sum(n for *_, n in entries), path)
+
+
+def write_output_zip(source_name: str, zip_bytes: bytes):
+    """Scrive lo ZIP di output; se non contiene CSV (es. tutti i BP già in SAP) rimuove quello precedente."""
+    output_path = os.path.join(OUTPUT_DIR, source_name)
+    if not zipfile.ZipFile(io.BytesIO(zip_bytes)).namelist():
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        log.info(f"  ✗  {source_name}: nessuna riga da esportare (BP già in SAP) — ZIP non generato")
+        return
+    with open(output_path, "wb") as f:
+        f.write(zip_bytes)
+    log.info(f"  ✓  {output_path}  ({len(zip_bytes) / 1024:.1f} KB)")
 
 
 def write_discarded_csv(conn, table: str, source_name: str,
@@ -388,7 +453,8 @@ def table_exists(conn, schema: str, table: str) -> bool:
 
 
 def fetch_add_rows_csv(conn, table: str, master_table: str, source_name: str,
-                       exclude_master: str | None = None, key_filter: set | None = None) -> bytes:
+                       exclude_master: str | None = None, key_filter: set | None = None,
+                       skip_keys: set | None = None) -> bytes:
     """
     Righe di una tabella del flusso ZBP-AddInterlocutoreCli relative ai clienti
     dell'anagrafica raw master_table con lo stesso _source dello ZIP in costruzione.
@@ -402,14 +468,17 @@ def fetch_add_rows_csv(conn, table: str, master_table: str, source_name: str,
         if exclude_master else ""
     )
     only     = f'AND x.{k} = ANY(%s) ' if key_filter else ""
-    params   = [f"%{ADD_FLOW}%", source_name] + ([sorted(key_filter)] if key_filter else [])
+    skip     = f'AND NOT (x.{k} = ANY(%s)) ' if skip_keys else ""
+    params   = ([f"%{ADD_FLOW}%", source_name]
+                + ([sorted(key_filter)] if key_filter else [])
+                + ([sorted(skip_keys)] if skip_keys else []))
     with conn.cursor() as cur:
         cur.execute(
             f'SELECT {col_list} FROM raw.{q(table)} x '
             f'WHERE x."_source" ILIKE %s '
             f'AND EXISTS (SELECT 1 FROM raw.{q(master_table)} mst '
             f'            WHERE mst.{k} = x.{k} AND mst."_source" = %s) '
-            f'{exclude}{only}'
+            f'{exclude}{only}{skip}'
             f'ORDER BY 1',
             params,
         )
@@ -428,26 +497,55 @@ def fetch_add_rows_csv(conn, table: str, master_table: str, source_name: str,
 
 
 def write_add_tables(conn, zf, master_table: str, source_name: str,
-                     exclude_master: str | None = None, key_filter: set | None = None):
-    """Aggiunge allo ZIP le tabelle ADD_MOVED_TABLES (punti di scarico) dei clienti di master_table."""
+                     exclude_master: str | None = None, key_filter: set | None = None,
+                     sap_map: dict | None = None) -> list[tuple]:
+    """
+    Aggiunge allo ZIP le tabelle ADD_MOVED_TABLES (punti di scarico) dei clienti di master_table,
+    esclusi i BP già in SAP (sap_map). Ritorna le righe escluse come already_in_sap_rows.
+    """
     required = ADD_MOVED_TABLES + [master_table] + ([exclude_master] if exclude_master else [])
     if not all(table_exists(conn, "raw", t) for t in required):
         log.info(f"  Flusso {ADD_FLOW} non caricato — nessun punto di scarico")
-        return
+        return []
+    excluded = []
     for table in ADD_MOVED_TABLES:
-        csv_bytes = fetch_add_rows_csv(conn, table, master_table, source_name, exclude_master, key_filter)
+        if sap_map:
+            # righe dei BP già in SAP: stesso perimetro (anagrafica di questo ZIP), contate per il riepilogo
+            with conn.cursor() as cur:
+                cur.execute(
+                    f'SELECT x.{q(ADD_KEY_COL)}, COUNT(*) FROM raw.{q(table)} x '
+                    f'WHERE x."_source" ILIKE %s AND x.{q(ADD_KEY_COL)} = ANY(%s) '
+                    f'AND EXISTS (SELECT 1 FROM raw.{q(master_table)} mst '
+                    f'            WHERE mst.{q(ADD_KEY_COL)} = x.{q(ADD_KEY_COL)} AND mst."_source" = %s) '
+                    + (f'AND NOT EXISTS (SELECT 1 FROM raw.{q(exclude_master)} ex '
+                       f'                WHERE ex.{q(ADD_KEY_COL)} = x.{q(ADD_KEY_COL)}) ' if exclude_master else '')
+                    + 'GROUP BY 1',
+                    (f"%{ADD_FLOW}%", sorted(sap_map), source_name),
+                )
+                excluded += [(table, c, sap_map[c], n) for c, n in cur.fetchall()]
+        csv_bytes = fetch_add_rows_csv(conn, table, master_table, source_name, exclude_master, key_filter,
+                                       skip_keys=set(sap_map) if sap_map else None)
         n_rows = csv_bytes.count(b"\r\n") - 1
         if n_rows <= 0:
             log.info(f"  raw.{table} ({ADD_FLOW}): 0 righe — skip")
             continue
         zf.writestr(f"{table}.csv", csv_bytes)
         log.info(f"  + raw.{table} ({ADD_FLOW}): {n_rows} righe")
+    return excluded
 
 
-def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
-    """key_filter: codici cliente dell'estrazione ristretta (None = output completo)."""
+def build_zip(conn, source_name: str, key_filter: set | None = None,
+              excluded_out: list | None = None) -> bytes:
+    """
+    key_filter:   codici cliente dell'estrazione ristretta (None = output completo).
+    excluded_out: se passata, riceve le righe escluse perché il cliente è già in SAP.
+    """
     buf = io.BytesIO()
     kf  = ("KUNNR(k/*)", key_filter) if key_filter else None
+    # Clienti già creati in SAP (BUT000, BU_SORT2): esclusi da tutte le tabelle dello ZIP
+    sap_map  = get_but000_map(conn, sort_cols=("BU_SORT2",))
+    sap_keys = set(sap_map)
+    excluded = []
 
     # Carica le chiavi orfane (CK404) — solo tabelle secondarie raw
     orphan_keys = get_orphan_keys(conn, "CK404")
@@ -466,7 +564,9 @@ def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
         for prd_schema, prd_table in PRD_TABLES:
             prd_cols = get_columns(conn, prd_schema, prd_table)
             if prd_cols:
-                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols, key_filter=kf)
+                excluded += already_in_sap_rows(conn, prd_schema, prd_table, source_name, "KUNNR(k/*)", sap_map)
+                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols, key_filter=kf,
+                                            excluded_keys=sap_keys or None, fk_col="KUNNR(k/*)")
                 n_rows = csv_bytes.count(b"\r\n") - 1
                 if n_rows <= 0:
                     log.info(f"  {prd_schema}.{prd_table}: 0 righe per '{source_name}' — skip")
@@ -496,10 +596,11 @@ def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
             if not _is_master and orphan_keys and not key_filter:
                 write_discarded_csv(conn, raw_table, source_name,
                                    raw_cols, orphan_keys, "KUNNR(k/*)")
+            excluded += already_in_sap_rows(conn, src_schema, raw_table, source_name, "KUNNR(k/*)", sap_map)
             csv_bytes = fetch_table_csv(
                 conn, src_schema, raw_table, source_name, raw_cols,
-                excluded_keys=None if _is_master else orphan_keys,
-                fk_col=None if _is_master else "KUNNR(k/*)",
+                excluded_keys=(sap_keys if _is_master else orphan_keys | sap_keys) or None,
+                fk_col="KUNNR(k/*)",
                 value_map={PARTNER_COL: get_but000_map(conn), PARVW_COL: PARVW_MAP}
                           if raw_table == PARTNER_TABLE else None,
                 value_map_skip_if_equal={PARTNER_COL: "KUNNR(k/*)"} if raw_table == PARTNER_TABLE else None,
@@ -517,8 +618,11 @@ def build_zip(conn, source_name: str, key_filter: set | None = None) -> bytes:
             log.info(f"  + {src_schema}.{raw_table}: {n_rows} righe")
 
         # 3. Punti di scarico dei clienti entrati con il flusso ZBP-AddInterlocutoreCli
-        write_add_tables(conn, zf, "S_CUST_GEN#ZBP-DatiGenerali", source_name, key_filter=key_filter)
+        excluded += write_add_tables(conn, zf, "S_CUST_GEN#ZBP-DatiGenerali", source_name,
+                                     key_filter=key_filter, sap_map=sap_map)
 
+    if excluded_out is not None:
+        excluded_out.extend(excluded)
     buf.seek(0)
     return buf.read()
 
@@ -538,12 +642,10 @@ def main():
 
         for source_name in sources:
             log.info(f"=== Generazione ZIP: {source_name} ===")
-            zip_bytes   = build_zip(conn, source_name)
-            output_path = os.path.join(OUTPUT_DIR, source_name)
-            with open(output_path, "wb") as f:
-                f.write(zip_bytes)
-            size_kb = len(zip_bytes) / 1024
-            log.info(f"  ✓  {output_path}  ({size_kb:.1f} KB)")
+            excluded  = []
+            zip_bytes = build_zip(conn, source_name, excluded_out=excluded)
+            write_output_zip(source_name, zip_bytes)
+            write_already_in_sap(source_name, excluded, PRD_CSV_NAME)
 
         # Estrazione ristretta (test): solo i clienti di stg.export_filter
         customers = get_export_filter(conn)

@@ -11,7 +11,8 @@ description: >
     - righe filtrate nel merge verso prd (VIES, coordinate bancarie IT/UE o
       incomplete, record STG cancellati);
     - righe scritte dagli export nei file <tabella>_discarded.csv (orfani,
-      partner senza riferimento). Scrive anche un file CSV di riepilogo in
+      partner senza riferimento);
+    - righe di BP già presenti in SAP, dai riepiloghi <nome ZIP>_gia_in_SAP.csv. Scrive anche un file CSV di riepilogo in
   out_source_mdg/reconcile_report.csv.
 depends:
   - prd.export_suppliers_zip
@@ -112,6 +113,18 @@ def get_discard_exclusions(raw_tables) -> dict[str, int]:
     return excluded
 
 
+def get_already_in_sap_exclusions() -> dict[str, int]:
+    """Righe dei BP già in SAP escluse dagli export (somma della colonna RIGHE per TABELLA)."""
+    excluded = {}
+    for name in os.listdir(OUTPUT_DIR):
+        if not name.endswith("_gia_in_SAP.csv"):
+            continue
+        with open(os.path.join(OUTPUT_DIR, name), encoding="utf-8-sig", newline="") as f:
+            for row in csv.DictReader(f, delimiter=";"):
+                excluded[row["TABELLA"]] = excluded.get(row["TABELLA"], 0) + int(row["RIGHE"])
+    return excluded
+
+
 def count_csv_rows(zip_path: str) -> dict[str, int]:
     """
     Conta le righe dati (esclusa l'intestazione) in ogni CSV dentro uno ZIP.
@@ -153,6 +166,9 @@ def main():
         for table, n in get_discard_exclusions(raw_counts).items():
             excluded_counts[table] = excluded_counts.get(table, 0) + n
             log.info("  Esclusi di proposito: %s — %d righe nel file di scarto", table, n)
+        for table, n in get_already_in_sap_exclusions().items():
+            excluded_counts[table] = excluded_counts.get(table, 0) + n
+            log.info("  Esclusi di proposito: %s — %d righe di BP già in SAP", table, n)
 
         # ── 2. Conteggio CSV nei ZIP ─────────────────────────────────────────
         zip_counts: dict[str, int] = {}   # {table: nr_righe_nel_zip}
@@ -198,6 +214,10 @@ def main():
                 # Tabella nel ZIP ma non in raw — anomalia
                 status = "SOLO_ZIP"
                 n_missing_raw += 1
+            elif zip_n is None and excl and raw_n == excl:
+                # Nessuna riga nello ZIP perché tutte escluse di proposito (es. BP tutti già in SAP)
+                status = f"OK ({excl} esclusi)"
+                n_ok += 1
             elif zip_n is None:
                 # Tabella in raw ma non in nessun ZIP — normale per tabelle non esportate
                 status = "NON_ESPORTATA"

@@ -99,3 +99,14 @@ CREATE TABLE IF NOT EXISTS stg.export_filter (
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
     CONSTRAINT pk_export_filter PRIMARY KEY (kunnr)
 );
+
+-- =============================================================================
+-- stg.export_exclude_add — clienti con dati aggiuntivi (interlocutori, credito) già
+-- caricati in SAP: esclusi dagli ZIP DM06-03b e DM06-07a.
+-- Gestita dalla pagina Gestione Pipeline (API /db/export-exclude-add).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS stg.export_exclude_add (
+    kunnr           VARCHAR(20)  NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_export_exclude_add PRIMARY KEY (kunnr)
+);

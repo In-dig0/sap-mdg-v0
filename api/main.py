@@ -1034,53 +1034,81 @@ def _raw_tables_with_source(cur) -> list[str]:
     return [r[0] for r in cur.fetchall()]
 
 
-# ── Estrazione ristretta (test): elenco codici cliente in stg.export_filter ──
-
-EXPORT_FILTER_DDL = """
-    CREATE TABLE IF NOT EXISTS stg.export_filter (
-        kunnr      VARCHAR(20) NOT NULL,
-        created_at TIMESTAMP   NOT NULL DEFAULT NOW(),
-        CONSTRAINT pk_export_filter PRIMARY KEY (kunnr)
-    )
-"""
+# ── Elenchi di codici cliente per gli export ─────────────────────────────────
+#   stg.export_filter      — estrazione ristretta (test): solo questi clienti in out_source_mdg/test
+#   stg.export_exclude_add — clienti con dati aggiuntivi (interlocutori, credito) già caricati in SAP:
+#                            esclusi dagli ZIP DM06-03b e DM06-07a
+CODE_LIST_TABLES = {"export_filter", "export_exclude_add"}
 
 
 class ExportFilterRequest(BaseModel):
     kunnr: list[str]
 
 
-@app.get("/db/export-filter", tags=["Database"])
-def get_export_filter():
-    """Codici cliente dell'estrazione ristretta (vuoto = nessun filtro)."""
+def _code_list_ddl(table: str) -> str:
+    return f"""
+        CREATE TABLE IF NOT EXISTS stg.{table} (
+            kunnr      VARCHAR(20) NOT NULL,
+            created_at TIMESTAMP   NOT NULL DEFAULT NOW(),
+            CONSTRAINT pk_{table} PRIMARY KEY (kunnr)
+        )
+    """
+
+
+def _get_code_list(table: str) -> dict:
+    assert table in CODE_LIST_TABLES
     try:
         conn = get_db_connection()
         with conn, conn.cursor() as cur:
             cur.execute("CREATE SCHEMA IF NOT EXISTS stg")
-            cur.execute(EXPORT_FILTER_DDL)
-            cur.execute("SELECT kunnr FROM stg.export_filter ORDER BY kunnr")
+            cur.execute(_code_list_ddl(table))
+            cur.execute(f"SELECT kunnr FROM stg.{table} ORDER BY kunnr")
             codes = [r[0] for r in cur.fetchall()]
         conn.close()
         return {"kunnr": codes}
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Errore DB durante la lettura del filtro di estrazione: {e}")
+        raise HTTPException(status_code=503, detail=f"Errore DB durante la lettura di stg.{table}: {e}")
+
+
+def _set_code_list(table: str, kunnr: list[str]) -> dict:
+    assert table in CODE_LIST_TABLES
+    codes = sorted({c.strip() for c in kunnr if c and c.strip()})
+    try:
+        conn = get_db_connection()
+        with conn, conn.cursor() as cur:
+            cur.execute("CREATE SCHEMA IF NOT EXISTS stg")
+            cur.execute(_code_list_ddl(table))
+            cur.execute(f"DELETE FROM stg.{table}")
+            if codes:
+                psycopg2.extras.execute_values(cur, f"INSERT INTO stg.{table} (kunnr) VALUES %s", [(c,) for c in codes])
+        conn.close()
+        return {"kunnr": codes}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante il salvataggio di stg.{table}: {e}")
+
+
+@app.get("/db/export-filter", tags=["Database"])
+def get_export_filter():
+    """Codici cliente dell'estrazione ristretta (vuoto = nessun filtro)."""
+    return _get_code_list("export_filter")
 
 
 @app.put("/db/export-filter", tags=["Database"])
 def set_export_filter(req: ExportFilterRequest):
     """Sostituisce l'elenco dei codici cliente dell'estrazione ristretta (lista vuota = filtro disattivato)."""
-    codes = sorted({c.strip() for c in req.kunnr if c and c.strip()})
-    try:
-        conn = get_db_connection()
-        with conn, conn.cursor() as cur:
-            cur.execute("CREATE SCHEMA IF NOT EXISTS stg")
-            cur.execute(EXPORT_FILTER_DDL)
-            cur.execute("DELETE FROM stg.export_filter")
-            if codes:
-                psycopg2.extras.execute_values(cur, "INSERT INTO stg.export_filter (kunnr) VALUES %s", [(c,) for c in codes])
-        conn.close()
-        return {"kunnr": codes}
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Errore DB durante il salvataggio del filtro di estrazione: {e}")
+    return _set_code_list("export_filter", req.kunnr)
+
+
+@app.get("/db/export-exclude-add", tags=["Database"])
+def get_export_exclude_add():
+    """Clienti con interlocutori e dati di credito già caricati in SAP (esclusi dagli ZIP 03b e 07a)."""
+    return _get_code_list("export_exclude_add")
+
+
+@app.put("/db/export-exclude-add", tags=["Database"])
+def set_export_exclude_add(req: ExportFilterRequest):
+    """Sostituisce l'elenco dei clienti con dati aggiuntivi già caricati (lista vuota = nessuna esclusione)."""
+    return _set_code_list("export_exclude_add", req.kunnr)
 
 
 @app.get("/db/raw/sources", tags=["Database"])

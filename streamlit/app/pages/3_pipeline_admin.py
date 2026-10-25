@@ -176,25 +176,61 @@ def api_delete_raw_source(source: str):
     except Exception as e:
         return None, str(e)
 
-def api_get_export_filter():
-    """GET /db/export-filter — codici cliente dell'estrazione ristretta."""
+def api_get_code_list(path: str):
+    """GET /db/{path} — elenco di codici cliente (export-filter, export-exclude-add)."""
     try:
-        r = requests.get(f"{API_BASE}/db/export-filter", timeout=10)
+        r = requests.get(f"{API_BASE}/db/{path}", timeout=10)
         r.raise_for_status()
         return r.json().get("kunnr", []), None
     except Exception as e:
         return [], str(e)
 
-def api_set_export_filter(codes: list[str]):
-    """PUT /db/export-filter — sostituisce l'elenco (lista vuota = filtro disattivato)."""
+def api_set_code_list(path: str, codes: list[str]):
+    """PUT /db/{path} — sostituisce l'elenco (lista vuota = elenco svuotato)."""
     try:
-        r = requests.put(f"{API_BASE}/db/export-filter", json={"kunnr": codes}, timeout=10)
+        r = requests.put(f"{API_BASE}/db/{path}", json={"kunnr": codes}, timeout=10)
         r.raise_for_status()
         return r.json().get("kunnr", []), None
     except requests.HTTPError as e:
         return None, e.response.json().get("detail", str(e))
     except Exception as e:
         return None, str(e)
+
+def render_code_list(path: str, active_label: str):
+    """Editor di un elenco di codici cliente salvato tramite API (/db/{path})."""
+    codes, err = api_get_code_list(path)
+    if err:
+        st.warning(f"Impossibile leggere l'elenco: {err}")
+        return
+    if codes:
+        st.info(f"{active_label} — {len(codes)} clienti: {', '.join(codes)}")
+    else:
+        st.caption("Elenco vuoto.")
+    ver = st.session_state.get(f"{path}_ver", 0)
+    edited = st.data_editor(
+        pd.DataFrame({"Codice cliente (KUNNR)": codes}, dtype="string"),
+        num_rows="dynamic",
+        hide_index=True,
+        key=f"{path}_editor_{ver}",
+        column_config={"Codice cliente (KUNNR)": st.column_config.TextColumn(
+            help="Codice cliente come nel file ERP, con gli zeri iniziali (es. 07010005)")},
+    )
+    col_save, col_clear, _ = st.columns([1, 1, 4])
+    if col_save.button("💾 Salva elenco", type="primary", key=f"{path}_save"):
+        new_codes = [str(c).strip() for c in edited["Codice cliente (KUNNR)"].dropna() if str(c).strip()]
+        _, err = api_set_code_list(path, new_codes)
+        if err:
+            st.error(f"Errore salvataggio: {err}")
+        else:
+            st.session_state[f"{path}_ver"] = ver + 1
+            st.rerun()
+    if col_clear.button("🧹 Svuota elenco", disabled=not codes, key=f"{path}_clear"):
+        _, err = api_set_code_list(path, [])
+        if err:
+            st.error(f"Errore: {err}")
+        else:
+            st.session_state[f"{path}_ver"] = ver + 1
+            st.rerun()
 
 @st.dialog("Elimina dati dal database")
 def confirm_delete_raw_source(src: dict):
@@ -349,38 +385,19 @@ with tab_ctrl:
         "I destinatari merci non sono inclusi: devono essere già caricati in SAP e presenti in SAP_EXPORT_BUT000. "
         "Gli ZIP completi in out_source_mdg non cambiano. Elenco vuoto = nessuna estrazione ristretta."
     )
-    filter_codes, filter_err = api_get_export_filter()
-    if filter_err:
-        st.warning(f"Impossibile leggere l'elenco: {filter_err}")
-    else:
-        if filter_codes:
-            st.info(f"Estrazione ristretta **attiva** — {len(filter_codes)} clienti: {', '.join(filter_codes)}")
-        else:
-            st.caption("Estrazione ristretta non attiva.")
-        edited = st.data_editor(
-            pd.DataFrame({"Codice cliente (KUNNR)": filter_codes}, dtype="string"),
-            num_rows="dynamic",
-            hide_index=True,
-            key=f"export_filter_editor_{st.session_state.get('export_filter_ver', 0)}",
-            column_config={"Codice cliente (KUNNR)": st.column_config.TextColumn(
-                help="Codice cliente come nel file ERP, con gli zeri iniziali (es. 07010005)")},
-        )
-        col_save, col_clear, _ = st.columns([1, 1, 4])
-        if col_save.button("💾 Salva elenco", type="primary"):
-            codes = [str(c).strip() for c in edited["Codice cliente (KUNNR)"].dropna() if str(c).strip()]
-            saved, err = api_set_export_filter(codes)
-            if err:
-                st.error(f"Errore salvataggio: {err}")
-            else:
-                st.session_state["export_filter_ver"] = st.session_state.get("export_filter_ver", 0) + 1
-                st.rerun()
-        if col_clear.button("🧹 Svuota elenco", disabled=not filter_codes):
-            _, err = api_set_export_filter([])
-            if err:
-                st.error(f"Errore: {err}")
-            else:
-                st.session_state["export_filter_ver"] = st.session_state.get("export_filter_ver", 0) + 1
-                st.rerun()
+    render_code_list("export-filter", "Estrazione ristretta **attiva**")
+
+    st.divider()
+
+    # ── 1b. Clienti con dati aggiuntivi già caricati in SAP ─────────────
+    st.subheader("✅ Clienti con interlocutori e credito già caricati in SAP")
+    st.caption(
+        "I clienti dell'elenco sono esclusi dagli ZIP **DM06-03b** (interlocutori) e **DM06-07a** "
+        "(gestione credito), che si caricano in SAP con un job di aggiornamento. "
+        "Negli ZIP di creazione (vettori, DM, clienti) i Business Partner già presenti in "
+        "SAP_EXPORT_BUT000 sono invece esclusi in automatico."
+    )
+    render_code_list("export-exclude-add", "Esclusione **attiva**")
 
     st.divider()
 

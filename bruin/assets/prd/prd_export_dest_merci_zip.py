@@ -9,6 +9,8 @@ description: >
       ZBP-AddInterlocutoreCli (in SAP i DM si caricano prima dei clienti; quelli
       dei clienti ZBP vanno nello ZIP dei clienti; gli interlocutori restano nello
       ZIP del flusso, caricato in un secondo momento)
+  I DM già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT2) sono esclusi da tutte le
+  tabelle: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP non è generato.
   Estrazione ristretta (test): nessuno ZIP dei DM (si presuppongono già caricati in SAP
   e presenti in SAP_EXPORT_BUT000); l'eventuale ZIP di test precedente viene rimosso.
   Un ZIP separato viene creato per ogni valore distinto di _source
@@ -31,7 +33,10 @@ import sys
 import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
-from prd_export_clienti_zip import write_add_tables, TEST_DIR
+from prd_export_clienti_zip import (
+    write_add_tables, TEST_DIR, get_but000_map, already_in_sap_rows,
+    write_already_in_sap, write_output_zip,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -161,7 +166,7 @@ def fetch_table_csv(conn, schema: str, table: str,
             )
             n_excl = len(excluded_keys)
             log.warning(
-                "  [%s] %s.%s: %d record orfani esclusi (_source=%s)",
+                "  [%s] %s.%s: %d chiavi escluse (orfani o BP già in SAP, _source=%s)",
                 fk_col, schema, table, n_excl, source_filter
             )
         else:
@@ -255,8 +260,13 @@ def table_exists(conn, schema: str, table: str) -> bool:
         return cur.fetchone() is not None
 
 
-def build_zip(conn, source_name: str) -> bytes:
+def build_zip(conn, source_name: str, excluded_out: list | None = None) -> bytes:
+    """excluded_out: se passata, riceve le righe escluse perché il DM è già in SAP."""
     buf = io.BytesIO()
+    # DM già creati in SAP (BUT000, BU_SORT2): esclusi da tutte le tabelle dello ZIP
+    sap_map  = get_but000_map(conn, sort_cols=("BU_SORT2",))
+    sap_keys = set(sap_map)
+    excluded = []
 
     # Carica le chiavi orfane (CK403) — solo tabelle secondarie raw
     orphan_keys = get_orphan_keys(conn, "CK403")
@@ -275,8 +285,13 @@ def build_zip(conn, source_name: str) -> bytes:
         for prd_schema, prd_table in PRD_TABLES:
             prd_cols = get_columns(conn, prd_schema, prd_table)
             if prd_cols:
-                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols)
+                excluded += already_in_sap_rows(conn, prd_schema, prd_table, source_name, "KUNNR(k/*)", sap_map)
+                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols,
+                                            excluded_keys=sap_keys or None, fk_col="KUNNR(k/*)")
                 n_rows = csv_bytes.count(b"\r\n") - 1
+                if n_rows <= 0:
+                    log.info(f"  {prd_schema}.{prd_table}: 0 righe per '{source_name}' — skip")
+                    continue
                 zf.writestr(f"{PRD_CSV_NAME.get(prd_table, prd_table)}.csv", csv_bytes)
                 log.info(f"  + {prd_schema}.{prd_table}: {n_rows} righe")
             else:
@@ -302,10 +317,11 @@ def build_zip(conn, source_name: str) -> bytes:
             if not _is_master and orphan_keys:
                 write_discarded_csv(conn, raw_table, source_name,
                                    raw_cols, orphan_keys, "KUNNR(k/*)")
+            excluded += already_in_sap_rows(conn, src_schema, raw_table, source_name, "KUNNR(k/*)", sap_map)
             csv_bytes = fetch_table_csv(
                 conn, src_schema, raw_table, source_name, raw_cols,
-                excluded_keys=None if _is_master else orphan_keys,
-                fk_col=None if _is_master else "KUNNR(k/*)",
+                excluded_keys=(sap_keys if _is_master else orphan_keys | sap_keys) or None,
+                fk_col="KUNNR(k/*)",
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
@@ -317,9 +333,11 @@ def build_zip(conn, source_name: str) -> bytes:
 
         # 3. Punti di scarico dei DM entrati con il flusso ZBP-AddInterlocutoreCli
         #    (esclusi i codici presenti anche tra i clienti ZBP: vanno nello ZIP dei clienti)
-        write_add_tables(conn, zf, "S_CUST_GEN#ZDM-DatiGenerali", source_name,
-                         exclude_master="S_CUST_GEN#ZBP-DatiGenerali")
+        excluded += write_add_tables(conn, zf, "S_CUST_GEN#ZDM-DatiGenerali", source_name,
+                                     exclude_master="S_CUST_GEN#ZBP-DatiGenerali", sap_map=sap_map)
 
+    if excluded_out is not None:
+        excluded_out.extend(excluded)
     buf.seek(0)
     return buf.read()
 
@@ -339,12 +357,10 @@ def main():
 
         for source_name in sources:
             log.info(f"=== Generazione ZIP: {source_name} ===")
-            zip_bytes   = build_zip(conn, source_name)
-            output_path = os.path.join(OUTPUT_DIR, source_name)
-            with open(output_path, "wb") as f:
-                f.write(zip_bytes)
-            size_kb = len(zip_bytes) / 1024
-            log.info(f"  ✓  {output_path}  ({size_kb:.1f} KB)")
+            excluded  = []
+            zip_bytes = build_zip(conn, source_name, excluded_out=excluded)
+            write_output_zip(source_name, zip_bytes)
+            write_already_in_sap(source_name, excluded, PRD_CSV_NAME)
 
         # Estrazione ristretta (test): nessuno ZIP dei DM — rimuove quello di run precedenti
         for source_name in sources:

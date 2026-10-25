@@ -16,6 +16,8 @@ description: >
   KUNNR(k/*) è trascodificato con il codice SAP (PARTNER di ref.SAP_EXPORT_BUT000,
   tramite BU_SORT2): questi ZIP si caricano quando clienti e DM esistono già in SAP.
   Senza corrispondenza resta il codice originale.
+  I clienti di stg.export_exclude_add (interlocutori e credito già caricati in SAP) sono
+  esclusi: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP non è generato.
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
   e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.csv.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
@@ -35,6 +37,7 @@ from prd_export_clienti_zip import (
     OUTPUT_DIR, get_connection, q, get_columns, table_exists,
     fetch_table_csv, write_discarded_csv, remove_discarded_csv, ADD_FLOW, ADD_MOVED_TABLES,
     get_export_filter, write_test_zip, get_but000_map,
+    get_exclude_add, already_in_sap_rows, write_already_in_sap, write_output_zip,
 )
 
 logging.basicConfig(
@@ -116,11 +119,18 @@ def write_discards(conn, source_name: str, tables: list[str]):
                                 get_columns(conn, "raw", raw_table), orphan_keys, KEY_COL)
 
 
-def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None = None) -> bytes:
-    """key_filter: codici cliente dell'estrazione ristretta (None = output completo)."""
+def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None = None,
+              excluded_out: list | None = None) -> bytes:
+    """
+    key_filter:   codici cliente dell'estrazione ristretta (None = output completo).
+    excluded_out: se passata, riceve le righe escluse perché i dati sono già caricati in SAP.
+    """
     buf = io.BytesIO()
     # Clienti e DM già caricati in SAP: KUNNR con il nuovo codice (BUT000, BU_SORT2)
     sap_codes = get_but000_map(conn, sort_cols=("BU_SORT2",))
+    # Clienti con questi dati già caricati in SAP (elenco manuale): esclusi dallo ZIP
+    done_map  = {c: sap_codes.get(c, "") for c in get_exclude_add(conn)}
+    excluded  = []
 
     orphan_keys = get_orphan_keys(conn, source_name, tables)
     if orphan_keys:
@@ -144,9 +154,10 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
 
             if orphan_keys and not key_filter:
                 write_discarded_csv(conn, raw_table, source_name, raw_cols, orphan_keys, KEY_COL)
+            excluded += already_in_sap_rows(conn, "raw", raw_table, source_name, KEY_COL, done_map)
             csv_bytes = fetch_table_csv(
                 conn, "raw", raw_table, source_name, raw_cols,
-                excluded_keys=orphan_keys or None, fk_col=KEY_COL,
+                excluded_keys=(orphan_keys | set(done_map)) or None, fk_col=KEY_COL,
                 key_filter=(KEY_COL, key_filter) if key_filter else None,
                 write_discards=not key_filter,
                 value_map={KEY_COL: sap_codes},
@@ -158,6 +169,8 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
             zf.writestr(f"{raw_table}.csv", csv_bytes)
             log.info(f"  + raw.{raw_table}: {n_rows} righe")
 
+    if excluded_out is not None:
+        excluded_out.extend(excluded)
     buf.seek(0)
     return buf.read()
 
@@ -178,11 +191,10 @@ def main():
                 if flow == ADD_FLOW:
                     write_discards(conn, source_name, ADD_MOVED_TABLES)
                 log.info(f"=== Generazione ZIP: {source_name} (flusso {flow}) ===")
-                zip_bytes   = build_zip(conn, source_name, zip_tables)
-                output_path = os.path.join(OUTPUT_DIR, source_name)
-                with open(output_path, "wb") as f:
-                    f.write(zip_bytes)
-                log.info(f"  ✓  {output_path}  ({len(zip_bytes) / 1024:.1f} KB)")
+                excluded  = []
+                zip_bytes = build_zip(conn, source_name, zip_tables, excluded_out=excluded)
+                write_output_zip(source_name, zip_bytes)
+                write_already_in_sap(source_name, excluded)
                 # Estrazione ristretta (test): solo i clienti di stg.export_filter
                 customers = get_export_filter(conn)
                 write_test_zip(source_name, lambda: build_zip(conn, source_name, zip_tables, key_filter=customers),

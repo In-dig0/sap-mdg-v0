@@ -8,8 +8,12 @@ description: >
   Un ZIP separato viene creato per ogni valore distinto di _source
   (es. "DM06-01a-ZBP-Vettori.zip").
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
-  Output: /project/datalake/out/<nome_source>.zip
+  I fornitori/vettori già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT1) sono esclusi
+  da tutte le tabelle: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP
+  non è generato.
+  Output: /project/datalake/out_source_mdg/<nome_source>.zip
 depends:
+  - ingestion.ingest_xlsx_to_ref
   - prd.merge_fornitori
   - prd.merge_taxnumbers_fornitori
   - prd.merge_add_taxnumbers_fornitori
@@ -23,7 +27,13 @@ import csv
 import zipfile
 import logging
 import math
+import sys
 import psycopg2
+
+sys.path.insert(0, os.path.dirname(__file__))
+from prd_export_clienti_zip import (
+    get_but000_map, already_in_sap_rows, write_already_in_sap, write_output_zip,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -212,7 +222,7 @@ def fetch_table_csv(conn, schema: str, table: str,
             )
             n_excl = len(excluded_keys)
             log.warning(
-                "  [%s] %s.%s: %d record orfani esclusi (_source=%s)",
+                "  [%s] %s.%s: %d chiavi escluse (orfani o BP già in SAP, _source=%s)",
                 fk_col, schema, table, n_excl, source_filter
             )
         else:
@@ -239,12 +249,17 @@ def fetch_table_csv(conn, schema: str, table: str,
     return buf.getvalue().encode("utf-8")
 
 
-def build_zip(conn, source_name: str) -> bytes:
+def build_zip(conn, source_name: str, excluded_out: list | None = None) -> bytes:
     """
     Costruisce il contenuto di un archivio ZIP per un dato _source.
     Usa prd per le tabelle in PRD_TABLES, raw per tutte le altre.
+    excluded_out: se passata, riceve le righe escluse perché il fornitore è già in SAP.
     """
     buf = io.BytesIO()
+    # Fornitori/vettori già creati in SAP (BUT000, BU_SORT1): esclusi da tutte le tabelle
+    sap_map  = get_but000_map(conn, sort_cols=("BU_SORT1",))
+    sap_keys = set(sap_map)
+    excluded = []
 
     # Carica le chiavi orfane (CK402) — solo tabelle secondarie raw
     orphan_keys = get_orphan_keys(conn, "CK402")
@@ -263,7 +278,9 @@ def build_zip(conn, source_name: str) -> bytes:
         for prd_schema, prd_table in PRD_TABLES:
             prd_cols = get_columns(conn, prd_schema, prd_table)
             if prd_cols:
-                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols)
+                excluded += already_in_sap_rows(conn, prd_schema, prd_table, source_name, "LIFNR(k/*)", sap_map)
+                csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols,
+                                            excluded_keys=sap_keys or None, fk_col="LIFNR(k/*)")
                 n_rows = csv_bytes.count(b"\r\n") - 1
                 if n_rows <= 0:
                     log.info(f"  {prd_schema}.{prd_table}: 0 righe per '{source_name}' — skip")
@@ -298,10 +315,11 @@ def build_zip(conn, source_name: str) -> bytes:
             if not _is_master and orphan_keys:
                 write_discarded_csv(conn, raw_table, source_name,
                                    raw_cols, orphan_keys, "LIFNR(k/*)")
+            excluded += already_in_sap_rows(conn, "raw", raw_table, source_name, "LIFNR(k/*)", sap_map)
             csv_bytes = fetch_table_csv(
                 conn, "raw", raw_table, source_name, raw_cols,
-                excluded_keys=None if _is_master else orphan_keys,
-                fk_col=None if _is_master else "LIFNR(k/*)",
+                excluded_keys=(sap_keys if _is_master else orphan_keys | sap_keys) or None,
+                fk_col="LIFNR(k/*)",
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
@@ -311,6 +329,8 @@ def build_zip(conn, source_name: str) -> bytes:
             zf.writestr(f"{raw_table}.csv", csv_bytes)
             log.info(f"  + raw.{raw_table}: {n_rows} righe")
 
+    if excluded_out is not None:
+        excluded_out.extend(excluded)
     buf.seek(0)
     return buf.read()
 
@@ -330,12 +350,10 @@ def main():
 
         for source_name in sources:
             log.info(f"=== Generazione ZIP: {source_name} ===")
-            zip_bytes  = build_zip(conn, source_name)
-            output_path = os.path.join(OUTPUT_DIR, source_name)
-            with open(output_path, "wb") as f:
-                f.write(zip_bytes)
-            size_kb = len(zip_bytes) / 1024
-            log.info(f"  ✓  {output_path}  ({size_kb:.1f} KB)")
+            excluded  = []
+            zip_bytes = build_zip(conn, source_name, excluded_out=excluded)
+            write_output_zip(source_name, zip_bytes)
+            write_already_in_sap(source_name, excluded)
 
     finally:
         conn.close()
