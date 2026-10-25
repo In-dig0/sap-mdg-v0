@@ -16,6 +16,7 @@ depends:
   - stg.ck217_zdm_ragione_sociale
   - stg.ck218_customer_incoterm
   - stg.ck219_zdm_incoterm
+  - stg.ck220_customer_taxnum_vuoto
   - stg.ck055_supplier_bankl_banche_ue
   - stg.ck056_customer_bankl_banche_ue
   - stg.ck401_zbp_vettori_orphans

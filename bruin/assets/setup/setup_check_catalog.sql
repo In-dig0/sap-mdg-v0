@@ -289,6 +289,10 @@ VALUES
      'BP','S_CUST_SALES_DATA#ZDM-DatiVendite','INCO1 + INCO2',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
+    ('CK220','Clienti (ZBP-CodiciFisc): identificativo fiscale TAXNUM obbligatorio (righe vuote escluse dall''output)',
+     'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXNUM(*)',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
     ('CK212','Distinte base (S_BOM_ITEM): quantità componente MENGE(*) non può essere zero',
      'BOM','S_BOM_ITEM','MENGE(*)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),

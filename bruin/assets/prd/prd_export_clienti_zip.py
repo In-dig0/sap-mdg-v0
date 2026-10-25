@@ -15,6 +15,8 @@ description: >
   cliente con il codice originale.
   Le righe partner senza alcun riferimento (KUNN2, LIFNR, PERNR, PARNR vuoti) sono escluse
   e scritte negli scarti; il file è ordinato per le colonne chiave.
+  In S_CUST_TAXNUMBERS#ZBP-CodiciFisc le righe senza identificativo fiscale (TAXNUM vuoto)
+  sono escluse e scritte negli scarti (in SAP danno errore).
   Estrazione ristretta (test): se stg.export_filter contiene codici cliente, viene
   generato anche lo ZIP con i soli clienti indicati in out_source_mdg/test.
   I clienti già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT2) sono esclusi da tutte le
@@ -113,6 +115,9 @@ PARVW_MAP = {"RA": "SP"}
 BUT000_TABLE  = "SAP_EXPORT_BUT000"
 # Riferimenti al partner: una riga senza nessuno di questi valori è esclusa dall'output
 PARTNER_REF_COLS = ["KUNN2(k)", "LIFNR(k)", "PERNR(k)", "PARNR(k)"]
+# Codici fiscali: una riga senza identificativo (TAXNUM vuoto) è esclusa dall'output
+TAXNUM_TABLE = "S_CUST_TAXNUMBERS#ZBP-CodiciFisc"
+TAXNUM_COLS  = ["TAXNUM(*)"]
 # Ordinamento dell'output: chiave del file
 PARTNER_KEY_COLS = ["KUNNR(k/*)", "VKORG(k/*)", "VTWEG(k/*)", "SPART(k/*)", "PARVW(k/*)"] + PARTNER_REF_COLS
 
@@ -566,7 +571,9 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
             if prd_cols:
                 excluded += already_in_sap_rows(conn, prd_schema, prd_table, source_name, "KUNNR(k/*)", sap_map)
                 csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols, key_filter=kf,
-                                            excluded_keys=sap_keys or None, fk_col="KUNNR(k/*)")
+                                            excluded_keys=sap_keys or None, fk_col="KUNNR(k/*)",
+                                            drop_if_all_empty=TAXNUM_COLS if prd_table == TAXNUM_TABLE else None,
+                                            write_discards=not key_filter)
                 n_rows = csv_bytes.count(b"\r\n") - 1
                 if n_rows <= 0:
                     log.info(f"  {prd_schema}.{prd_table}: 0 righe per '{source_name}' — skip")
