@@ -216,6 +216,18 @@ VALUES
      'BP','S_CUST_CONT#ZBP-AddInterlocutore','E_MAIL_B',
      NULL,'Error','FORMAT',TRUE,NOW()),
 
+    ('CK057','Clienti (DatiVendite): gruppo clienti 5 KVGR5 obbligatorio e presente in SAP_EXPORT_TVV5 (??? in output vuoto)',
+     'BP','S_CUST_SALES_DATA#ZBP-DatiVendite','KVGR5',
+     'ref.SAP_EXPORT_TVV5 (KVGR5)','Error','SAP_REF',TRUE,NOW()),
+
+    ('CK058','Destinatari merci (DatiVendite): gruppo clienti 5 KVGR5 obbligatorio e presente in SAP_EXPORT_TVV5 (??? in output vuoto)',
+     'BP','S_CUST_SALES_DATA#ZDM-DatiVendite','KVGR5',
+     'ref.SAP_EXPORT_TVV5 (KVGR5)','Error','SAP_REF',TRUE,NOW()),
+
+    ('CK059','Clienti (DatiVendite): gruppo clienti KDGRP obbligatorio e presente in SAP_EXPORT_T151 (in output default 04)',
+     'BP','S_CUST_SALES_DATA#ZBP-DatiVendite','KDGRP',
+     'ref.SAP_EXPORT_T151 (KDGRP)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK055','Fornitori (AppoggioBanca): banca estera (BANKL, IBAN o SWIFT) presente in BNKA (BANKS<>IT)',
      'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKL(k) / IBAN(k) / BKREF (SWIFT)',
      'ref.SAP_EXPORT_BNKA_UE (BANKS+BANKL)','Error','SAP_REF',TRUE,NOW()),

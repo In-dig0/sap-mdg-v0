@@ -20,6 +20,9 @@ depends:
   - stg.ck221_stg_street_lunghezza
   - stg.ck055_supplier_bankl_banche_ue
   - stg.ck056_customer_bankl_banche_ue
+  - stg.ck057_customer_kvgr5_tvv5
+  - stg.ck058_zdm_kvgr5_tvv5
+  - stg.ck059_customer_kdgrp_t151
   - stg.ck401_zbp_vettori_orphans
   - stg.ck402_zbp_fornitori_orphans
   - stg.ck403_zdm_clienti_orphans
