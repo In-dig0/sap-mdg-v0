@@ -65,7 +65,8 @@ def get_table_columns(table: str) -> list[str]:
 
 
 def get_key_columns(cols: list[str]) -> list[str]:
-    return [c for c in cols if re.search(r"\(.*?k.*?\)", c)]
+    # Le colonne "<chiave>_out" (valori corretti per l'output) sono editabili, non chiavi
+    return [c for c in cols if re.search(r"\(.*?k.*?\)", c) and not c.endswith("_out")]
 
 
 def load_table(table: str, status_filter: str, search: str) -> pd.DataFrame:
@@ -143,6 +144,23 @@ def save_row(table: str, original_row: dict, updated_row: dict,
         )
         r.raise_for_status()
         return r.json().get("updated", False), None
+    except requests.HTTPError as e:
+        return False, e.response.json().get("detail", str(e))
+    except Exception as e:
+        return False, str(e)
+
+
+def insert_row(table: str, row: dict, key_cols: list[str]) -> tuple[bool, str | None]:
+    """Inserisce una riga tramite FastAPI — POST /db/schema/stg/tables/rows."""
+    try:
+        r = requests.post(
+            f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/rows",
+            params={"table": table},
+            json={"row": row, "key_cols": key_cols},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return True, None
     except requests.HTTPError as e:
         return False, e.response.json().get("detail", str(e))
     except Exception as e:
@@ -260,6 +278,32 @@ if st.session_state.get("_last_filter_key") != filter_key:
     st.session_state["_selected_row"]    = None
 
 df = load_table(selected_table, status_filter, search_text)
+
+# ── Aggiungi riga (anche a tabella vuota: es. tabelle STG di sole eccezioni) ──
+editable_cols = [c for c in all_cols if not c.startswith("_")]
+if key_cols and editable_cols:
+    with st.expander("➕ Aggiungi riga"):
+        st.caption(
+            f"Colonne chiave obbligatorie: **{', '.join(key_cols)}**. "
+            "La riga viene salvata con stato EXISTS e origine MANUALE."
+        )
+        ver = st.session_state.get("_add_row_ver", 0)
+        with st.form(key=f"add_row_{selected_table}_{ver}"):
+            new_row = {
+                c: st.text_input(c + (" *" if c in key_cols else ""), key=f"add_{selected_table}_{c}_{ver}")
+                for c in editable_cols
+            }
+            if st.form_submit_button("💾 Inserisci riga", type="primary"):
+                ok, err = insert_row(selected_table, new_row, key_cols)
+                if ok:
+                    st.session_state["_add_row_ver"] = ver + 1
+                    st.session_state["_orig_df"] = None
+                    st.session_state["_add_row_msg"] = "Riga inserita."
+                    st.rerun()
+                else:
+                    st.error(f"Inserimento non riuscito: {err}")
+    if st.session_state.pop("_add_row_msg", None):
+        st.success("Riga inserita.")
 
 if df.empty:
     st.info("Nessun record trovato con i filtri selezionati.")

@@ -1424,6 +1424,70 @@ def update_table_row(schema: str, table: str, body: UpdateRowRequest):
         raise HTTPException(status_code=503, detail=f"Errore DB durante UPDATE: {e}")
 
 
+class InsertRowRequest(BaseModel):
+    row:      dict
+    key_cols: list[str]
+
+
+@app.post("/db/schema/{schema}/tables/rows", tags=["Database"])
+def insert_table_row(schema: str, table: str, body: InsertRowRequest):
+    """
+    Inserisce una riga in una tabella dello schema stg (es. eccezioni inserite a mano).
+
+    - Solo colonne esistenti e non di audit; le colonne chiave sono obbligatorie
+    - _status = 'EXISTS', _source = 'MANUALE', _loaded_at = ora (se le colonne esistono)
+    - 409 se esiste già una riga con la stessa chiave
+    """
+    if schema != "stg":
+        raise HTTPException(status_code=400, detail="Inserimento consentito solo nello schema stg.")
+    if not body.key_cols:
+        raise HTTPException(status_code=400, detail="key_cols non può essere vuoto.")
+    missing = [k for k in body.key_cols if not str(body.row.get(k, "") or "").strip()]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Colonne chiave obbligatorie: {', '.join(missing)}")
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s",
+            (schema, table),
+        )
+        table_cols = {r[0] for r in cur.fetchall()}
+        if not table_cols:
+            raise HTTPException(status_code=404, detail=f"Tabella {schema}.{table} non trovata.")
+
+        def qi(name): return psycopg2.extensions.quote_ident(name, cur)
+
+        values = {c: str(v).strip() for c, v in body.row.items()
+                  if c in table_cols and not c.startswith("_") and v is not None}
+        if "_status" in table_cols:
+            values["_status"] = "EXISTS"
+        if "_source" in table_cols:
+            values["_source"] = "MANUALE"
+        if "_loaded_at" in table_cols:
+            values["_loaded_at"] = datetime.now(tz=None)
+
+        where = " AND ".join(f"{qi(k)} = %s" for k in body.key_cols)
+        cur.execute(f"SELECT 1 FROM {qi(schema)}.{qi(table)} WHERE {where}", [values[k] for k in body.key_cols])
+        if cur.fetchone():
+            raise HTTPException(status_code=409, detail="Esiste già una riga con la stessa chiave: modificala dalla tabella.")
+
+        cols = list(values)
+        cur.execute(
+            f"INSERT INTO {qi(schema)}.{qi(table)} ({', '.join(qi(c) for c in cols)}) "
+            f"VALUES ({', '.join(['%s'] * len(cols))})",
+            [values[c] for c in cols],
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"inserted": True, "message": "Riga inserita."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante INSERT: {e}")
+
+
 class DeleteRowRequest(BaseModel):
     row:      dict
     key_cols: list[str]

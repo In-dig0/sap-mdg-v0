@@ -110,3 +110,24 @@ CREATE TABLE IF NOT EXISTS stg.export_exclude_add (
     created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
     CONSTRAINT pk_export_exclude_add PRIMARY KEY (kunnr)
 );
+
+-- =============================================================================
+-- stg."S_CUST_TAXNUMBERS#ZBP-CodiciFisc_STG" — eccezioni ai codici fiscali dei
+-- clienti, inserite a mano (pagina Modifica Tabelle). Le colonne del file ERP
+-- identificano la riga (KUNNR + TAXTYPE) e ne riportano i valori originali;
+-- "TAXTYPE(k/*)_out" e "TAXNUM(*)_out" contengono i valori corretti, scritti in prd
+-- e negli ZIP (vuote = valore originale). _status = 'DELETED' esclude la riga dall'output.
+-- CK801/CK802 verificano la P.IVA effettiva.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS stg."S_CUST_TAXNUMBERS#ZBP-CodiciFisc_STG" (
+    "KUNNR(k/*)"    TEXT,
+    "TAXTYPE(k/*)"  TEXT,
+    "TAXNUM(*)"     TEXT,
+    "TAXTYPE(k/*)_out" TEXT,
+    "TAXNUM(*)_out" TEXT,
+    "_status"       TEXT DEFAULT 'EXISTS',
+    "_source"       TEXT,
+    "_loaded_at"    TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_s_cust_taxnumbers_zbp_codicifisc_stg"
+    ON stg."S_CUST_TAXNUMBERS#ZBP-CodiciFisc_STG" ("KUNNR(k/*)", "TAXTYPE(k/*)");

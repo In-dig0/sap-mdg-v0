@@ -38,8 +38,13 @@ def get_columns(cur, schema: str, table: str) -> list[str]:
     return [r[0] for r in cur.fetchall()]
 
 
+# Colonne STG "<colonna>_out": valore corretto da scrivere in prd al posto di <colonna>
+# (le colonne con il nome del file restano quelle dell'ERP e identificano la riga)
+OUT_SUFFIX = "_out"
+
+
 def get_key_columns(cols: list[str]) -> list[str]:
-    return [c for c in cols if re.search(r"\(.*?k.*?\)", c)]
+    return [c for c in cols if re.search(r"\(.*?k.*?\)", c) and not c.endswith(OUT_SUFFIX)]
 
 
 def ensure_prd_schema(cur):
@@ -59,30 +64,36 @@ VIES_TAXTYPE_COL = "TAXTYPE(k/*)"
 VIES_TAXNUM_COL  = "TAXNUM(*)"
 
 
-def _vat_number_sql(alias: str = "raw") -> str:
+def _vat_number_sql(alias: str = "raw", taxnum_expr: str | None = None,
+                    taxtype_expr: str | None = None) -> str:
     """
     P.IVA normalizzata come in check_vat_vies.vat_number: CC + numero, senza
     spazi, punti e trattini (stessa regola di normalize_taxnum() in CK801/CK803).
+    taxnum_expr/taxtype_expr: espressioni SQL effettive (default: colonne di alias).
     """
-    num = f"regexp_replace(UPPER({alias}.{q(VIES_TAXNUM_COL)}), '[[:space:].-]', '', 'g')"
-    cc  = f"UPPER(LEFT({alias}.{q(VIES_TAXTYPE_COL)}, 2))"
+    taxnum  = taxnum_expr or f"{alias}.{q(VIES_TAXNUM_COL)}"
+    taxtype = taxtype_expr or f"{alias}.{q(VIES_TAXTYPE_COL)}"
+    num = f"regexp_replace(UPPER({taxnum}), '[[:space:].-]', '', 'g')"
+    cc  = f"UPPER(LEFT({taxtype}, 2))"
     return f"(CASE WHEN {num} LIKE {cc} || '%' THEN {num} ELSE {cc} || {num} END)"
 
 
-def _vies_invalid_sql(alias: str = "raw") -> str:
+def _vies_invalid_sql(alias: str = "raw", taxnum_expr: str | None = None,
+                      taxtype_expr: str | None = None) -> str:
     """
     Condizione vera se il record è una P.IVA CEE (TAXTYPE '%0') il cui ULTIMO
     esito reale in stg.check_vat_vies è "UE non valida". La validità VIES è della
     P.IVA, quindi conta l'ultimo esito per quel numero, di qualunque cliente/fornitore
     e di qualunque run. Esclusi CACHED/PENDING (segnaposto) ed ERROR (servizio
     non raggiungibile: non dice nulla sulla validità).
+    taxnum_expr/taxtype_expr: valori effettivi (es. corretti in STG) al posto delle colonne di alias.
     """
     return f"""(
-            {alias}.{q(VIES_TAXTYPE_COL)} LIKE '%0'
+            {taxtype_expr or f'{alias}.{q(VIES_TAXTYPE_COL)}'} LIKE '%0'
             AND (
                 SELECT v.is_eu = TRUE AND v.vies_valid = FALSE
                 FROM stg.check_vat_vies v
-                WHERE v.vat_number = {_vat_number_sql(alias)}
+                WHERE v.vat_number = {_vat_number_sql(alias, taxnum_expr, taxtype_expr)}
                   AND v.check_status NOT IN ('CACHED', 'PENDING', 'ERROR')
                 ORDER BY v.created_at DESC
                 LIMIT 1
@@ -90,14 +101,22 @@ def _vies_invalid_sql(alias: str = "raw") -> str:
         )"""
 
 
-def _log_vies_discards(cur, raw_fqt: str, vies_lifnr_col: str):
-    """Logga i record scartati dal filtro VIES: uno per codice + TAXTYPE + TAXNUM."""
+def _log_vies_discards(cur, raw_fqt: str, vies_lifnr_col: str,
+                       join_clause: str = "", taxnum_expr: str | None = None,
+                       taxtype_expr: str | None = None):
+    """
+    Logga i record scartati dal filtro VIES: uno per codice + TAXTYPE + TAXNUM.
+    join_clause/taxnum_expr/taxtype_expr: JOIN con STG e valori effettivi (corretti in STG se presenti).
+    """
+    taxnum  = taxnum_expr or f"raw.{q(VIES_TAXNUM_COL)}"
+    taxtype = taxtype_expr or f"raw.{q(VIES_TAXTYPE_COL)}"
     cur.execute(f"""
         SELECT DISTINCT
-            raw.{q(vies_lifnr_col)}, raw.{q(VIES_TAXTYPE_COL)}, raw.{q(VIES_TAXNUM_COL)},
-            {_vat_number_sql('raw')} AS vat_number
+            raw.{q(vies_lifnr_col)}, {taxtype}, {taxnum},
+            {_vat_number_sql('raw', taxnum_expr, taxtype_expr)} AS vat_number
         FROM {raw_fqt} raw
-        WHERE {_vies_invalid_sql('raw')}
+        {join_clause}
+        WHERE {_vies_invalid_sql('raw', taxnum_expr, taxtype_expr)}
         ORDER BY 1
     """)
     discarded = cur.fetchall()
@@ -309,6 +328,9 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     """
     Merge raw + stg -> prd.
     - Colonne comuni: COALESCE(stg.col, raw.col) — preferenza a stg
+    - Colonne STG "<col>_out" (es. TAXNUM(*)_out): se valorizzate sostituiscono <col>
+      in prd, chiavi comprese; vuote = valore di raw. La colonna STG <col> con lo
+      stesso nome del file serve solo a documentare il valore dell'ERP.
     - _source e _loaded_at: sempre da raw
     - _status esclusa da prd
     - Record stg con _status='DELETED' esclusi dal JOIN
@@ -358,6 +380,21 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     # (LEFT JOIN trovato) prendiamo SEMPRE il valore da STG, anche se NULL o
     # vuoto. Usiamo RAW solo quando il record STG è assente (sentinel IS NULL).
     stg_sentinel = q(key_cols[0]) if key_cols else None
+    out_cols = ({c[:-len(OUT_SUFFIX)] for c in stg_cols if c.endswith(OUT_SUFFIX)} & raw_col_set
+                if stg_sentinel else set())
+    if out_cols:
+        log.info(f"  Colonne sostituite dai valori STG *{OUT_SUFFIX}: {sorted(out_cols)}")
+
+    def effective(col: str) -> str:
+        """Valore effettivo di col: *_out di STG se valorizzata, override STG, raw."""
+        if col in out_cols:
+            out = q(col + OUT_SUFFIX)
+            return (f"CASE WHEN stg.{stg_sentinel} IS NOT NULL AND COALESCE(TRIM(stg.{out}), '') <> '' "
+                    f"THEN stg.{out} ELSE raw.{q(col)} END")
+        if col in common_cols and stg_sentinel:
+            return (f'CASE WHEN stg.{stg_sentinel} IS NOT NULL '
+                    f'THEN stg.{q(col)} ELSE raw.{q(col)} END')
+        return f'raw.{q(col)}'
 
     # Banche estere: chiave banca determinata da stg.fn_banca_estera (BANKL, IBAN o
     # SWIFT) e scritta in prd; BKREF (usato dall'ERP per lo SWIFT) svuotato
@@ -372,11 +409,7 @@ def merge_table(cur, raw_schema: str, raw_table: str,
         if col in ("_source", "_loaded_at"):
             select_parts.append(f'raw.{q(col)}')
             continue
-        if col in common_cols and stg_sentinel:
-            expr = (f'CASE WHEN stg.{stg_sentinel} IS NOT NULL '
-                    f'THEN stg.{q(col)} ELSE raw.{q(col)} END')
-        else:
-            expr = f'raw.{q(col)}'
+        expr = effective(col)
         if fill_bank_ue and col in ("BANKL(k)", "BKREF"):
             estera = f"COALESCE(raw.{q(bank_ue_banks_col)}, '') <> 'IT'"
             if col == "BANKL(k)":
@@ -406,6 +439,9 @@ def merge_table(cur, raw_schema: str, raw_table: str,
         where_clauses = []
 
     # ---- Filtro VIES ----
+    # P.IVA effettiva: quella corretta in STG se presente, altrimenti raw
+    vies_taxnum_expr  = effective(VIES_TAXNUM_COL) if has_stg else None
+    vies_taxtype_expr = effective(VIES_TAXTYPE_COL) if has_stg else None
     if vies_filter and vies_lifnr_col:
         if check_vat_vies_exists(cur):
             if VIES_TAXTYPE_COL in raw_cols and VIES_TAXNUM_COL in raw_cols:
@@ -413,7 +449,7 @@ def merge_table(cur, raw_schema: str, raw_table: str,
                     f"  Filtro VIES attivo (P.IVA CEE, TAXTYPE LIKE '%0': "
                     f"ultimo esito VIES per numero di P.IVA)"
                 )
-                where_clauses.append(f"NOT {_vies_invalid_sql('raw')}")
+                where_clauses.append(f"NOT {_vies_invalid_sql('raw', vies_taxnum_expr, vies_taxtype_expr)}")
             else:
                 log.warning(
                     f"  Filtro VIES saltato: colonne {VIES_TAXTYPE_COL} / "
@@ -452,7 +488,7 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     # ---- Log record scartati da VIES (prima del DROP, un record per PIVA) ----
     if (vies_filter and vies_lifnr_col and check_vat_vies_exists(cur)
             and VIES_TAXTYPE_COL in raw_cols and VIES_TAXNUM_COL in raw_cols):
-        _log_vies_discards(cur, raw_fqt, vies_lifnr_col)
+        _log_vies_discards(cur, raw_fqt, vies_lifnr_col, join_clause, vies_taxnum_expr, vies_taxtype_expr)
 
     # ---- Log record scartati da CK047 (prima del DROP) ----
     if ck047_filter and ck047_lifnr_col and check_ck047_results_exists(cur):
