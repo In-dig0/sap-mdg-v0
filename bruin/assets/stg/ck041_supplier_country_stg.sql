@@ -47,4 +47,5 @@ WHERE (
     SELECT COALESCE(is_active, FALSE)
     FROM stg.check_catalog WHERE check_id = 'CK041'
 )
+  AND COALESCE(raw."_status", '') <> 'DELETED'   -- eliminati in STG: esclusi dall'output
 ;

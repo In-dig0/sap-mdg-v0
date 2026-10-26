@@ -8,7 +8,7 @@ description: >
   CK221 — EXISTENCE: Dati generali STG di clienti, destinatari merci e fornitori:
   STREET non può superare i 60 caratteri e STR_SUPPL3 i 40 (lunghezze dei campi SAP).
   Gli indirizzi più lunghi vanno spezzati a mano tra STREET e STR_SUPPL3 dalla pagina
-  Modifica Tabelle. Un esito per record STG.
+  Modifica Tabelle. Un esito per record STG (esclusi i DELETED, che non vanno in output).
 connection: mdg_postgres
 @bruin */
 
@@ -20,14 +20,17 @@ WITH indirizzi AS (
     SELECT 'S_CUST_GEN#ZBP_DatiGenerali_STG' AS source_table, "KUNNR(k/*)" AS chiave,
            COALESCE("STREET", '') AS street, COALESCE("STR_SUPPL3", '') AS str_suppl3, "_source" AS zip_source
     FROM stg."S_CUST_GEN#ZBP_DatiGenerali_STG"
+    WHERE COALESCE("_status", '') <> 'DELETED'
     UNION ALL
     SELECT 'S_CUST_GEN#ZDM_DatiGenerali_STG', "KUNNR(k/*)",
            COALESCE("STREET", ''), COALESCE("STR_SUPPL3", ''), "_source"
     FROM stg."S_CUST_GEN#ZDM_DatiGenerali_STG"
+    WHERE COALESCE("_status", '') <> 'DELETED'
     UNION ALL
     SELECT 'S_SUPPL_GEN#ZBP_DatiGenerali_STG', "LIFNR(k/*)",
            COALESCE("STREET", ''), COALESCE("STR_SUPPL3", ''), "_source"
     FROM stg."S_SUPPL_GEN#ZBP_DatiGenerali_STG"
+    WHERE COALESCE("_status", '') <> 'DELETED'
 )
 SELECT
     i.source_table                               AS source_table,

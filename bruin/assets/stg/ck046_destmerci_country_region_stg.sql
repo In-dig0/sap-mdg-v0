@@ -6,6 +6,7 @@ depends:
   - stg.detect_new_records  
 description: >
   CK046 — SAP_REF: Destinatari Merci STG: coppia COUNTRY(*)+REGION presente in T005S.
+  Record STG DELETED esclusi (non vanno in output).
 connection: mdg_postgres
 @bruin */
 
@@ -48,4 +49,5 @@ WHERE (
     SELECT COALESCE(is_active, FALSE)
     FROM stg.check_catalog WHERE check_id = 'CK046'
 )
+  AND COALESCE(raw."_status", '') <> 'DELETED'   -- eliminati in STG: esclusi dall'output
 ;
