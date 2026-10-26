@@ -9,6 +9,8 @@ description: >
       ZBP-AddInterlocutoreCli (in SAP i DM si caricano prima dei clienti; quelli
       dei clienti ZBP vanno nello ZIP dei clienti; gli interlocutori restano nello
       ZIP del flusso, caricato in un secondo momento)
+  I DM esclusi da prd."S_CUST_GEN#ZDM_DatiGenerali" (DELETED in STG o senza nome) sono
+  esclusi anche dalle altre tabelle: righe in <tabella>_discarded.csv.
   I DM già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT2) sono esclusi da tutte le
   tabelle: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP non è generato.
   Estrazione ristretta (test): nessuno ZIP dei DM (si presuppongono già caricati in SAP
@@ -146,6 +148,20 @@ def get_orphan_keys(conn, check_id: str) -> set:
         return {r[0] for r in cur.fetchall()}
 
 
+def get_dropped_master_keys(conn, source_name: str) -> set:
+    """DM dell'anagrafica raw esclusi da prd dal merge (DELETED in STG o senza nome)."""
+    if not table_exists(conn, "prd", "S_CUST_GEN#ZDM_DatiGenerali"):
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT r."KUNNR(k/*)" FROM raw."S_CUST_GEN#ZDM-DatiGenerali" r '
+            'WHERE r."_source" = %s AND NOT EXISTS ('
+            '    SELECT 1 FROM prd."S_CUST_GEN#ZDM_DatiGenerali" p WHERE p."KUNNR(k/*)" = r."KUNNR(k/*)")',
+            (source_name,),
+        )
+        return {r[0] for r in cur.fetchall()}
+
+
 def fetch_table_csv(conn, schema: str, table: str,
                     source_filter: str, cols: list[str],
                     excluded_keys: set | None = None,
@@ -278,6 +294,16 @@ def build_zip(conn, source_name: str, excluded_out: list | None = None) -> bytes
         )
     else:
         log.info("  [CK403] Nessuna chiave orfana per '%s'.", source_name)
+
+    # DM esclusi dai dati generali in prd: fuori anche dalle tabelle secondarie
+    dropped_keys = get_dropped_master_keys(conn, source_name)
+    if dropped_keys:
+        log.warning(
+            "  *** %d DM esclusi da prd (DELETED in STG o senza nome) per '%s' "
+            "— esclusi anche dalle tabelle secondarie: %s",
+            len(dropped_keys), source_name, sorted(dropped_keys)
+        )
+        orphan_keys = orphan_keys | dropped_keys
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
 
