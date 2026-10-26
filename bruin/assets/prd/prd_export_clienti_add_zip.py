@@ -20,6 +20,8 @@ description: >
   esclusi: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP non è generato.
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
   e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.csv.
+  Gli ZIP di output (e i relativi riepiloghi) di un flusso senza file caricati in raw, ad
+  esempio perché l'ERP l'ha estratto vuoto, vengono rimossi: non restano quelli di run precedenti.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
 depends:
   - ingestion.ingest_zip_to_raw
@@ -38,6 +40,7 @@ from prd_export_clienti_zip import (
     fetch_table_csv, write_discarded_csv, remove_discarded_csv, ADD_FLOW, ADD_MOVED_TABLES,
     get_export_filter, write_test_zip, get_but000_map,
     get_exclude_add, already_in_sap_rows, write_already_in_sap, write_output_zip,
+    TEST_DIR, already_in_sap_path,
 )
 
 logging.basicConfig(
@@ -175,6 +178,19 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
     return buf.read()
 
 
+def remove_stale_outputs(flow: str, sources: list[str]):
+    """Rimuove gli ZIP del flusso (output e test) che non corrispondono a un file caricato in raw."""
+    for out_dir in (OUTPUT_DIR, TEST_DIR):
+        if not os.path.isdir(out_dir):
+            continue
+        for name in os.listdir(out_dir):
+            if name.lower().endswith(".zip") and flow.lower() in name.lower() and name not in sources:
+                os.remove(os.path.join(out_dir, name))
+                log.info(f"  Rimosso {os.path.join(out_dir, name)}: nessun file del flusso caricato in raw")
+                if out_dir == OUTPUT_DIR and os.path.exists(already_in_sap_path(name)):
+                    os.remove(already_in_sap_path(name))
+
+
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     remove_discarded_csv([t for tables in FLOWS.values() for t in tables])
@@ -182,6 +198,7 @@ def main():
     try:
         for flow, tables in FLOWS.items():
             sources = get_flow_sources(conn, flow, tables)
+            remove_stale_outputs(flow, sources)
             if not sources:
                 log.info(f"Flusso {flow}: nessun file caricato in raw — nulla da esportare.")
                 continue
