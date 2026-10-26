@@ -7,7 +7,9 @@ description: >
   CK801 — EXT_REF: Clienti: verifica validità Partita IVA EU/UK
   tramite servizi esterni (VIES SOAP + HMRC API v2).
   Legge da raw."S_CUST_TAXNUMBERS#ZBP-CodiciFisc" i record con
-  TAXTYPE che termina in '0' (= P.IVA CEE).
+  TAXTYPE che termina in '0' (= P.IVA CEE), con TAXTYPE e P.IVA effettivi: quelli
+  corretti a mano in stg."S_CUST_TAXNUMBERS#ZBP-CodiciFisc_STG" (colonne *_out) se
+  valorizzati (stessa regola del merge verso prd; righe STG DELETED escluse).
   Routing per paese:
     - EU (AT,BE,DE,IT,...,XI): WS VIES (SOAP, Commissione Europea)
     - GB (UK mainland):        HMRC API v2 (OAuth2 client_credentials)
@@ -49,6 +51,7 @@ log = logging.getLogger("ck801")
 # ---------------------------------------------------------------------------
 CHECK_ID     = "CK801"
 SOURCE_TABLE = "S_CUST_TAXNUMBERS#ZBP-CodiciFisc"
+STG_TABLE    = "S_CUST_TAXNUMBERS#ZBP-CodiciFisc_STG"   # eccezioni inserite a mano
 CATEGORY     = "BP"
 
 VIES_WSDL = "https://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl"
@@ -449,17 +452,31 @@ def main():
             if cleaned:
                 log.info(f"Rimossi {cleaned} record CACHED customer residui da run precedenti.")
 
-            # 3. Leggi VAT customer da raw
-            cur.execute("""
-                SELECT
-                    "KUNNR(k/*)"   AS entity_id,
-                    "TAXTYPE(k/*)" AS taxtype,
-                    "TAXNUM(*)"    AS taxnum,
-                    "_source"      AS zip_source
-                FROM raw."S_CUST_TAXNUMBERS#ZBP-CodiciFisc"
+            # 3. Leggi VAT customer da raw, con la P.IVA corretta in STG se presente
+            cur.execute("SELECT to_regclass(%s)", (f'stg."{STG_TABLE}"',))
+            if cur.fetchone()[0] is not None:
+                effective = f'''
+                    SELECT raw."KUNNR(k/*)",
+                           COALESCE(NULLIF(TRIM(stg."TAXTYPE(k/*)_out"), ''), raw."TAXTYPE(k/*)") AS "TAXTYPE(k/*)",
+                           COALESCE(NULLIF(TRIM(stg."TAXNUM(*)_out"), ''), raw."TAXNUM(*)") AS taxnum,
+                           raw."_source",
+                           COALESCE(stg."_status", '') AS stg_status
+                    FROM raw."{SOURCE_TABLE}" raw
+                    LEFT JOIN stg."{STG_TABLE}" stg
+                      ON stg."KUNNR(k/*)" = raw."KUNNR(k/*)" AND stg."TAXTYPE(k/*)" = raw."TAXTYPE(k/*)"
+                '''
+            else:
+                effective = f'''
+                    SELECT "KUNNR(k/*)", "TAXTYPE(k/*)", "TAXNUM(*)" AS taxnum, "_source", '' AS stg_status
+                    FROM raw."{SOURCE_TABLE}"
+                '''
+            cur.execute(f"""
+                SELECT "KUNNR(k/*)" AS entity_id, "TAXTYPE(k/*)" AS taxtype, taxnum, "_source" AS zip_source
+                FROM ({effective}) e
                 WHERE "TAXTYPE(k/*)" LIKE '%0'
-                  AND "TAXNUM(*)" IS NOT NULL
-                  AND TRIM("TAXNUM(*)") <> ''
+                  AND stg_status <> 'DELETED'
+                  AND taxnum IS NOT NULL
+                  AND TRIM(taxnum) <> ''
             """)
             raw_rows = cur.fetchall()
             log.info(f"Record VAT customer da elaborare: {len(raw_rows)}")
