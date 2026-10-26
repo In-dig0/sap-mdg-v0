@@ -293,6 +293,10 @@ VALUES
      'BP','S_CUST_TAXNUMBERS#ZBP-CodiciFisc','TAXNUM(*)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
+    ('CK221','Dati generali STG (clienti, DM, fornitori): STREET max 60 caratteri, STR_SUPPL3 max 40',
+     'BP','S_CUST_GEN#ZBP/ZDM_DatiGenerali_STG + S_SUPPL_GEN#ZBP_DatiGenerali_STG','STREET + STR_SUPPL3',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
     ('CK212','Distinte base (S_BOM_ITEM): quantità componente MENGE(*) non può essere zero',
      'BOM','S_BOM_ITEM','MENGE(*)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),

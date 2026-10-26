@@ -9,6 +9,7 @@ description: >
   Le colonne chiave sono rilevate automaticamente dal suffisso (k) nel nome.
 depends:
   - ingestion.ingest_others_to_stg
+  - stg.add_str_suppl3
 @bruin """
 
 import os
