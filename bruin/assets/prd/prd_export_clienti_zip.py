@@ -15,6 +15,10 @@ description: >
   cliente con il codice originale.
   Le righe partner senza alcun riferimento (KUNN2, LIFNR, PERNR, PARNR vuoti) sono escluse
   e scritte negli scarti; il file è ordinato per le colonne chiave.
+  Le righe partner con funzione di fornitore (RA spedizioniere, ZA) il cui KUNN2 non è un
+  fornitore creato in SAP (BU_SORT1 di ref.SAP_EXPORT_BUT000; se la tabella non è caricata,
+  i vettori di raw S_SUPPL_GEN#ZBP_DatiGenerali) sono escluse e scritte negli scarti:
+  in SAP darebbero errore (fornitore non esistente in LFA1).
   In S_CUST_TAXNUMBERS#ZBP-CodiciFisc le righe senza identificativo fiscale (TAXNUM vuoto)
   sono escluse e scritte negli scarti (in SAP danno errore).
   Estrazione ristretta (test): se stg.export_filter contiene codici cliente, viene
@@ -115,6 +119,9 @@ PARVW_MAP = {"RA": "SP"}
 BUT000_TABLE  = "SAP_EXPORT_BUT000"
 # Riferimenti al partner: una riga senza nessuno di questi valori è esclusa dall'output
 PARTNER_REF_COLS = ["KUNN2(k)", "LIFNR(k)", "PERNR(k)", "PARNR(k)"]
+# Funzioni partner che rimandano a un fornitore: il fornitore (KUNN2) deve esistere in SAP
+VENDOR_PARVW = {"RA", "ZA"}
+VENDOR_TABLE = "S_SUPPL_GEN#ZBP_DatiGenerali"
 # Codici fiscali: una riga senza identificativo (TAXNUM vuoto) è esclusa dall'output
 TAXNUM_TABLE = "S_CUST_TAXNUMBERS#ZBP-CodiciFisc"
 TAXNUM_COLS  = ["TAXNUM(*)"]
@@ -187,6 +194,7 @@ def fetch_table_csv(conn, schema: str, table: str,
                     value_map: dict[str, dict] | None = None,
                     value_map_skip_if_equal: dict[str, str] | None = None,
                     drop_if_all_empty: list[str] | None = None,
+                    drop_if_not_in: tuple[str, set, str, set] | None = None,
                     sort_cols: list[str] | None = None,
                     key_filter: tuple[str, set] | None = None,
                     write_discards: bool = True) -> bytes:
@@ -194,6 +202,9 @@ def fetch_table_csv(conn, schema: str, table: str,
     value_map:         {colonna: {valore_originale: nuovo_valore}} applicato in uscita.
     value_map_skip_if_equal: {colonna: altra_colonna} — non trascodifica se i due valori coincidono.
     drop_if_all_empty: righe con tutte queste colonne vuote escluse e scritte negli scarti.
+    drop_if_not_in:    (colonna_filtro, valori_filtro, colonna, valori_ammessi) — righe con
+                       colonna_filtro tra valori_filtro e colonna (valore originale, prima della
+                       trascodifica) non tra valori_ammessi escluse e scritte negli scarti.
     sort_cols:         ordinamento dell'output (dopo la trascodifica).
     key_filter:        (colonna, valori) — solo le righe con quei valori (estrazione ristretta).
     write_discards:    False nell'estrazione ristretta (non tocca gli scarti dell'output completo).
@@ -226,6 +237,18 @@ def fetch_table_csv(conn, schema: str, table: str,
         if isinstance(val, str) and val.strip() == "NaN":
             return ""
         return val
+
+    if drop_if_not_in and drop_if_not_in[0] in cols and drop_if_not_in[2] in cols:
+        f_col, f_values, col, allowed = drop_if_not_in
+        i, j = cols.index(f_col), cols.index(col)
+        dropped = [r for r in rows if r[i] in f_values and str(sanitize(r[j])).strip() not in allowed]
+        if dropped:
+            rows = [r for r in rows if not (r[i] in f_values and str(sanitize(r[j])).strip() not in allowed)]
+            log.warning("  %s.%s: %d righe %s=%s con %s non presente in SAP escluse: %s",
+                        schema, table, len(dropped), f_col, "/".join(sorted(f_values)), col,
+                        sorted({str(r[j]) for r in dropped}))
+            if write_discards:
+                write_discarded_rows(table, cols, [tuple(sanitize(v) for v in r) for r in dropped])
 
     if value_map:
         rows = [list(r) for r in rows]
@@ -283,6 +306,22 @@ def get_but000_map(conn, sort_cols: tuple = ("BU_SORT2", "BU_SORT1")) -> dict[st
             for old, new in cur.fetchall():
                 mapping.setdefault(old.strip(), new)
     return mapping
+
+
+def get_known_vendors(conn) -> set:
+    """
+    Fornitori esistenti in SAP (BU_SORT1 di ref.SAP_EXPORT_BUT000). Se BUT000 non è caricata
+    (primo caricamento) i vettori di raw S_SUPPL_GEN#ZBP_DatiGenerali, creati nel primo passo.
+    """
+    with conn.cursor() as cur:
+        if table_exists(conn, "ref", BUT000_TABLE):
+            cur.execute(f'SELECT TRIM("BU_SORT1") FROM ref.{q(BUT000_TABLE)} '
+                        f'WHERE COALESCE(TRIM("BU_SORT1"), \'\') <> \'\'')
+        elif table_exists(conn, "raw", VENDOR_TABLE):
+            cur.execute(f'SELECT TRIM("LIFNR(k/*)") FROM raw.{q(VENDOR_TABLE)}')
+        else:
+            return set()
+        return {r[0] for r in cur.fetchall()}
 
 
 def get_export_filter(conn) -> set:
@@ -612,6 +651,8 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
                           if raw_table == PARTNER_TABLE else None,
                 value_map_skip_if_equal={PARTNER_COL: "KUNNR(k/*)"} if raw_table == PARTNER_TABLE else None,
                 drop_if_all_empty=PARTNER_REF_COLS if raw_table == PARTNER_TABLE else None,
+                drop_if_not_in=(PARVW_COL, VENDOR_PARVW, PARTNER_COL, get_known_vendors(conn))
+                               if raw_table == PARTNER_TABLE else None,
                 sort_cols=PARTNER_KEY_COLS if raw_table == PARTNER_TABLE else None,
                 key_filter=kf,
                 write_discards=not key_filter,
