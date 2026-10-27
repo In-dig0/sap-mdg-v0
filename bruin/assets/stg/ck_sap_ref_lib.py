@@ -34,10 +34,11 @@ def table_exists(cur, schema: str, table: str) -> bool:
 
 def run_ref_check(check_id: str, raw_table: str, key_col: str, field: str,
                   ref_table: str, ref_col: str, placeholders: tuple = (),
-                  output_note: dict | None = None):
+                  output_note: dict | None = None, skip_if: dict | None = None):
     """
     output_note: testo aggiunto al messaggio per tipo di errore, con ciò che viene
     scritto nell'output: {"vuoto": ..., "segnaposto": ..., "non_ammesso": ...}.
+    skip_if: righe escluse dal controllo, {colonna: (valori, ...)} (confronto su TRIM).
     """
     note = output_note or {}
     conn = psycopg2.connect(**DB_CONFIG)
@@ -64,7 +65,13 @@ def run_ref_check(check_id: str, raw_table: str, key_col: str, field: str,
             run_id = cur.fetchone()[0]
             now = datetime.now(timezone.utc)
 
-            cur.execute(f'SELECT {q(key_col)}, COALESCE(TRIM({q(field)}), \'\'), "_source" FROM raw.{q(raw_table)}')
+            where, params = "", []
+            if skip_if:
+                where = " WHERE " + " AND ".join(
+                    f"COALESCE(TRIM({q(col)}), '') <> ALL(%s)" for col in skip_if)
+                params = [list(vals) for vals in skip_if.values()]
+            cur.execute(f'SELECT {q(key_col)}, COALESCE(TRIM({q(field)}), \'\'), "_source" '
+                        f'FROM raw.{q(raw_table)}{where}', params or None)
             results, n_err = [], 0
             for key, value, source in cur.fetchall():
                 if value == "":

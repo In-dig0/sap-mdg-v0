@@ -6,7 +6,8 @@ depends:
   - ingestion.ingest_xlsx_to_ref
 description: >
   CK058 — SAP_REF: Destinatari merci (DatiVendite) (S_CUST_SALES_DATA#ZDM-DatiVendite): KVGR5 obbligatorio e presente in
-  SAP_EXPORT_TVV5 (KVGR5). Errore se vuoto, '???' o non presente in SAP_EXPORT_TVV5.
+  SAP_EXPORT_TVV5 (KVGR5). Warning se vuoto, '???' o non presente in SAP_EXPORT_TVV5.
+  Le righe con VKBUR = 'SUP' non sono controllate.
   Nell'output (prd.merge_dati_vendite) '???' diventa vuoto, gli altri valori restano.
   Se SAP_EXPORT_TVV5 non è caricata sono verificati solo i casi precedenti. Un esito per riga.
 @bruin """
@@ -27,4 +28,5 @@ if __name__ == "__main__":
         ref_col="KVGR5",
         placeholders=("???",),
         output_note={"segnaposto": "(in output vuoto)"},
+        skip_if={"VKBUR": ("SUP",)},
     )

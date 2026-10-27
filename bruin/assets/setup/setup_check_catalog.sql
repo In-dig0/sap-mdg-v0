@@ -218,11 +218,11 @@ VALUES
 
     ('CK057','Clienti (DatiVendite): gruppo clienti 5 KVGR5 obbligatorio e presente in SAP_EXPORT_TVV5 (??? in output vuoto)',
      'BP','S_CUST_SALES_DATA#ZBP-DatiVendite','KVGR5',
-     'ref.SAP_EXPORT_TVV5 (KVGR5)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_TVV5 (KVGR5)','Warning','SAP_REF',TRUE,NOW()),
 
-    ('CK058','Destinatari merci (DatiVendite): gruppo clienti 5 KVGR5 obbligatorio e presente in SAP_EXPORT_TVV5 (??? in output vuoto)',
+    ('CK058','Destinatari merci (DatiVendite): gruppo clienti 5 KVGR5 obbligatorio e presente in SAP_EXPORT_TVV5 (??? in output vuoto; escluse le righe VKBUR = SUP)',
      'BP','S_CUST_SALES_DATA#ZDM-DatiVendite','KVGR5',
-     'ref.SAP_EXPORT_TVV5 (KVGR5)','Error','SAP_REF',TRUE,NOW()),
+     'ref.SAP_EXPORT_TVV5 (KVGR5)','Warning','SAP_REF',TRUE,NOW()),
 
     ('CK059','Clienti (DatiVendite): gruppo clienti KDGRP obbligatorio e presente in SAP_EXPORT_T151 (in output default 04)',
      'BP','S_CUST_SALES_DATA#ZBP-DatiVendite','KDGRP',
