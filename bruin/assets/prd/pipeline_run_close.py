@@ -26,11 +26,14 @@ depends:
   - stg.ck060_po_ekgrp_t024
   - stg.ck061_po_zterm_t052
   - stg.ck062_po_lifnr_but000
+  - stg.ck063_bp_vbund_t880
   - stg.ck222_po_incoterm
   - stg.ck223_po_item_quantita_prezzo
   - stg.ck224_po_consegna_passata
   - stg.ck225_po_quantita_schedulazioni
   - stg.ck415_po_orphans
+  - stg.ck416_customer_vbund_akont
+  - stg.ck417_supplier_vbund_akont
   - stg.ck520_po_materiale_marc
   - stg.ck521_po_unita_misura
   - stg.ck522_po_materiale_stato

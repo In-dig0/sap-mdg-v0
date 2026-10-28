@@ -240,6 +240,10 @@ VALUES
      'PO','S_EKKO','LIFNR(*) + VERKF',
      'ref.SAP_EXPORT_BUT000 (PARTNER, BU_SORT1)','Error','SAP_REF',TRUE,NOW()),
 
+    ('CK063','Business Partner (DatiGenerali clienti, DM, fornitori): società partner VBUND presente in SAP_EXPORT_T880',
+     'BP','S_CUST_GEN#ZBP/ZDM-DatiGenerali + S_SUPPL_GEN#ZBP/ZDM_DatiGenerali','VBUND',
+     'ref.SAP_EXPORT_T880 (RCOMP)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK055','Fornitori (AppoggioBanca): banca estera (BANKL, IBAN o SWIFT) presente in BNKA (BANKS<>IT)',
      'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKL(k) / IBAN(k) / BKREF (SWIFT)',
      'ref.SAP_EXPORT_BNKA_UE (BANKS+BANKL)','Error','SAP_REF',TRUE,NOW()),
@@ -400,6 +404,14 @@ VALUES
 
     ('CK415','Orfani flusso Ordini di acquisto: posizioni senza testata o schedulazioni, schedulazioni senza posizione, testate senza posizioni',
      'PO','S_EKKO + S_EKPO + S_EKET','EBELN(k/*) + EBELP(k/*)',
+     NULL,'Error','CROSS_TABLE',TRUE,NOW()),
+
+    ('CK416','Clienti: coerenza società partner VBUND e conto di riconciliazione AKONT(*) intercompany',
+     'BP','S_CUST_GEN#ZBP-DatiGenerali + S_CUST_COMPANY#ZBP-DatiSocieta','VBUND + AKONT(*)',
+     NULL,'Error','CROSS_TABLE',TRUE,NOW()),
+
+    ('CK417','Fornitori: coerenza società partner VBUND e conto di riconciliazione AKONT(*) intercompany',
+     'BP','S_SUPPL_GEN#ZBP_DatiGenerali + S_SUPPL_COMPANY#ZBP_DatiSocieta/AddDatiSocieta','VBUND + AKONT(*)',
      NULL,'Error','CROSS_TABLE',TRUE,NOW()),
 
     -- CROSS_SOURCE — CK501-CK506

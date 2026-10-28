@@ -1,5 +1,6 @@
 """
-Libreria comune per i controlli Python basati su una query (ordini di acquisto, CK062-CK524).
+Libreria comune per i controlli Python basati su una query (es. ordini di acquisto CK062-CK524,
+società partner CK063, CK416, CK417).
 Non è un asset Bruin — viene importata dagli asset ckNNN.
 
 Il controllo esegue una query che restituisce una riga per oggetto controllato con le colonne
@@ -32,10 +33,11 @@ def table_exists(cur, schema: str, table: str) -> bool:
     return cur.fetchone()[0] is not None
 
 
-def run_query_check(check_id: str, sql: str, required: list, category: str = "PO"):
+def run_query_check(check_id: str, sql, required: list, category: str = "PO"):
     """
     required: tabelle necessarie come (schema, tabella); se ne manca una il controllo è saltato.
-    sql: query con le colonne (source_table, object_key, message, zip_source).
+    sql: query con le colonne (source_table, object_key, message, zip_source), oppure funzione
+         che riceve il cursore e restituisce la query (None = niente da controllare).
     """
     conn = psycopg2.connect(**DB_CONFIG)
     try:
@@ -56,6 +58,11 @@ def run_query_check(check_id: str, sql: str, required: list, category: str = "PO
             run_id = cur.fetchone()[0]
             now = datetime.now(timezone.utc)
 
+            if callable(sql):
+                sql = sql(cur)
+                if not sql:
+                    print(f"[SKIP] {check_id} — nessuna tabella da controllare caricata")
+                    return
             cur.execute(sql)
             results, n_err = [], 0
             for source_table, key, msg, source in cur.fetchall():
