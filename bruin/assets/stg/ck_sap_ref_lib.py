@@ -1,5 +1,5 @@
 """
-Libreria comune per i controlli SAP_REF scritti in Python (CK057, CK058, CK059).
+Libreria comune per i controlli SAP_REF scritti in Python (CK057-CK061).
 Non è un asset Bruin — viene importata dagli asset ck05x.
 
 Un controllo verifica un campo di una tabella raw rispetto a una tabella di controllo
@@ -34,7 +34,8 @@ def table_exists(cur, schema: str, table: str) -> bool:
 
 def run_ref_check(check_id: str, raw_table: str, key_col: str, field: str,
                   ref_table: str, ref_col: str, placeholders: tuple = (),
-                  output_note: dict | None = None, skip_if: dict | None = None):
+                  output_note: dict | None = None, skip_if: dict | None = None,
+                  category: str = "BP"):
     """
     output_note: testo aggiunto al messaggio per tipo di errore, con ciò che viene
     scritto nell'output: {"vuoto": ..., "segnaposto": ..., "non_ammesso": ...}.
@@ -82,12 +83,12 @@ def run_ref_check(check_id: str, raw_table: str, key_col: str, field: str,
                     msg = (f"{field} [{value}] non presente in {ref_table}"
                            + (f" {note['non_ammesso']}" if note.get("non_ammesso") else ""))
                 else:
-                    results.append((raw_table, "BP", key, check_id, "Ok", "Ok", run_id, source, now))
+                    results.append((raw_table, category, key, check_id, "Ok", "Ok", run_id, source, now))
                     continue
                 if allowed is None:
                     msg += f" (ref.{ref_table} non caricata: valori ammessi non verificati)"
                 n_err += 1
-                results.append((raw_table, "BP", key, check_id, msg, severity, run_id, source, now))
+                results.append((raw_table, category, key, check_id, msg, severity, run_id, source, now))
 
             if results:
                 execute_values(cur, """

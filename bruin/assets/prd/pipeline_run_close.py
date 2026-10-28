@@ -23,6 +23,19 @@ depends:
   - stg.ck057_customer_kvgr5_tvv5
   - stg.ck058_zdm_kvgr5_tvv5
   - stg.ck059_customer_kdgrp_t151
+  - stg.ck060_po_ekgrp_t024
+  - stg.ck061_po_zterm_t052
+  - stg.ck062_po_lifnr_but000
+  - stg.ck222_po_incoterm
+  - stg.ck223_po_item_quantita_prezzo
+  - stg.ck224_po_consegna_passata
+  - stg.ck225_po_quantita_schedulazioni
+  - stg.ck415_po_orphans
+  - stg.ck520_po_materiale_marc
+  - stg.ck521_po_unita_misura
+  - stg.ck522_po_materiale_stato
+  - stg.ck523_po_materiale_descr_lingua
+  - stg.ck524_po_fornitore_anagrafica
   - stg.ck401_zbp_vettori_orphans
   - stg.ck402_zbp_fornitori_orphans
   - stg.ck403_zdm_clienti_orphans

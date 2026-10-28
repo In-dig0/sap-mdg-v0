@@ -35,6 +35,7 @@ CATEGORY_LABELS = {
     "PIR":     "Inforecord acquisti",
     "CMIR":    "Inforecord vendite",
     "PRICE":   "Condizioni di vendita",
+    "PO":      "Ordini di acquisto",
 }
 
 # ---------------------------------------------------------------------------

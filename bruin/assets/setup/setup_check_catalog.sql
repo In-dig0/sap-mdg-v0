@@ -10,7 +10,7 @@ description: >
     CK401-CK499  → CROSS_TABLE  (coerenza referenziale tra tabelle dello stesso ZIP)
     CK501-CK599  → CROSS_SOURCE (coerenza referenziale tra tabelle di ZIP/sorgenti diversi)
     CK801-CK899  → EXT_REF      (verifiche tramite servizi esterni)
-  Categorie (category): BP, MAT, BOM, ROUTING, PIR, CMIR, PRICE
+  Categorie (category): BP, MAT, BOM, ROUTING, PIR, CMIR, PRICE, PO
   (etichette in streamlit/app/pages/2_check_catalog.py).
 connection: mdg_postgres
 @bruin */
@@ -228,6 +228,18 @@ VALUES
      'BP','S_CUST_SALES_DATA#ZBP-DatiVendite','KDGRP',
      'ref.SAP_EXPORT_T151 (KDGRP)','Error','SAP_REF',TRUE,NOW()),
 
+    ('CK060','Ordini di acquisto (S_EKKO): gruppo acquisti EKGRP obbligatorio e presente in SAP_EXPORT_T024',
+     'PO','S_EKKO','EKGRP',
+     'ref.SAP_EXPORT_T024 (EKGRP)','Error','SAP_REF',TRUE,NOW()),
+
+    ('CK061','Ordini di acquisto (S_EKKO): condizione di pagamento ZTERM obbligatoria e presente in SAP_EXPORT_T052',
+     'PO','S_EKKO','ZTERM',
+     'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
+
+    ('CK062','Ordini di acquisto (S_EKKO): fornitore LIFNR(*) presente in SAP_EXPORT_BUT000 e codice legacy VERKF = BU_SORT1',
+     'PO','S_EKKO','LIFNR(*) + VERKF',
+     'ref.SAP_EXPORT_BUT000 (PARTNER, BU_SORT1)','Error','SAP_REF',TRUE,NOW()),
+
     ('CK055','Fornitori (AppoggioBanca): banca estera (BANKL, IBAN o SWIFT) presente in BNKA (BANKS<>IT)',
      'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKL(k) / IBAN(k) / BKREF (SWIFT)',
      'ref.SAP_EXPORT_BNKA_UE (BANKS+BANKL)','Error','SAP_REF',TRUE,NOW()),
@@ -309,6 +321,22 @@ VALUES
      'BP','S_CUST_GEN#ZBP/ZDM_DatiGenerali_STG + S_SUPPL_GEN#ZBP_DatiGenerali_STG','STREET + STR_SUPPL3',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
+    ('CK222','Ordini di acquisto (S_EKKO): Incoterm INCO1 e INCO2_L obbligatori',
+     'PO','S_EKKO','INCO1 + INCO2_L',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
+    ('CK223','Ordini di acquisto (S_EKPO): quantità MENGE, prezzo NETPR e unità di prezzo PEINH obbligatori e maggiori di zero',
+     'PO','S_EKPO','MENGE + NETPR + PEINH',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
+    ('CK224','Ordini di acquisto (S_EKET): data di consegna EINDT(*) valida e non già passata',
+     'PO','S_EKET','EINDT(*)',
+     NULL,'Warning','EXISTENCE',TRUE,NOW()),
+
+    ('CK225','Ordini di acquisto: quantità della posizione (S_EKPO.MENGE) uguale alla somma delle schedulazioni (S_EKET.MENGE(*))',
+     'PO','S_EKPO + S_EKET','MENGE / MENGE(*)',
+     NULL,'Error','EXISTENCE',TRUE,NOW()),
+
     ('CK212','Distinte base (S_BOM_ITEM): quantità componente MENGE(*) non può essere zero',
      'BOM','S_BOM_ITEM','MENGE(*)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
@@ -369,6 +397,10 @@ VALUES
     ('CK414','Clienti (ZBP-Partner): partner WE valorizzato e destinatario merci con codice SAP in SAP_EXPORT_BUT000',
      'BP','S_CUST_SALES_PARTNER#ZBP-Partner','KUNN2(k) (PARVW=WE)',
      'ref.SAP_EXPORT_BUT000 (BU_SORT2)','Warning','CROSS_TABLE',TRUE,NOW()),
+
+    ('CK415','Orfani flusso Ordini di acquisto: posizioni senza testata o schedulazioni, schedulazioni senza posizione, testate senza posizioni',
+     'PO','S_EKKO + S_EKPO + S_EKET','EBELN(k/*) + EBELP(k/*)',
+     NULL,'Error','CROSS_TABLE',TRUE,NOW()),
 
     -- CROSS_SOURCE — CK501-CK506
     ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X); esclusi MSTAE 01/08',
@@ -446,6 +478,26 @@ VALUES
     ('CK519','Clienti (flusso ZBP-GestioneCredito): KUNNR deve essere presente in ZBP-DatiGenerali/ZDM-DatiGenerali',
      'BP','S_UKM_PROFILE#ZBP-Rischio + S_UKM_SEGMENT#ZBP-Fido','KUNNR(k/*)',
      'S_CUST_GEN#ZBP-DatiGenerali / ZDM-DatiGenerali','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK520','Ordini di acquisto (S_EKPO): materiale MATNR presente in S_MARA ed esteso al plant WERKS in S_MARC',
+     'PO','S_EKPO','MATNR + WERKS',
+     'S_MARA (PRODUCT) / S_MARC (PRODUCT+WERKS)','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK521','Ordini di acquisto (S_EKPO): unità di misura MEINS uguale all''unità base del materiale o presente in S_MARM',
+     'PO','S_EKPO','MEINS',
+     'S_MARA (MEINS) / S_MARM (MEINH)','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK522','Ordini di acquisto (S_EKPO): materiale MATNR non in stato MSTAE 07 (obsoleto) o 08 (incompleto) in S_MARA',
+     'PO','S_EKPO','MATNR',
+     'S_MARA (MSTAE)','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK523','Ordini di acquisto (S_EKPO): descrizione del materiale in S_MAKT nella lingua del fornitore (LANGU_CORR, se diversa da IT)',
+     'PO','S_EKPO + S_EKKO','MATNR + VERKF',
+     'S_SUPPL_GEN#ZBP_DatiGenerali (LANGU_CORR) / S_MAKT (SPRAS, MAKTX)','Error','CROSS_SOURCE',TRUE,NOW()),
+
+    ('CK524','Ordini di acquisto (S_EKKO): fornitore VERKF presente nell''anagrafica fornitori S_SUPPL_GEN#ZBP_DatiGenerali',
+     'PO','S_EKKO','VERKF',
+     'S_SUPPL_GEN#ZBP_DatiGenerali (LIFNR)','Error','CROSS_SOURCE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',
