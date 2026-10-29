@@ -195,6 +195,7 @@ def fetch_table_csv(conn, schema: str, table: str,
                     value_map_skip_if_equal: dict[str, str] | None = None,
                     drop_if_all_empty: list[str] | None = None,
                     drop_if_not_in: tuple[str, set, str, set] | None = None,
+                    drop_if_unmapped: list[str] | None = None,
                     sort_cols: list[str] | None = None,
                     key_filter: tuple[str, set] | None = None,
                     write_discards: bool = True) -> bytes:
@@ -205,6 +206,8 @@ def fetch_table_csv(conn, schema: str, table: str,
     drop_if_not_in:    (colonna_filtro, valori_filtro, colonna, valori_ammessi) — righe con
                        colonna_filtro tra valori_filtro e colonna (valore originale, prima della
                        trascodifica) non tra valori_ammessi escluse e scritte negli scarti.
+    drop_if_unmapped:  colonne di value_map: righe con valore senza trascodifica escluse e
+                       scritte negli scarti.
     sort_cols:         ordinamento dell'output (dopo la trascodifica).
     key_filter:        (colonna, valori) — solo le righe con quei valori (estrazione ristretta).
     write_discards:    False nell'estrazione ristretta (non tocca gli scarti dell'output completo).
@@ -247,6 +250,18 @@ def fetch_table_csv(conn, schema: str, table: str,
             log.warning("  %s.%s: %d righe %s=%s con %s non presente in SAP escluse: %s",
                         schema, table, len(dropped), f_col, "/".join(sorted(f_values)), col,
                         sorted({str(r[j]) for r in dropped}))
+            if write_discards:
+                write_discarded_rows(table, cols, [tuple(sanitize(v) for v in r) for r in dropped])
+
+    for col in drop_if_unmapped or []:
+        if col not in cols:
+            continue
+        i, mapping = cols.index(col), (value_map or {}).get(col, {})
+        dropped = [r for r in rows if r[i] not in mapping]
+        if dropped:
+            rows = [r for r in rows if r[i] in mapping]
+            log.warning("  %s.%s: %d righe con %s senza trascodifica escluse: %s",
+                        schema, table, len(dropped), col, sorted({str(r[i]) for r in dropped}))
             if write_discards:
                 write_discarded_rows(table, cols, [tuple(sanitize(v) for v in r) for r in dropped])
 

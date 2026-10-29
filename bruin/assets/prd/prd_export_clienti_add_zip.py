@@ -13,9 +13,10 @@ description: >
       (prd.export_clienti_zip e prd.export_dest_merci_zip): qui solo i loro scarti.
   Estrazione ristretta (test): se stg.export_filter contiene codici cliente, vengono
   generati anche gli ZIP dei soli clienti indicati in out_source_mdg/test.
-  KUNNR(k/*) è trascodificato con il codice SAP (PARTNER di ref.SAP_EXPORT_BUT000,
-  tramite BU_SORT2): questi ZIP si caricano quando clienti e DM esistono già in SAP.
-  Senza corrispondenza resta il codice originale.
+  KUNNR(k/*) (codice del vecchio ERP) è trascodificato con il codice SAP (PARTNER di
+  ref.SAP_EXPORT_BUT000, tramite BU_SORT2): questi ZIP si caricano quando clienti e DM
+  esistono già in SAP. Le righe senza corrispondenza sono escluse e scritte in
+  <tabella>_discarded.csv.
   I clienti di stg.export_exclude_add (interlocutori e credito già caricati in SAP) sono
   esclusi: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP non è generato.
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
@@ -164,6 +165,7 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
                 key_filter=(KEY_COL, key_filter) if key_filter else None,
                 write_discards=not key_filter,
                 value_map={KEY_COL: sap_codes},
+                drop_if_unmapped=[KEY_COL],
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
