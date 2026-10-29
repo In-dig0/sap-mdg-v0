@@ -88,8 +88,8 @@ VALUES
      'MAT','S_MARA','MTART(*)',
      'ref.SAP_EXPORT_T134 (MTART)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK017','Materiali (S_MARA): peso netto (NTGEW) obbligatorio e diverso da zero',
-     'MAT','S_MARA','NTGEW',
+    ('CK017','Materiali (S_MARA): peso netto NTGEW e lordo BRGEW obbligatori e > 0 con BRGEW >= NTGEW, unità GEWEI obbligatoria; imballi (VERP, ZVER): solo peso lordo, netto vuoto',
+     'MAT','S_MARA','NTGEW + BRGEW + GEWEI',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
     ('CK018','Materiali (S_MARA): gerarchia prodotto (PRDHA), quando valorizzata, presente in SAP_EXPORT_PRDHA',
