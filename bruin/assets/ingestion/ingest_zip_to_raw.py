@@ -11,7 +11,9 @@ description: >
   Colonne con (k) nel suffisso → UNIQUE INDEX sulla tabella.
   Duplicati su chiave: scartati e loggati prima dell'insert.
   Righe malformate (campi in eccesso): skippate e loggatecon numero riga.
-  Caratteri non stampabili o non UTF-8: rimossi e loggati.
+  Codifica: UTF-8; i file non UTF-8 validi sono letti come Windows-1252 (es. 'Ø' nelle
+  descrizioni materiali) e loggati. In raw, e quindi negli export, il testo è UTF-8.
+  Caratteri non stampabili: rimossi e loggati.
   Colonne audit: _source TEXT, _loaded_at TIMESTAMPTZ.
   Strategia: DELETE selettivo per _source + INSERT.
 @bruin """
@@ -74,14 +76,22 @@ def get_connection():
 
 def clean_bytes(raw_bytes: bytes, csv_filename: str) -> bytes:
     """
-    1. Decodifica con UTF-8, sostituendo byte non validi con il
-       carattere di replacement U+FFFD (invece di crashare).
+    1. Decodifica con UTF-8; se il file non è UTF-8 valido lo decodifica come
+       Windows-1252 (codifica dei file dell'ERP con caratteri speciali, es. 'Ø').
+       I byte non definiti in Windows-1252 diventano U+FFFD (invece di crashare).
     2. Rimuove caratteri di controllo non stampabili (eccetto
        tab, newline, carriage return che sono legittimi nei CSV).
-    3. Logga quante sostituzioni sono avvenute.
+    3. Logga la codifica usata e quante sostituzioni sono avvenute.
     """
-    # Decodifica con gestione errori — i byte non UTF-8 diventano '?'
-    text_raw  = raw_bytes.decode("utf-8-sig", errors="replace")
+    try:
+        text_raw = raw_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text_raw = raw_bytes.decode("cp1252", errors="replace")
+        n_special = sum(1 for b in raw_bytes if b >= 0x80)
+        log.warning(
+            f"    [CODIFICA] {csv_filename}: non UTF-8, letto come Windows-1252 "
+            f"({n_special} caratteri non ASCII convertiti in UTF-8)"
+        )
     text_clean = text_raw
 
     # Rimuovi caratteri di controllo non stampabili (U+0000-U+001F esclusi
@@ -96,11 +106,11 @@ def clean_bytes(raw_bytes: bytes, csv_filename: str) -> bytes:
             f"non stampabili/non UTF-8: {unique_chars}"
         )
 
-    # Controlla se ci sono stati replacement U+FFFD (byte non UTF-8)
+    # Controlla se ci sono stati replacement U+FFFD (byte non decodificabili)
     replacements = text_clean.count("\ufffd")
     if replacements > 0:
         log.warning(
-            f"    [PULIZIA] {csv_filename}: {replacements} byte non UTF-8 "
+            f"    [PULIZIA] {csv_filename}: {replacements} byte non decodificabili "
             f"sostituiti con carattere di replacement (U+FFFD)"
         )
 
