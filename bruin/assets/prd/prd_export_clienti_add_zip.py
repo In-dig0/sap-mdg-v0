@@ -21,12 +21,18 @@ description: >
   esclusi: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP non è generato.
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
   e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.csv.
+  ZBP-AddInterlocutoreCli: esclusi (negli scarti) anche i codici presenti solo come
+  destinatari merci (ZDM e non ZBP). Negli interlocutori (S_CUST_CONT#ZBP-AddInterlocutore)
+  le email E_MAIL_B/E_MAIL sono in minuscolo; COUNTRY e REGION vengono dall'anagrafica
+  prd."S_CUST_GEN#ZBP_DatiGenerali" (per il Brasile, COUNTRY = BR, anche il CAP POSTLCD); VNAME/LNAME = NAME_FIRST/NAME_LAST per le persone
+  fisiche, LNAME = NAMORG1 (VNAME vuoto) per le società.
   Gli ZIP di output (e i relativi riepiloghi) di un flusso senza file caricati in raw, ad
   esempio perché l'ERP l'ha estratto vuoto, vengono rimossi: non restano quelli di run precedenti.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
 depends:
   - ingestion.ingest_zip_to_raw
   - ingestion.ingest_xlsx_to_ref
+  - prd.merge_clienti
 @bruin """
 
 import os
@@ -69,6 +75,72 @@ FLOWS = {
 # Anagrafiche clienti: una riga dei flussi aggiuntivi è valida solo se il
 # cliente esiste in almeno una di queste tabelle
 MASTER_TABLES = ["S_CUST_GEN#ZBP-DatiGenerali", "S_CUST_GEN#ZDM-DatiGenerali"]
+CUSTOMER_TABLE, DM_TABLE = MASTER_TABLES
+
+# Interlocutori clienti: dati presi dall'anagrafica clienti in prd
+CONTACT_TABLE   = "S_CUST_CONT#ZBP-AddInterlocutore"
+PRD_CUSTOMER    = "S_CUST_GEN#ZBP_DatiGenerali"
+EMAIL_COLS      = ["E_MAIL_B", "E_MAIL"]
+
+
+def get_dm_only_keys(conn, source_name: str, tables: list[str]) -> set:
+    """Codici del flusso presenti solo come destinatari merci (ZDM e non ZBP)."""
+    if not table_exists(conn, "raw", DM_TABLE):
+        return set()
+    not_customer = (f'AND NOT EXISTS (SELECT 1 FROM raw.{q(CUSTOMER_TABLE)} c WHERE c.{q(KEY_COL)} = x.{q(KEY_COL)})'
+                    if table_exists(conn, "raw", CUSTOMER_TABLE) else "")
+    keys = set()
+    with conn.cursor() as cur:
+        for table in tables:
+            if not table_exists(conn, "raw", table) or KEY_COL not in get_columns(conn, "raw", table):
+                continue
+            cur.execute(
+                f'SELECT DISTINCT x.{q(KEY_COL)} FROM raw.{q(table)} x '
+                f'WHERE x."_source" = %s '
+                f'AND EXISTS (SELECT 1 FROM raw.{q(DM_TABLE)} d WHERE d.{q(KEY_COL)} = x.{q(KEY_COL)}) '
+                f'{not_customer}',
+                (source_name,),
+            )
+            keys.update(r[0] for r in cur.fetchall() if r[0])
+    return keys
+
+
+def get_customer_data(conn) -> dict:
+    """Vecchio codice cliente -> (NAME_FIRST, NAME_LAST, NAMORG1, COUNTRY, REGION, POST_CODE1) da prd."""
+    if not table_exists(conn, "prd", PRD_CUSTOMER):
+        log.warning(f"  prd.{PRD_CUSTOMER} non trovata — interlocutori senza dati anagrafici")
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            f'SELECT {q(KEY_COL)}, '
+            f'COALESCE(TRIM("NAME_FIRST"), \'\'), COALESCE(TRIM("NAME_LAST"), \'\'), '
+            f'COALESCE(TRIM("NAMORG1"), \'\'), COALESCE(TRIM("COUNTRY(*)"), \'\'), '
+            f'COALESCE(TRIM("REGION"), \'\'), COALESCE(TRIM("POST_CODE1"), \'\') '
+            f'FROM prd.{q(PRD_CUSTOMER)}'
+        )
+        return {r[0]: r[1:] for r in cur.fetchall()}
+
+
+def contact_row_fn(customers: dict):
+    """Interlocutori: email in minuscolo; nome, paese, regione (e CAP per BR) dall'anagrafica cliente."""
+    def fn(cols: list, row: list):
+        for col in EMAIL_COLS:
+            if col in cols and row[cols.index(col)]:
+                row[cols.index(col)] = row[cols.index(col)].strip().lower()
+        data = customers.get(row[cols.index(KEY_COL)])
+        if not data:
+            return
+        first, last, org1, country, region, post_code = data
+        if first or last:                      # persona fisica
+            vname, lname = first, last
+        else:                                  # società
+            vname, lname = "", org1
+        for col, val in (("VNAME", vname), ("LNAME", lname), ("COUNTRY", country), ("REGION", region)):
+            if col in cols:
+                row[cols.index(col)] = val
+        if country == "BR" and "POSTLCD" in cols:   # Brasile: CAP obbligatorio nell'indirizzo
+            row[cols.index("POSTLCD")] = post_code
+    return fn
 
 def get_flow_sources(conn, flow: str, tables: list[str]) -> list[str]:
     """File ZIP di origine (_source) del flusso presenti nelle sue tabelle raw."""
@@ -146,6 +218,16 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
     else:
         log.info("  Tutti i clienti di '%s' sono presenti in anagrafica.", source_name)
 
+    contact_fn = None
+    if ADD_FLOW in source_name:
+        # Solo veri clienti: esclusi (negli scarti) i codici che sono solo destinatari merci
+        dm_keys = get_dm_only_keys(conn, source_name, tables)
+        if dm_keys:
+            log.warning("  *** %d destinatari merci (non clienti) esclusi da '%s': %s",
+                        len(dm_keys), source_name, sorted(dm_keys))
+            orphan_keys |= dm_keys
+        contact_fn = contact_row_fn(get_customer_data(conn))
+
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for raw_table in tables:
             if not table_exists(conn, "raw", raw_table):
@@ -166,6 +248,7 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
                 write_discards=not key_filter,
                 value_map={KEY_COL: sap_codes},
                 drop_if_unmapped=[KEY_COL],
+                row_fn=contact_fn if raw_table == CONTACT_TABLE else None,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:

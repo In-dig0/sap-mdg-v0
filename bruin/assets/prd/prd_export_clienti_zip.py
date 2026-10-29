@@ -196,6 +196,7 @@ def fetch_table_csv(conn, schema: str, table: str,
                     drop_if_all_empty: list[str] | None = None,
                     drop_if_not_in: tuple[str, set, str, set] | None = None,
                     drop_if_unmapped: list[str] | None = None,
+                    row_fn=None,
                     sort_cols: list[str] | None = None,
                     key_filter: tuple[str, set] | None = None,
                     write_discards: bool = True) -> bytes:
@@ -208,6 +209,8 @@ def fetch_table_csv(conn, schema: str, table: str,
                        trascodifica) non tra valori_ammessi escluse e scritte negli scarti.
     drop_if_unmapped:  colonne di value_map: righe con valore senza trascodifica escluse e
                        scritte negli scarti.
+    row_fn:            funzione (cols, riga come lista) che modifica la riga in uscita;
+                       applicata dopo le esclusioni e prima di value_map (chiavi originali).
     sort_cols:         ordinamento dell'output (dopo la trascodifica).
     key_filter:        (colonna, valori) — solo le righe con quei valori (estrazione ristretta).
     write_discards:    False nell'estrazione ristretta (non tocca gli scarti dell'output completo).
@@ -264,6 +267,11 @@ def fetch_table_csv(conn, schema: str, table: str,
                         schema, table, len(dropped), col, sorted({str(r[i]) for r in dropped}))
             if write_discards:
                 write_discarded_rows(table, cols, [tuple(sanitize(v) for v in r) for r in dropped])
+
+    if row_fn:
+        rows = [list(r) for r in rows]
+        for r in rows:
+            row_fn(cols, r)
 
     if value_map:
         rows = [list(r) for r in rows]
