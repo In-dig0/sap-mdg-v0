@@ -1,6 +1,8 @@
-# =============================================================================
+# ======================================================================
+# --- Claude Code ---
 # MDG - Migration Data Governance | .gitignore
-# =============================================================================
+# ======================================================================
+# --- Claude Code ---
 
 # --- Variabili d'ambiente — MAI committare ---
 .env
@@ -58,3 +60,6 @@ Thumbs.db
 # --- Stato attivo/inattivo dei check ---
 # Scritto dalla pagina Check Catalog: ogni ambiente (locale, VPS) ha il suo.
 bruin/config/check_states.json
+
+# --- Claude Code ---
+.claude/settings.local.json
