@@ -136,10 +136,6 @@ VALUES
      'MAT','S_MARC','MTVFP',
      'ref.SAP_EXPORT_TMVF (MTVFP)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK029','Fornitori (S_SUPPL_COMPANY): condizione pagamento (ZTERM1) obbligatoria e presente in SAP_EXPORT_T052',
-     'BP','S_SUPPL_COMPANY#ZBP_DatiSocieta','ZTERM1',
-     'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
-
     ('CK030','Clienti (S_CUST_COMPANY#ZBP-DatiSocieta): condizione pagamento (ZTERM) obbligatoria e presente in SAP_EXPORT_T052',
      'BP','S_CUST_COMPANY#ZBP-DatiSocieta','ZTERM',
      'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
@@ -543,4 +539,5 @@ ON CONFLICT (check_id) DO UPDATE SET
 -- dove l'INSERT ... ON CONFLICT da solo non li toglierebbe.
 --   CK202, CK204: duplicati codice fiscale solo fornitori / solo clienti,
 --                 sostituiti da CK207 (identità fiscale fornitori + clienti).
-DELETE FROM stg.check_catalog WHERE check_id IN ('CK202', 'CK204');
+--   CK029: condizione di pagamento fornitori (ZTERM1 in T052), doppione di CK006.
+DELETE FROM stg.check_catalog WHERE check_id IN ('CK202', 'CK204', 'CK029');
