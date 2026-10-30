@@ -6,7 +6,9 @@ depends:
 description: >
   CK054 — FORMAT: Interlocutori clienti (S_CUST_CONT#ZBP-AddInterlocutore):
   il campo E_MAIL_B deve essere valorizzato e contenere un indirizzo email
-  formalmente valido (pattern: <local>@<domain>.<tld>).
+  formalmente valido: parte locale con i soli caratteri ammessi (punti non
+  iniziali, finali o doppi), dominio con etichette alfanumeriche/trattino separate
+  da punti e TLD di almeno 2 lettere. Scarta ad es. "a@b.it." e "a@b.eu>".
 connection: mdg_postgres
 @bruin */
 
@@ -22,7 +24,7 @@ SELECT
     CASE
         WHEN raw."E_MAIL_B" IS NULL OR raw."E_MAIL_B" = ''
             THEN 'E_MAIL_B obbligatorio mancante per KUNNR [' || raw."KUNNR(k/*)" || ']'
-        WHEN raw."E_MAIL_B" !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+        WHEN raw."E_MAIL_B" !~* '^[a-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[a-z0-9!#$%&''*+/=?^_`{|}~-]+)*@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$'
             THEN 'E_MAIL_B [' || raw."E_MAIL_B" || '] non è un indirizzo email valido'
                  || ' per KUNNR [' || raw."KUNNR(k/*)" || ']'
         ELSE 'E_MAIL_B [' || raw."E_MAIL_B" || '] valido per KUNNR [' || raw."KUNNR(k/*)" || ']'
@@ -30,7 +32,7 @@ SELECT
     CASE
         WHEN raw."E_MAIL_B" IS NULL OR raw."E_MAIL_B" = ''
             THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK054')
-        WHEN raw."E_MAIL_B" !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+        WHEN raw."E_MAIL_B" !~* '^[a-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[a-z0-9!#$%&''*+/=?^_`{|}~-]+)*@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$'
             THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK054')
         ELSE 'Ok'
     END                                             AS status,

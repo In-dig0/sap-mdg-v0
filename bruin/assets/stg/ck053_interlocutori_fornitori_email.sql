@@ -6,7 +6,9 @@ depends:
 description: >
   CK053 — FORMAT: Interlocutori fornitori e clienti:
   il campo E_MAIL_B deve essere valorizzato e contenere un indirizzo email
-  formalmente valido (pattern: <local>@<domain>.<tld>).
+  formalmente valido: parte locale con i soli caratteri ammessi (punti non
+  iniziali, finali o doppi), dominio con etichette alfanumeriche/trattino separate
+  da punti e TLD di almeno 2 lettere. Scarta ad es. "a@b.it." e "a@b.eu>".
   Tabelle: S_SUPPL_CONT#ZBP-AddInterlocutore, S_SUPPL_CONT#ZBP-Interlocutore,
            S_CUST_CONT#ZBP-AddInterlocutore.
 connection: mdg_postgres
@@ -28,7 +30,7 @@ SELECT
     CASE
         WHEN raw."E_MAIL_B" IS NULL OR raw."E_MAIL_B" = ''
             THEN 'E_MAIL_B obbligatorio mancante per LIFNR [' || raw."LIFNR(k/*)" || ']'
-        WHEN raw."E_MAIL_B" !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+        WHEN raw."E_MAIL_B" !~* '^[a-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[a-z0-9!#$%&''*+/=?^_`{|}~-]+)*@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$'
             THEN 'E_MAIL_B [' || raw."E_MAIL_B" || '] non è un indirizzo email valido'
                  || ' per LIFNR [' || raw."LIFNR(k/*)" || ']'
         ELSE 'E_MAIL_B [' || raw."E_MAIL_B" || '] valido per LIFNR [' || raw."LIFNR(k/*)" || ']'
@@ -36,7 +38,7 @@ SELECT
     CASE
         WHEN raw."E_MAIL_B" IS NULL OR raw."E_MAIL_B" = ''
             THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK053')
-        WHEN raw."E_MAIL_B" !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+        WHEN raw."E_MAIL_B" !~* '^[a-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[a-z0-9!#$%&''*+/=?^_`{|}~-]+)*@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$'
             THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK053')
         ELSE 'Ok'
     END                                             AS status,
@@ -64,7 +66,7 @@ SELECT
     CASE
         WHEN raw."E_MAIL_B" IS NULL OR raw."E_MAIL_B" = ''
             THEN 'E_MAIL_B obbligatorio mancante per LIFNR [' || raw."LIFNR(k/*)" || ']'
-        WHEN raw."E_MAIL_B" !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+        WHEN raw."E_MAIL_B" !~* '^[a-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[a-z0-9!#$%&''*+/=?^_`{|}~-]+)*@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$'
             THEN 'E_MAIL_B [' || raw."E_MAIL_B" || '] non è un indirizzo email valido'
                  || ' per LIFNR [' || raw."LIFNR(k/*)" || ']'
         ELSE 'E_MAIL_B [' || raw."E_MAIL_B" || '] valido per LIFNR [' || raw."LIFNR(k/*)" || ']'
@@ -72,7 +74,7 @@ SELECT
     CASE
         WHEN raw."E_MAIL_B" IS NULL OR raw."E_MAIL_B" = ''
             THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK053')
-        WHEN raw."E_MAIL_B" !~ '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+        WHEN raw."E_MAIL_B" !~* '^[a-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[a-z0-9!#$%&''*+/=?^_`{|}~-]+)*@([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$'
             THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK053')
         ELSE 'Ok'
     END                                             AS status,
