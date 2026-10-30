@@ -1,6 +1,8 @@
 """ @bruin
 name: ingestion.ingest_xlsx_to_ref
 type: python
+depends:
+  - setup.pipeline_run_open   # se il run viene rifiutato (altro run in corso) non si carica nulla
 description: >
   Legge tutti i file XLSX da /project/datalake/in_source_sap/,
   carica ogni foglio nello schema ref di PostgreSQL.
