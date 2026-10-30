@@ -4,8 +4,9 @@ type: pg.sql
 depends:
   - stg.clean_check_results
   - stg.add_str_suppl3
+  - stg.detect_new_records
 description: >
-  CK221 — EXISTENCE: Dati generali STG di clienti, destinatari merci e fornitori:
+  CK221 — EXISTENCE: Dati generali STG di clienti, destinatari merci e fornitori (ZBP e ZDM):
   STREET non può superare i 60 caratteri e STR_SUPPL3 i 40 (lunghezze dei campi SAP).
   Gli indirizzi più lunghi vanno spezzati a mano tra STREET e STR_SUPPL3 dalla pagina
   Modifica Tabelle. Un esito per record STG (esclusi i DELETED, che non vanno in output).
@@ -30,6 +31,11 @@ WITH indirizzi AS (
     SELECT 'S_SUPPL_GEN#ZBP_DatiGenerali_STG', "LIFNR(k/*)",
            COALESCE("STREET", ''), COALESCE("STR_SUPPL3", ''), "_source"
     FROM stg."S_SUPPL_GEN#ZBP_DatiGenerali_STG"
+    WHERE COALESCE("_status", '') <> 'DELETED'
+    UNION ALL
+    SELECT 'S_SUPPL_GEN#ZDM_DatiGenerali_STG', "LIFNR(k/*)",
+           COALESCE("STREET", ''), COALESCE("STR_SUPPL3", ''), "_source"
+    FROM stg."S_SUPPL_GEN#ZDM_DatiGenerali_STG"
     WHERE COALESCE("_status", '') <> 'DELETED'
 )
 SELECT

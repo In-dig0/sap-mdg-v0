@@ -374,10 +374,24 @@ def check_single(
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-def write_results(conn, rows: list[dict]) -> None:
-    """Scrive in stg.check_vat_vies un blocco di risultati reali e fa commit."""
+def write_results(rows: list[dict]) -> None:
+    """
+    Scrive in stg.check_vat_vies un blocco di risultati reali e fa commit.
+    Apre una connessione dedicata solo per la scrittura: durante le chiamate VIES/HMRC
+    (anche decine di minuti) nessuna connessione resta aperta e inattiva, che il server
+    potrebbe chiudere ("server closed the connection unexpectedly").
+    """
     if not rows:
         return
+    conn = psycopg2.connect(**DB_CONFIG)
+    try:
+        _insert_results(conn, rows)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _insert_results(conn, rows: list[dict]) -> None:
     with conn.cursor() as cur:
         execute_values(
             cur,
@@ -401,7 +415,6 @@ def write_results(conn, rows: list[dict]) -> None:
             ],
             page_size=200,
         )
-    conn.commit()
 
 
 def main():
@@ -510,7 +523,7 @@ def main():
                 for r in cur.fetchall()
             }
             log.info(f"Cache VIES customer: {len(cache)} risultati riusabili.")
-        conn.commit()   # chiude la transazione di lettura prima delle chiamate esterne
+        conn.close()    # nessuna connessione aperta durante le chiamate esterne: write_results ne apre una per blocco
 
         # 4. Inizializza client esterni
         vies = ViesClient()
@@ -563,7 +576,7 @@ def main():
             results.append(result)
             pending.append(result)
             if len(pending) >= WRITE_BATCH_SIZE:
-                write_results(conn, pending)
+                write_results(pending)
                 written += len(pending)
                 pending = []
                 log.info(f"Avanzamento: {i}/{len(raw_rows)} record elaborati, {written} risultati scritti.")
@@ -577,7 +590,7 @@ def main():
         # 6. Scrive gli ultimi risultati reali (i blocchi precedenti sono già scritti).
         #    I record CACHED non vengono scritti: sono già presenti nella tabella
         #    da run precedenti e riscriverli creerebbe duplicati a ogni run.
-        write_results(conn, pending)
+        write_results(pending)
         written += len(pending)
         if written:
             log.info(f"Scritti {written} record reali in stg.check_vat_vies "

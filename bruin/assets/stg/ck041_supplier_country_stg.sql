@@ -5,7 +5,7 @@ depends:
   - stg.clean_check_results
   - stg.detect_new_records
 description: >
-  CK041 — SAP_REF: Fornitori STG: codice paese (COUNTRY) valorizzato
+  CK041 — SAP_REF: Fornitori STG (ZBP e destinatari merci ZDM): codice paese (COUNTRY) valorizzato
   e presente nella tabella di riferimento SAP T005S (LAND1).
 connection: mdg_postgres
 @bruin */
@@ -14,8 +14,15 @@ INSERT INTO stg.check_results (
     source_table, category, object_key, check_id,
     message, status, run_id, zip_source, created_at
 )
+WITH fornitori AS (
+    SELECT 'stg.S_SUPPL_GEN#ZBP_DatiGenerali_STG' AS source_table, "LIFNR(k/*)", "COUNTRY", "REGION", "_status", "_source"
+    FROM stg."S_SUPPL_GEN#ZBP_DatiGenerali_STG"
+    UNION ALL
+    SELECT 'stg.S_SUPPL_GEN#ZDM_DatiGenerali_STG', "LIFNR(k/*)", "COUNTRY", "REGION", "_status", "_source"
+    FROM stg."S_SUPPL_GEN#ZDM_DatiGenerali_STG"
+)
 SELECT
-    'stg.S_SUPPL_GEN#ZBP_DatiGenerali_STG'      AS source_table,
+    raw.source_table                             AS source_table,
     'BP'                                         AS category,
     raw."LIFNR(k/*)"                             AS object_key,
     'CK041'                                      AS check_id,
@@ -42,7 +49,7 @@ SELECT
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
     raw."_source"                                AS zip_source,
     NOW()                                        AS created_at
-FROM stg."S_SUPPL_GEN#ZBP_DatiGenerali_STG" raw
+FROM fornitori raw
 WHERE (
     SELECT COALESCE(is_active, FALSE)
     FROM stg.check_catalog WHERE check_id = 'CK041'

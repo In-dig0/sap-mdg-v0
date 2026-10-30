@@ -5,9 +5,14 @@ description: >
   Genera gli archivi ZIP di output per i fornitori combinando:
     - prd."S_SUPPL_GEN#ZBP_DatiGenerali"  (dati anagrafici con indirizzi normalizzati)
     - tutte le altre tabelle fornitori da schema raw
+  e, per i fornitori destinatari merci (flusso DM06-02b):
+    - prd."S_SUPPL_GEN#ZDM_DatiGenerali" + raw."S_ROLES#ZDM_RuoliFornitori"
   Un ZIP separato viene creato per ogni valore distinto di _source
-  (es. "DM06-01a-ZBP-Vettori.zip").
+  (es. "DM06-01a-ZBP-Vettori.zip", "DM06-02b-ZDM-Fornitori.zip").
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
+  Le righe segnalate dai check in ROW_RULES (CK051: settore industriale non in TB038A)
+  sono escluse e scritte in <tabella>_discarded.csv; se non ne resta nessuna il CSV non
+  è scritto.
   I fornitori/vettori già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT1) sono esclusi
   da tutte le tabelle: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP
   non è generato.
@@ -15,6 +20,7 @@ description: >
 depends:
   - ingestion.ingest_xlsx_to_ref
   - prd.merge_fornitori
+  - prd.merge_fornitori_dm
   - prd.merge_taxnumbers_fornitori
   - prd.merge_add_taxnumbers_fornitori
   - prd.merge_clienti
@@ -33,6 +39,7 @@ import psycopg2
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import (
     get_but000_map, already_in_sap_rows, write_already_in_sap, write_output_zip,
+    write_discarded_rows,
 )
 
 logging.basicConfig(
@@ -63,9 +70,6 @@ PRD_TABLES = [
     ("prd", "S_SUPP_BANK#ZBP_AppoggioBanca"),
 ]
 
-# Nomi tabella raw sostituiti da prd (vengono skippati nella sezione raw)
-PRD_TABLE_NAMES = {table for _, table in PRD_TABLES}
-
 # Tabelle da raw da includere nel ZIP (filtrate per _source)
 RAW_TABLES = [
     "S_ROLES#ZBP_RuoliFornitori",
@@ -80,6 +84,40 @@ RAW_TABLES = [
     "S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc",
     "S_SUPPL_WITH_TAX#ZBP_RitenAcco",
     "S_SUPP_BANK#ZBP_AppoggioBanca",           # sostituita da prd (filtro CK047)
+]
+
+# Fornitori destinatari merci (DM06-02b): anagrafica da prd, ruoli da raw
+DM_PRD_TABLES = [
+    ("prd", "S_SUPPL_GEN#ZDM_DatiGenerali"),
+]
+DM_RAW_TABLES = [
+    "S_ROLES#ZDM_RuoliFornitori",
+    "S_SUPPL_GEN#ZDM_DatiGenerali",            # sostituita da prd
+]
+
+# Righe escluse dallo ZIP (e scritte in <tabella>_discarded.csv) quando il check è attivo:
+# tabella -> (check_id, tabella ref necessaria, condizione SQL delle righe valide)
+ROW_RULES = {
+    # CK051: coppia ISTYPE + IND_SECTOR presente in TB038A
+    "S_SUPPL_INDUSTRY#ZBP_SettoriIndust": (
+        "CK051", "SAP_EXPORT_TB038A",
+        'EXISTS (SELECT 1 FROM ref."SAP_EXPORT_TB038A" t'
+        ' WHERE t."ISTYPE" = "ISTYPE(k/*)" AND t."IND_SECTOR" = "IND_SECTOR(k/*)")',
+    ),
+}
+
+# Nomi tabella raw sostituiti da prd (vengono skippati nella sezione raw)
+PRD_TABLE_NAMES = {table for _, table in PRD_TABLES + DM_PRD_TABLES}
+
+# Flussi esportati. sap_sort_cols: colonne di BUT000 con il vecchio codice dei BP già in
+# SAP (esclusi dallo ZIP); orphan_check: check degli orfani nelle tabelle secondarie.
+FLOWS = [
+    {"prd_tables": PRD_TABLES, "raw_tables": RAW_TABLES,
+     "master": "S_SUPPL_GEN#ZBP_DatiGenerali", "orphan_check": "CK402",
+     "sap_sort_cols": ("BU_SORT1",)},
+    {"prd_tables": DM_PRD_TABLES, "raw_tables": DM_RAW_TABLES,
+     "master": "S_SUPPL_GEN#ZDM_DatiGenerali", "orphan_check": None,
+     "sap_sort_cols": ("BU_SORT1", "BU_SORT2")},
 ]
 
 
@@ -114,25 +152,13 @@ def write_discarded_csv(conn, table: str, source_name: str,
         rows = cur.fetchall()
     if not rows:
         return
-    import io as _io, csv as _csv, math as _math
     def sanitize(val):
         if val is None: return ""
-        if isinstance(val, float) and _math.isnan(val): return ""
+        if isinstance(val, float) and math.isnan(val): return ""
         if isinstance(val, str) and val.strip() == "NaN": return ""
         return val
-    buf = _io.StringIO()
-    writer = _csv.writer(buf, delimiter=";", quoting=_csv.QUOTE_MINIMAL,
-                         lineterminator="\r\n")
-    writer.writerow(cols)
-    writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
-    safe_table = table.replace("#", "_").replace("/", "_")
-    out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(buf.getvalue())
-    log.warning(
-        "  [DISCARDED] %s: %d record orfani scritti in %s",
-        table, len(rows), out_path
-    )
+    # In append: più ZIP (es. 01a e 06a) e più regole possono scartare righe della stessa tabella
+    write_discarded_rows(table, cols, [tuple(sanitize(v) for v in row) for row in rows])
 
 
 def remove_discarded_csv(tables: list[str]):
@@ -149,11 +175,14 @@ def remove_discarded_csv(tables: list[str]):
             log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)
 
 
-def get_distinct_sources(conn) -> list[str]:
-    """Recupera i valori distinti di _source dalla tabella prd principale."""
-    schema, table = PRD_TABLES[0]
+def get_distinct_sources(conn, prd_tables: list) -> list[str]:
+    """Recupera i valori distinti di _source dalla tabella prd principale del flusso."""
+    schema, table = prd_tables[0]
     fqt = f'{schema}.{q(table)}'
     with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass(%s)", (fqt,))
+        if cur.fetchone()[0] is None:
+            return []
         cur.execute(f'SELECT DISTINCT "_source" FROM {fqt} WHERE "_source" IS NOT NULL ORDER BY 1')
         return [r[0] for r in cur.fetchall()]
 
@@ -196,41 +225,69 @@ def get_orphan_keys(conn, check_id: str) -> set:
         return {r[0] for r in cur.fetchall()}
 
 
-def fetch_table_csv(conn, schema: str, table: str,
-                    source_filter: str, cols: list[str],
-                    excluded_keys: set | None = None,
-                    fk_col: str | None = None) -> bytes:
+def get_row_rule(conn, table: str) -> str | None:
     """
-    Legge i record di una tabella filtrati per _source e
-    li serializza come CSV con separatore ";".
-    Ritorna i bytes del CSV.
+    Condizione SQL delle righe valide di una tabella con regola in ROW_RULES, se il check
+    è attivo nel catalogo e la tabella di riferimento è caricata; altrimenti None.
+    """
+    rule = ROW_RULES.get(table)
+    if not rule:
+        return None
+    check_id, ref_table, valid_if = rule
+    with conn.cursor() as cur:
+        cur.execute("SELECT COALESCE(is_active, FALSE) FROM stg.check_catalog WHERE check_id = %s", (check_id,))
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return None
+        cur.execute("SELECT to_regclass(%s)", (f"ref.{q(ref_table)}",))
+        if cur.fetchone()[0] is None:
+            log.warning(f"  [{check_id}] ref.{ref_table} non caricata — righe di {table} non filtrate")
+            return None
+    return valid_if
+
+
+def select_rows(conn, schema: str, table: str,
+                source_filter: str, cols: list[str],
+                excluded_keys: set | None = None,
+                fk_col: str | None = None,
+                where: str | None = None) -> list[tuple]:
+    """
+    Legge i record di una tabella filtrati per _source, senza le chiavi escluse
+    (orfani o BP già in SAP) e, se indicata, solo quelli che soddisfano la condizione where.
     """
     fqt      = f'{schema}.{q(table)}'
     col_list = ", ".join(q(c) for c in cols)
+    sql      = f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s'
+    params   = [source_filter]
+
+    # Esclude in SQL i record orfani (solo tabelle secondarie)
+    if excluded_keys and fk_col and fk_col in cols:
+        sql += f' AND {q(fk_col)} NOT IN ({",".join(["%s"] * len(excluded_keys))})'
+        params += list(excluded_keys)
+    if where:
+        sql += f" AND ({where})"
 
     with conn.cursor() as cur:
-        # Esclude in SQL i record orfani (solo tabelle secondarie)
-        if excluded_keys and fk_col and fk_col in cols:
-            fk_quoted = q(fk_col)
-            placeholders = ",".join(["%s"] * len(excluded_keys))
-            cur.execute(
-                f'SELECT {col_list} FROM {fqt}'
-                f' WHERE "_source" = %s'
-                f' AND {fk_quoted} NOT IN ({placeholders})'
-                f' ORDER BY 1',
-                (source_filter, *excluded_keys)
-            )
-            n_excl = len(excluded_keys)
-            log.warning(
-                "  [%s] %s.%s: %d chiavi escluse (orfani o BP già in SAP, _source=%s)",
-                fk_col, schema, table, n_excl, source_filter
-            )
-        else:
-            cur.execute(
-                f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s ORDER BY 1',
-                (source_filter,)
-            )
-        rows = cur.fetchall()
+        cur.execute(sql + " ORDER BY 1", params)
+        return cur.fetchall()
+
+
+def fetch_table_csv(conn, schema: str, table: str,
+                    source_filter: str, cols: list[str],
+                    excluded_keys: set | None = None,
+                    fk_col: str | None = None,
+                    where: str | None = None) -> bytes:
+    """
+    Legge i record di una tabella (vedi select_rows) e
+    li serializza come CSV con separatore ";".
+    Ritorna i bytes del CSV.
+    """
+    rows = select_rows(conn, schema, table, source_filter, cols, excluded_keys, fk_col, where)
+    if excluded_keys and fk_col and fk_col in cols:
+        log.warning(
+            "  [%s] %s.%s: %d chiavi escluse (orfani o BP già in SAP, _source=%s)",
+            fk_col, schema, table, len(excluded_keys), source_filter
+        )
 
     def sanitize(val):
         """Converte None, float NaN e stringa 'NaN' in stringa vuota."""
@@ -249,33 +306,34 @@ def fetch_table_csv(conn, schema: str, table: str,
     return buf.getvalue().encode("utf-8")
 
 
-def build_zip(conn, source_name: str, excluded_out: list | None = None) -> bytes:
+def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = None) -> bytes:
     """
-    Costruisce il contenuto di un archivio ZIP per un dato _source.
-    Usa prd per le tabelle in PRD_TABLES, raw per tutte le altre.
+    Costruisce il contenuto di un archivio ZIP per un dato _source del flusso (vedi FLOWS).
+    Usa prd per le tabelle prd_tables, raw per tutte le altre.
     excluded_out: se passata, riceve le righe escluse perché il fornitore è già in SAP.
     """
     buf = io.BytesIO()
-    # Fornitori/vettori già creati in SAP (BUT000, BU_SORT1): esclusi da tutte le tabelle
-    sap_map  = get_but000_map(conn, sort_cols=("BU_SORT1",))
+    # Fornitori/vettori già creati in SAP (BUT000): esclusi da tutte le tabelle
+    sap_map  = get_but000_map(conn, sort_cols=flow["sap_sort_cols"])
     sap_keys = set(sap_map)
     excluded = []
 
-    # Carica le chiavi orfane (CK402) — solo tabelle secondarie raw
-    orphan_keys = get_orphan_keys(conn, "CK402")
+    # Carica le chiavi orfane (es. CK402) — solo tabelle secondarie raw
+    check_id = flow["orphan_check"]
+    orphan_keys = get_orphan_keys(conn, check_id) if check_id else set()
     if orphan_keys:
         log.warning(
-            "  *** [CK402] %d chiavi orfane per '%s' "
+            "  *** [%s] %d chiavi orfane per '%s' "
             "— verranno escluse dalle tabelle secondarie: %s",
-            len(orphan_keys), source_name, sorted(orphan_keys)
+            check_id, len(orphan_keys), source_name, sorted(orphan_keys)
         )
-    else:
-        log.info("  [CK402] Nessuna chiave orfana per '%s'.", source_name)
+    elif check_id:
+        log.info("  [%s] Nessuna chiave orfana per '%s'.", check_id, source_name)
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
 
-        # 1. Tabelle da prd (ordine definito in PRD_TABLES)
-        for prd_schema, prd_table in PRD_TABLES:
+        # 1. Tabelle da prd (ordine definito in prd_tables)
+        for prd_schema, prd_table in flow["prd_tables"]:
             prd_cols = get_columns(conn, prd_schema, prd_table)
             if prd_cols:
                 excluded += already_in_sap_rows(conn, prd_schema, prd_table, source_name, "LIFNR(k/*)", sap_map)
@@ -291,7 +349,7 @@ def build_zip(conn, source_name: str, excluded_out: list | None = None) -> bytes
                 log.warning(f"  Nessuna colonna trovata per {prd_schema}.{prd_table}")
 
         # 2. Tabelle da raw (skip quelle già prese da prd)
-        for raw_table in RAW_TABLES:
+        for raw_table in flow["raw_tables"]:
             if raw_table in PRD_TABLE_NAMES:
                 log.info(f"  SKIP raw.{raw_table} — sostituito da prd")
                 continue
@@ -311,15 +369,25 @@ def build_zip(conn, source_name: str, excluded_out: list | None = None) -> bytes
                 log.warning(f"  SKIP raw.{raw_table} — nessuna colonna")
                 continue
 
-            _is_master = raw_table in {'S_SUPPL_GEN#ZBP_DatiGenerali'}
+            _is_master = raw_table == flow["master"]
             if not _is_master and orphan_keys:
                 write_discarded_csv(conn, raw_table, source_name,
                                    raw_cols, orphan_keys, "LIFNR(k/*)")
             excluded += already_in_sap_rows(conn, "raw", raw_table, source_name, "LIFNR(k/*)", sap_map)
+            excluded_keys = (sap_keys if _is_master else orphan_keys | sap_keys) or None
+            valid_if = get_row_rule(conn, raw_table)
+            if valid_if:
+                invalid = select_rows(conn, "raw", raw_table, source_name, raw_cols,
+                                      excluded_keys, "LIFNR(k/*)", where=f"NOT ({valid_if})")
+                if invalid:
+                    write_discarded_rows(raw_table, raw_cols, invalid)
+                    log.warning(f"  [{ROW_RULES[raw_table][0]}] raw.{raw_table}: {len(invalid)} righe escluse "
+                                f"dallo ZIP '{source_name}'")
             csv_bytes = fetch_table_csv(
                 conn, "raw", raw_table, source_name, raw_cols,
-                excluded_keys=(sap_keys if _is_master else orphan_keys | sap_keys) or None,
+                excluded_keys=excluded_keys,
                 fk_col="LIFNR(k/*)",
+                where=valid_if,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
@@ -337,23 +405,24 @@ def build_zip(conn, source_name: str, excluded_out: list | None = None) -> bytes
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    remove_discarded_csv(RAW_TABLES)
+    remove_discarded_csv(RAW_TABLES + DM_RAW_TABLES)
     conn = get_connection()
 
     try:
-        sources = get_distinct_sources(conn)
-        if not sources:
-            log.warning("Nessun valore di _source trovato in prd — nulla da esportare.")
-            return
+        for flow in FLOWS:
+            sources = get_distinct_sources(conn, flow["prd_tables"])
+            if not sources:
+                log.warning(f"Nessun valore di _source in prd.{flow['master']} — nulla da esportare.")
+                continue
 
-        log.info(f"Sorgenti trovate: {sources}")
+            log.info(f"Sorgenti trovate: {sources}")
 
-        for source_name in sources:
-            log.info(f"=== Generazione ZIP: {source_name} ===")
-            excluded  = []
-            zip_bytes = build_zip(conn, source_name, excluded_out=excluded)
-            write_output_zip(source_name, zip_bytes)
-            write_already_in_sap(source_name, excluded)
+            for source_name in sources:
+                log.info(f"=== Generazione ZIP: {source_name} ===")
+                excluded  = []
+                zip_bytes = build_zip(conn, source_name, flow, excluded_out=excluded)
+                write_output_zip(source_name, zip_bytes)
+                write_already_in_sap(source_name, excluded)
 
     finally:
         conn.close()

@@ -131,3 +131,29 @@ CREATE TABLE IF NOT EXISTS stg."S_CUST_TAXNUMBERS#ZBP-CodiciFisc_STG" (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "uidx_s_cust_taxnumbers_zbp_codicifisc_stg"
     ON stg."S_CUST_TAXNUMBERS#ZBP-CodiciFisc_STG" ("KUNNR(k/*)", "TAXTYPE(k/*)");
+
+-- =============================================================================
+-- stg."S_SUPPL_GEN#ZDM_DatiGenerali_STG" — indirizzi bonificati dei fornitori
+-- destinatari merci (flusso DM06-02b), stesse colonne dello STG dei fornitori ZBP.
+-- stg.detect_new_records vi inserisce come NEW i record nuovi di
+-- raw."S_SUPPL_GEN#ZDM_DatiGenerali"; prd.merge_fornitori_dm li unisce al raw.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS stg."S_SUPPL_GEN#ZDM_DatiGenerali_STG" (
+    "LIFNR(k/*)"    TEXT,
+    "NAME_FIRST"    TEXT,
+    "NAME_LAST"     TEXT,
+    "NAME_FIRST_P"  TEXT,
+    "NAME_LAST_P"   TEXT,
+    "STREET"        TEXT,
+    "STR_SUPPL3"    TEXT,
+    "POST_CODE1"    TEXT,
+    "CITY1"         TEXT,
+    "COUNTRY"       TEXT,
+    "REGION"        TEXT,
+    "TELNR_LONG"    TEXT,
+    "_status"       TEXT DEFAULT 'EXISTS',
+    "_source"       TEXT,
+    "_loaded_at"    TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_s_suppl_gen_zdm_datigenerali_stg"
+    ON stg."S_SUPPL_GEN#ZDM_DatiGenerali_STG" ("LIFNR(k/*)");

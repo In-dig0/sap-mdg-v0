@@ -47,6 +47,10 @@ TABLE_PAIRS = [
         'raw',  'S_CUST_GEN#ZDM-DatiGenerali',
         'stg',  'S_CUST_GEN#ZDM_DatiGenerali_STG',
     ),
+    (
+        'raw',  'S_SUPPL_GEN#ZDM_DatiGenerali',
+        'stg',  'S_SUPPL_GEN#ZDM_DatiGenerali_STG',
+    ),
 ]
 
 
@@ -154,6 +158,13 @@ def process_pair(conn, raw_schema: str, raw_table: str,
     log.info(f"=== {raw_fqt}  →  {stg_fqt} ===")
 
     with conn.cursor() as cur:
+        # Flusso non caricato in questo ambiente (es. DM06-02b): niente da confrontare
+        cur.execute("SELECT to_regclass(%s), to_regclass(%s)", (raw_fqt, stg_fqt))
+        raw_ok, stg_ok = cur.fetchone()
+        if not raw_ok or not stg_ok:
+            log.warning(f"  Tabella {'raw' if not raw_ok else 'stg'} non trovata — skip.")
+            return
+
         # Sicurezza: assicura che le colonne audit esistano
         ensure_audit_columns(cur, stg_schema, stg_table)
         conn.commit()

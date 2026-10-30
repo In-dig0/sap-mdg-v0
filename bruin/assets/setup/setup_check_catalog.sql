@@ -160,12 +160,12 @@ VALUES
      'MAT','S_MARITC','COMCO(k/*)',
      'ref.SAP_CommodityCodesEU01 (codice)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK041','Fornitori STG: codice paese (COUNTRY) presente in T005S',
-     'BP','S_SUPPL_GEN#ZBP_DatiGenerali_STG','COUNTRY',
+    ('CK041','Fornitori STG (ZBP e DM): codice paese (COUNTRY) presente in T005S',
+     'BP','S_SUPPL_GEN#ZBP/ZDM_DatiGenerali_STG','COUNTRY',
      'ref.SAP_EXPORT_T005S (LAND1)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK042','Fornitori STG: coppia COUNTRY+REGION presente in T005S',
-     'BP','S_SUPPL_GEN#ZBP_DatiGenerali_STG','COUNTRY + REGION',
+    ('CK042','Fornitori STG (ZBP e DM): coppia COUNTRY+REGION presente in T005S',
+     'BP','S_SUPPL_GEN#ZBP/ZDM_DatiGenerali_STG','COUNTRY + REGION',
      'ref.SAP_EXPORT_T005S (LAND1+BLAND)','Error','SAP_REF',TRUE,NOW()),
      
     ('CK043','Clienti STG: codice paese (COUNTRY(*)) presente in T005S',
@@ -322,7 +322,7 @@ VALUES
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
     ('CK221','Dati generali STG (clienti, DM, fornitori): STREET max 60 caratteri, STR_SUPPL3 max 40',
-     'BP','S_CUST_GEN#ZBP/ZDM_DatiGenerali_STG + S_SUPPL_GEN#ZBP_DatiGenerali_STG','STREET + STR_SUPPL3',
+     'BP','S_CUST_GEN#ZBP/ZDM_DatiGenerali_STG + S_SUPPL_GEN#ZBP/ZDM_DatiGenerali_STG','STREET + STR_SUPPL3',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
     ('CK222','Ordini di acquisto (S_EKKO): Incoterm INCO1 e INCO2_L obbligatori',
