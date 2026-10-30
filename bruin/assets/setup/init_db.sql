@@ -133,6 +133,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS "uidx_s_cust_taxnumbers_zbp_codicifisc_stg"
     ON stg."S_CUST_TAXNUMBERS#ZBP-CodiciFisc_STG" ("KUNNR(k/*)", "TAXTYPE(k/*)");
 
 -- =============================================================================
+-- stg."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc_STG" — eccezioni ai codici fiscali dei
+-- fornitori, stessa gestione della tabella dei clienti qui sopra (LIFNR + TAXTYPE
+-- identificano la riga, colonne *_out con i valori corretti). Usata da
+-- prd.merge_taxnumbers_fornitori e da CK803/CK804 (P.IVA effettiva).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS stg."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc_STG" (
+    "LIFNR(k/*)"    TEXT,
+    "TAXTYPE(k/*)"  TEXT,
+    "TAXNUM(*)"     TEXT,
+    "TAXTYPE(k/*)_out" TEXT,
+    "TAXNUM(*)_out" TEXT,
+    "_status"       TEXT DEFAULT 'EXISTS',
+    "_source"       TEXT,
+    "_loaded_at"    TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "uidx_s_suppl_taxnumbers_zbp_codicifisc_stg"
+    ON stg."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc_STG" ("LIFNR(k/*)", "TAXTYPE(k/*)");
+
+-- =============================================================================
 -- stg."S_SUPPL_GEN#ZDM_DatiGenerali_STG" — indirizzi bonificati dei fornitori
 -- destinatari merci (flusso DM06-02b), stesse colonne dello STG dei fornitori ZBP.
 -- stg.detect_new_records vi inserisce come NEW i record nuovi di

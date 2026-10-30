@@ -5,7 +5,9 @@ depends:
   - stg.ck803_supplier_vat_vies
 description: >
   CK804 — EXT_REF: Fornitori: sintesi verifica P.IVA EU/UK.
-  Per ogni P.IVA presente oggi in raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc" (TAXTYPE '%0')
+  Per ogni P.IVA presente oggi in raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc" (TAXTYPE '%0'),
+  con TAXTYPE e P.IVA corretti in stg."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc_STG" (*_out) se valorizzati (righe STG
+  DELETED escluse, stessa regola del merge verso prd),
   prende l'ultimo esito reale in stg.check_vat_vies (scritto da CK803, anche
   in un run precedente: i risultati riusati dalla cache non vengono riscritti)
   e scrive una riga in stg.check_results per ogni record anomalo:
@@ -20,22 +22,34 @@ INSERT INTO stg.check_results (
     source_table, category, object_key, check_id,
     message, status, run_id, zip_source, created_at
 )
-WITH vat_attuali AS (
+WITH vat_effettive AS (
+    -- TAXTYPE e P.IVA effettivi: quelli corretti in STG (*_out) se valorizzati, altrimenti quelli dell'ERP
+    SELECT
+        raw."LIFNR(k/*)",
+        COALESCE(NULLIF(TRIM(stg."TAXTYPE(k/*)_out"), ''), raw."TAXTYPE(k/*)") AS "TAXTYPE(k/*)",
+        COALESCE(NULLIF(TRIM(stg."TAXNUM(*)_out"), ''), raw."TAXNUM(*)") AS taxnum,
+        raw."_source"
+    FROM raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc" raw
+    LEFT JOIN stg."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc_STG" stg
+      ON stg."LIFNR(k/*)" = raw."LIFNR(k/*)" AND stg."TAXTYPE(k/*)" = raw."TAXTYPE(k/*)"
+    WHERE COALESCE(stg."_status", '') <> 'DELETED'
+),
+vat_attuali AS (
     -- Stessa normalizzazione di normalize_taxnum() in CK803: CC + numero senza spazi, punti, trattini
     SELECT DISTINCT
-        raw."LIFNR(k/*)"                                    AS entity_id,
+        e."LIFNR(k/*)"                                      AS entity_id,
         CASE
-            WHEN regexp_replace(UPPER(raw."TAXNUM(*)"), '[[:space:].-]', '', 'g')
-                 LIKE UPPER(LEFT(raw."TAXTYPE(k/*)", 2)) || '%'
-                THEN regexp_replace(UPPER(raw."TAXNUM(*)"), '[[:space:].-]', '', 'g')
-            ELSE UPPER(LEFT(raw."TAXTYPE(k/*)", 2))
-                 || regexp_replace(UPPER(raw."TAXNUM(*)"), '[[:space:].-]', '', 'g')
+            WHEN regexp_replace(UPPER(e.taxnum), '[[:space:].-]', '', 'g')
+                 LIKE UPPER(LEFT(e."TAXTYPE(k/*)", 2)) || '%'
+                THEN regexp_replace(UPPER(e.taxnum), '[[:space:].-]', '', 'g')
+            ELSE UPPER(LEFT(e."TAXTYPE(k/*)", 2))
+                 || regexp_replace(UPPER(e.taxnum), '[[:space:].-]', '', 'g')
         END                                            AS vat_number,
-        raw."_source"                                  AS zip_source
-    FROM raw."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc" raw
-    WHERE raw."TAXTYPE(k/*)" LIKE '%0'
-      AND raw."TAXNUM(*)" IS NOT NULL
-      AND TRIM(raw."TAXNUM(*)") <> ''
+        e."_source"                                    AS zip_source
+    FROM vat_effettive e
+    WHERE e."TAXTYPE(k/*)" LIKE '%0'
+      AND e.taxnum IS NOT NULL
+      AND TRIM(e.taxnum) <> ''
 ),
 ultimo_esito AS (
     SELECT DISTINCT ON (entity_id, vat_number)

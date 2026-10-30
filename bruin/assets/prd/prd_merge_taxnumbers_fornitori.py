@@ -4,6 +4,8 @@ type: python
 description: >
   Merge raw + stg → prd."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc".
   - Colonne comuni: COALESCE(stg, raw) — preferenza a stg
+  - Eccezioni in stg."S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc_STG" (inserite a mano):
+    "TAXTYPE(k/*)_out" e "TAXNUM(*)_out", se valorizzate, sostituiscono TAXTYPE e TAXNUM
   - _source e _loaded_at da raw
   - _status esclusa
   - Record stg con _status='DELETED' esclusi dal JOIN
