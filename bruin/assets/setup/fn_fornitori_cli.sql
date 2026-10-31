@@ -8,6 +8,8 @@ description: >
   raw."S_SUPPL_GEN#AddDatiGenerali", cliente di riferimento in REF_KUNNR).
   Unica fonte delle regole, usate dai check CK207/CK418/CK419 e da prd.export_suppliers_zip (CK418):
     - stg.fn_fornitori_da_clienti(): coppie fornitore (LIFNR) -> cliente (REF_KUNNR);
+    - stg.fn_banche_fornitori(): coordinate bancarie dei fornitori ZBP (06a) e dei clienti
+      estesi a fornitori (05a), con la tabella di origine, per i check CK047/CK055/CK214;
     - stg.fn_norm_taxnum(taxtype, taxnum): identificativo fiscale normalizzato come in
       CK207/CK801/CK803 (maiuscolo, solo lettere e cifre, prefisso paese del TAXTYPE);
     - stg.fn_iban_uguale_cliente(lifnr, iban): l'IBAN del fornitore è tra quelli del
@@ -93,5 +95,34 @@ BEGIN
         INTO v_found
         USING p_lifnr, p_taxtype, v_num;
     RETURN v_found;
+END;
+$$;
+
+-- Coordinate bancarie dei fornitori: ZBP (DM06-06a) e clienti estesi a fornitori (DM06-05a),
+-- con gli stessi nomi di colonna delle tabelle raw; le tabelle non caricate sono saltate
+CREATE OR REPLACE FUNCTION stg.fn_banche_fornitori()
+RETURNS TABLE (
+    source_table  text,
+    "LIFNR(k/*)"  text,
+    "BANKS(k/*)"  text,
+    "BANKL(k)"    text,
+    "BANKN(k)"    text,
+    "IBAN(k)"     text,
+    "BKREF"       text,
+    "_source"     text
+)
+LANGUAGE plpgsql STABLE
+AS $$
+DECLARE
+    v_table text;
+BEGIN
+    FOREACH v_table IN ARRAY ARRAY['S_SUPP_BANK#ZBP_AppoggioBanca', 'S_SUPP_BANK#ZBP_AddAppoggioBanca'] LOOP
+        IF to_regclass(format('raw.%I', v_table)) IS NOT NULL THEN
+            RETURN QUERY EXECUTE format(
+                'SELECT %L::text, "LIFNR(k/*)"::text, "BANKS(k/*)"::text, "BANKL(k)"::text,
+                        "BANKN(k)"::text, "IBAN(k)"::text, "BKREF"::text, "_source"::text
+                 FROM raw.%I', v_table, v_table);
+        END IF;
+    END LOOP;
 END;
 $$;

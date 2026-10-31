@@ -3,11 +3,14 @@ name: stg.ck047_supplier_bankl_banche_it
 type: pg.sql
 depends:
   - stg.clean_check_results
+  - setup.fn_fornitori_cli      # stg.fn_banche_fornitori()
 description: >
-  CK047 — SAP_REF: Fornitori (ZBP_AppoggioBanca): campo BANKL(k)
+  CK047 — SAP_REF: Fornitori (AppoggioBanca e AddAppoggioBanca): campo BANKL(k)
   deve essere presente nella tabella di riferimento SAP BNKA ref."SAP_EXPORT_BNKA_IT"
   (campo BANKL = ABI+CAB, banca non cancellata: LOEVM <> 'X'),
   ma solo per i record con BANKS(k/*)='IT'.
+  Tabelle (stg.fn_banche_fornitori): S_SUPP_BANK#ZBP_AppoggioBanca (DM06-06a) e
+  S_SUPP_BANK#ZBP_AddAppoggioBanca (clienti estesi a fornitori, DM06-05a, se caricata).
 connection: mdg_postgres
 @bruin */
 
@@ -16,7 +19,7 @@ INSERT INTO stg.check_results (
     message, status, run_id, zip_source, created_at
 )
 SELECT
-    'S_SUPP_BANK#ZBP_AppoggioBanca'              AS source_table,
+    raw.source_table                             AS source_table,
     'BP'                                         AS category,
     raw."LIFNR(k/*)"                             AS object_key,
     'CK047'                                      AS check_id,
@@ -55,7 +58,7 @@ SELECT
      ORDER BY started_at DESC LIMIT 1)           AS run_id,
     raw."_source"                                AS zip_source,
     NOW()                                        AS created_at
-FROM raw."S_SUPP_BANK#ZBP_AppoggioBanca" raw
+FROM stg.fn_banche_fornitori() raw
 WHERE raw."BANKS(k/*)" = 'IT'
   AND (
     SELECT COALESCE(is_active, FALSE)

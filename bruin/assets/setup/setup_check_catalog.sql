@@ -180,8 +180,8 @@ VALUES
      'BP','S_CUST_BANK_DATA#ZBP-AppoggioBanca','BANKL(k)',
      'ref.SAP_EXPORT_BNKA_IT (BANKS+BANKL)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK047','Fornitori (AppoggioBanca): chiave banca italiana (BANKL) presente in BNKA (solo BANKS=IT)',
-     'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKL(k)',
+    ('CK047','Fornitori (AppoggioBanca e AddAppoggioBanca 05a): chiave banca italiana (BANKL) presente in BNKA (solo BANKS=IT)',
+     'BP','S_SUPP_BANK#ZBP_AppoggioBanca / AddAppoggioBanca','BANKL(k)',
      'ref.SAP_EXPORT_BNKA_IT (BANKS+BANKL)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK049','Fornitori (RitenAcco): coppia WITHT+WT_WITHCD presente in T059Z',
@@ -240,8 +240,8 @@ VALUES
      'BP','S_CUST_GEN#ZBP/ZDM-DatiGenerali + S_SUPPL_GEN#ZBP/ZDM_DatiGenerali','VBUND',
      'ref.SAP_EXPORT_T880 (RCOMP)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK055','Fornitori (AppoggioBanca): banca estera (BANKL, IBAN o SWIFT) presente in BNKA (BANKS<>IT)',
-     'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKL(k) / IBAN(k) / BKREF (SWIFT)',
+    ('CK055','Fornitori (AppoggioBanca e AddAppoggioBanca 05a): banca estera (BANKL, IBAN o SWIFT) presente in BNKA (BANKS<>IT)',
+     'BP','S_SUPP_BANK#ZBP_AppoggioBanca / AddAppoggioBanca','BANKL(k) / IBAN(k) / BKREF (SWIFT)',
      'ref.SAP_EXPORT_BNKA_UE (BANKS+BANKL)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK056','Clienti (AppoggioBanca): banca estera (BANKL, IBAN o SWIFT) presente in BNKA (BANKS<>IT)',
@@ -289,8 +289,8 @@ VALUES
      'BP','S_CUST_BANK_DATA#ZBP-AppoggioBanca','BANKN(k) + IBAN(k)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
-    ('CK214','Fornitori (AppoggioBanca): con chiave banca BANKL valorizzata sono obbligatori BANKN e IBAN',
-     'BP','S_SUPP_BANK#ZBP_AppoggioBanca','BANKN(k) + IBAN(k)',
+    ('CK214','Fornitori (AppoggioBanca e AddAppoggioBanca 05a): con chiave banca BANKL valorizzata sono obbligatori BANKN e IBAN',
+     'BP','S_SUPP_BANK#ZBP_AppoggioBanca / AddAppoggioBanca','BANKN(k) + IBAN(k)',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
     ('CK215','Clienti (ZBP-DatiGenerali): ragione sociale obbligatoria, NAMORG1/NAMORG2/NAME_FIRST/NAME_LAST non tutti vuoti',

@@ -2,7 +2,9 @@
 name: prd.merge_banche_fornitori
 type: python
 description: >
-  Merge raw → prd."S_SUPP_BANK#ZBP_AppoggioBanca".
+  Merge raw → prd."S_SUPP_BANK#ZBP_AppoggioBanca" e, con le stesse regole, delle banche
+  dei clienti estesi a fornitori (flusso DM06-05a, se caricato) →
+  prd."S_SUPP_BANK#ZBP_AddAppoggioBanca".
   - _source e _loaded_at da raw
   - _status esclusa
   - Filtro CK047: se BANKS(k/*)='IT' e BANKL(k) non è presente in
@@ -34,26 +36,35 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+# Tabelle delle coordinate bancarie dei fornitori: ZBP (06a) e clienti estesi a fornitori (05a)
+BANK_TABLES = ["S_SUPP_BANK#ZBP_AppoggioBanca", "S_SUPP_BANK#ZBP_AddAppoggioBanca"]
+
+
+def merge_bank_table(cur, table: str):
+    merge_table(
+        cur,
+        raw_schema="raw", raw_table=table,
+        stg_schema="stg", stg_table=f"{table}_STG",
+        prd_table=table,
+        ck047_filter=True,
+        ck047_lifnr_col="LIFNR(k/*)",
+        bank_ue_filter=True,
+        bank_ue_key_col="LIFNR(k/*)",
+        bank_ue_banks_col="BANKS(k/*)",
+        bank_ue_check_id="CK055",
+        bank_incomplete_filter=True,
+        bank_incomplete_check_id="CK214",
+    )
+
+
 def main():
     conn = get_connection()
     try:
         with conn:
             with conn.cursor() as cur:
                 ensure_prd_schema(cur)
-                merge_table(
-                    cur,
-                    raw_schema="raw", raw_table="S_SUPP_BANK#ZBP_AppoggioBanca",
-                    stg_schema="stg", stg_table="S_SUPP_BANK#ZBP_AppoggioBanca_STG",
-                    prd_table="S_SUPP_BANK#ZBP_AppoggioBanca",
-                    ck047_filter=True,
-                    ck047_lifnr_col="LIFNR(k/*)",
-                    bank_ue_filter=True,
-                    bank_ue_key_col="LIFNR(k/*)",
-                    bank_ue_banks_col="BANKS(k/*)",
-                    bank_ue_check_id="CK055",
-                    bank_incomplete_filter=True,
-                    bank_incomplete_check_id="CK214",
-                )
+                for table in BANK_TABLES:
+                    merge_bank_table(cur, table)
     finally:
         conn.close()
     log.info("=== prd.merge_banche_fornitori completato ===")

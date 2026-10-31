@@ -10,7 +10,9 @@ description: >
   e, per i clienti già in SAP estesi al ruolo fornitore (flusso DM06-05a-ZBP-FornitoriCli):
     - le tabelle raw ...Add... del flusso, con master raw."S_SUPPL_GEN#AddDatiGenerali";
       i codici fiscali (S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc) non sono esportati: sono già
-      sul BP, caricati con il flusso clienti (CK419 segnala quelli diversi dal cliente).
+      sul BP, caricati con il flusso clienti (CK419 segnala quelli diversi dal cliente);
+      le coordinate bancarie da prd."S_SUPP_BANK#ZBP_AddAppoggioBanca" (stesse regole
+      CK047/CK055/CK214 delle banche dei fornitori ZBP).
       REF_KUNNR e KUNNR sono trascodificati con il codice SAP del cliente (PARTNER di
       ref.SAP_EXPORT_BUT000, tramite BU_SORT2); LIFNR resta il codice del vecchio ERP.
       I fornitori il cui cliente non è in BUT000 sono esclusi da tutte le tabelle e
@@ -40,6 +42,7 @@ depends:
   - ingestion.ingest_xlsx_to_ref
   - setup.fn_fornitori_cli
   - prd.merge_banche_clienti
+  - prd.merge_banche_fornitori
   - prd.merge_fornitori
   - prd.merge_fornitori_dm
   - prd.merge_taxnumbers_fornitori
@@ -164,7 +167,8 @@ PRD_TABLE_NAMES = {table for _, table in PRD_TABLES + DM_PRD_TABLES}
 
 # Flussi esportati. sap_sort_cols: colonne di BUT000 con il vecchio codice dei BP già in
 # SAP (esclusi dallo ZIP); orphan_check: check degli orfani nelle tabelle secondarie;
-# customer_ref: flusso dei clienti estesi a fornitori (trascodifica di REF_KUNNR/KUNNR).
+# customer_ref: flusso dei clienti estesi a fornitori (trascodifica di REF_KUNNR/KUNNR);
+# from_prd: tabelle del flusso lette dal merge in prd invece che da raw.
 FLOWS = [
     {"prd_tables": PRD_TABLES, "raw_tables": RAW_TABLES,
      "master": "S_SUPPL_GEN#ZBP_DatiGenerali", "orphan_check": "CK402",
@@ -174,7 +178,8 @@ FLOWS = [
      "sap_sort_cols": ("BU_SORT1", "BU_SORT2")},
     {"prd_tables": [], "raw_tables": CLI_RAW_TABLES,
      "master": CLI_MASTER, "orphan_check": "CK402",
-     "sap_sort_cols": ("BU_SORT1",), "customer_ref": True},
+     "sap_sort_cols": ("BU_SORT1",), "customer_ref": True,
+     "from_prd": {"S_SUPP_BANK#ZBP_AddAppoggioBanca"}},   # filtri CK047/CK055/CK214
 ]
 
 
@@ -522,24 +527,26 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             if not raw_cols:
                 log.warning(f"  SKIP raw.{raw_table} — nessuna colonna")
                 continue
+            # Tabelle con merge in prd (es. filtri delle coordinate bancarie): righe lette da prd
+            schema = "prd" if raw_table in flow.get("from_prd", ()) and get_columns(conn, "prd", raw_table) else "raw"
 
             _is_master = raw_table == flow["master"]
             discard_keys = unmapped if _is_master else orphan_keys | unmapped
             if discard_keys and write_discards:
                 write_discarded_csv(conn, raw_table, source_name,
                                    raw_cols, discard_keys, "LIFNR(k/*)")
-            excluded += already_in_sap_rows(conn, "raw", raw_table, source_name, "LIFNR(k/*)", sap_map)
+            excluded += already_in_sap_rows(conn, schema, raw_table, source_name, "LIFNR(k/*)", sap_map)
             excluded_keys = (sap_keys | unmapped if _is_master else orphan_keys | sap_keys | unmapped) or None
             valid_if = get_row_rule(conn, raw_table)
             if valid_if:
-                invalid = select_rows(conn, "raw", raw_table, source_name, raw_cols,
+                invalid = select_rows(conn, schema, raw_table, source_name, raw_cols,
                                       excluded_keys, "LIFNR(k/*)", where=f"NOT ({valid_if})")
                 if invalid and write_discards:
                     write_discarded_rows(raw_table, raw_cols, invalid)
-                    log.warning(f"  [{ROW_RULES[raw_table][0]}] raw.{raw_table}: {len(invalid)} righe escluse "
+                    log.warning(f"  [{ROW_RULES[raw_table][0]}] {schema}.{raw_table}: {len(invalid)} righe escluse "
                                 f"dallo ZIP '{source_name}'")
             csv_bytes = fetch_table_csv(
-                conn, "raw", raw_table, source_name, raw_cols,
+                conn, schema, raw_table, source_name, raw_cols,
                 excluded_keys=excluded_keys,
                 fk_col="LIFNR(k/*)",
                 where=valid_if,
@@ -548,11 +555,11 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
-                log.info(f"  raw.{raw_table}: 0 righe per source '{source_name}' — skip")
+                log.info(f"  {schema}.{raw_table}: 0 righe per source '{source_name}' — skip")
                 continue
 
             zf.writestr(f"{raw_table}.csv", csv_bytes)
-            log.info(f"  + raw.{raw_table}: {n_rows} righe")
+            log.info(f"  + {schema}.{raw_table}: {n_rows} righe")
 
     if excluded_out is not None:
         excluded_out.extend(excluded)
