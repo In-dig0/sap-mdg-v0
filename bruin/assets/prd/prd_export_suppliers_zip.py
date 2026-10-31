@@ -9,7 +9,8 @@ description: >
     - prd."S_SUPPL_GEN#ZDM_DatiGenerali" + raw."S_ROLES#ZDM_RuoliFornitori"
   e, per i clienti già in SAP estesi al ruolo fornitore (flusso DM06-05a-ZBP-FornitoriCli):
     - le tabelle raw ...Add... del flusso, con master raw."S_SUPPL_GEN#AddDatiGenerali";
-      i codici fiscali da prd."S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc" (filtro VIES).
+      i codici fiscali (S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc) non sono esportati: sono già
+      sul BP, caricati con il flusso clienti (CK419 segnala quelli diversi dal cliente).
       REF_KUNNR e KUNNR sono trascodificati con il codice SAP del cliente (PARTNER di
       ref.SAP_EXPORT_BUT000, tramite BU_SORT2); LIFNR resta il codice del vecchio ERP.
       I fornitori il cui cliente non è in BUT000 sono esclusi da tutte le tabelle e
@@ -22,12 +23,15 @@ description: >
   Le righe escluse dalle regole in ROW_RULES sono scritte in <tabella>_discarded.csv; se non
   ne resta nessuna il CSV non è scritto:
     - CK051/CK052: settore industriale non in TB038A;
-    - CK418/CK419 (flusso 05a): coordinata bancaria (IBAN) o identificativo fiscale uguale a
-      quello del cliente di riferimento, già sul BP in SAP.
+    - CK418 (flusso 05a): coordinata bancaria (IBAN) uguale a quella del cliente di
+      riferimento, già sul BP in SAP.
   Negli interlocutori (S_SUPPL_CONT#ZBP-Interlocutore) le email E_MAIL_B/E_MAIL sono in
   minuscolo; VNAME/LNAME, COUNTRY e REGION vengono dall'anagrafica
   prd."S_SUPPL_GEN#ZBP_DatiGenerali" (corretta in STG): NAME_FIRST_P/NAME_LAST_P per
   le persone fisiche (NATPERS = X), LNAME = NAME_FIRST (VNAME vuoto) per le società.
+  Estrazione ristretta (test) del flusso 05a: se stg.export_filter contiene codici, viene
+  generato anche lo ZIP dei soli fornitori il cui cliente di riferimento (REF_KUNNR) o il cui
+  LIFNR è nell'elenco, in out_source_mdg/test.
   I fornitori/vettori già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT1) sono esclusi
   da tutte le tabelle: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP
   non è generato.
@@ -36,7 +40,6 @@ depends:
   - ingestion.ingest_xlsx_to_ref
   - setup.fn_fornitori_cli
   - prd.merge_banche_clienti
-  - prd.merge_taxnumbers_clienti
   - prd.merge_fornitori
   - prd.merge_fornitori_dm
   - prd.merge_taxnumbers_fornitori
@@ -57,7 +60,7 @@ import psycopg2
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import (
     get_but000_map, already_in_sap_rows, write_already_in_sap, write_output_zip,
-    write_discarded_rows,
+    write_discarded_rows, get_export_filter, write_test_zip,
 )
 from prd_export_clienti_add_zip import get_customer_data, contact_row_fn as customer_contact_row_fn
 
@@ -126,9 +129,8 @@ CLI_RAW_TABLES = [
     "S_SUPPL_PARTNER#ZBP_AddPartner",
     "S_SUPP_BANK#ZBP_AddAppoggioBanca",
     "S_SUPPL_INDUSTRY#ZBP_AddSettoriIndust",
-    "S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc",
     CLI_CONTACT,
-]
+]   # S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc non esportata: codici fiscali già caricati con il cliente
 
 # Righe escluse dallo ZIP (e scritte in <tabella>_discarded.csv) quando il check è attivo:
 # tabella -> (check_id, tabella necessaria come "schema.tabella" o None, condizione SQL delle righe valide)
@@ -145,14 +147,10 @@ ROW_RULES = {
         'EXISTS (SELECT 1 FROM ref."SAP_EXPORT_TB038A" t'
         ' WHERE t."ISTYPE" = "ISTYPE(k/*)" AND t."IND_SECTOR" = "IND_SECTOR(k/*)")',
     ),
-    # CK418/CK419 (flusso 05a): dati uguali a quelli del cliente di riferimento, già in SAP
+    # CK418 (flusso 05a): IBAN uguale a quello del cliente di riferimento, già in SAP
     "S_SUPP_BANK#ZBP_AddAppoggioBanca": (
         "CK418", None,
         'NOT stg.fn_iban_uguale_cliente("LIFNR(k/*)", "IBAN(k)")',
-    ),
-    "S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc": (
-        "CK419", None,
-        'NOT stg.fn_taxnum_uguale_cliente("LIFNR(k/*)", "TAXTYPE(k/*)", "TAXNUM(*)")',
     ),
 }
 
@@ -166,8 +164,7 @@ PRD_TABLE_NAMES = {table for _, table in PRD_TABLES + DM_PRD_TABLES}
 
 # Flussi esportati. sap_sort_cols: colonne di BUT000 con il vecchio codice dei BP già in
 # SAP (esclusi dallo ZIP); orphan_check: check degli orfani nelle tabelle secondarie;
-# customer_ref: flusso dei clienti estesi a fornitori (trascodifica di REF_KUNNR/KUNNR);
-# from_prd: tabelle del flusso lette dal merge in prd invece che da raw.
+# customer_ref: flusso dei clienti estesi a fornitori (trascodifica di REF_KUNNR/KUNNR).
 FLOWS = [
     {"prd_tables": PRD_TABLES, "raw_tables": RAW_TABLES,
      "master": "S_SUPPL_GEN#ZBP_DatiGenerali", "orphan_check": "CK402",
@@ -177,8 +174,7 @@ FLOWS = [
      "sap_sort_cols": ("BU_SORT1", "BU_SORT2")},
     {"prd_tables": [], "raw_tables": CLI_RAW_TABLES,
      "master": CLI_MASTER, "orphan_check": "CK402",
-     "sap_sort_cols": ("BU_SORT1",), "customer_ref": True,
-     "from_prd": {"S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc"}},   # filtro VIES (CK803)
+     "sap_sort_cols": ("BU_SORT1",), "customer_ref": True},
 ]
 
 
@@ -370,10 +366,12 @@ def select_rows(conn, schema: str, table: str,
                 source_filter: str, cols: list[str],
                 excluded_keys: set | None = None,
                 fk_col: str | None = None,
-                where: str | None = None) -> list[tuple]:
+                where: str | None = None,
+                only_keys: set | None = None) -> list[tuple]:
     """
     Legge i record di una tabella filtrati per _source, senza le chiavi escluse
     (orfani o BP già in SAP) e, se indicata, solo quelli che soddisfano la condizione where.
+    only_keys: solo queste chiavi fk_col (estrazione ristretta).
     """
     fqt      = f'{schema}.{q(table)}'
     col_list = ", ".join(q(c) for c in cols)
@@ -384,6 +382,11 @@ def select_rows(conn, schema: str, table: str,
     if excluded_keys and fk_col and fk_col in cols:
         sql += f' AND {q(fk_col)} NOT IN ({",".join(["%s"] * len(excluded_keys))})'
         params += list(excluded_keys)
+    if only_keys is not None and fk_col:
+        if fk_col not in cols or not only_keys:
+            return []
+        sql += f' AND {q(fk_col)} IN ({",".join(["%s"] * len(only_keys))})'
+        params += list(only_keys)
     if where:
         sql += f" AND ({where})"
 
@@ -397,14 +400,15 @@ def fetch_table_csv(conn, schema: str, table: str,
                     excluded_keys: set | None = None,
                     fk_col: str | None = None,
                     where: str | None = None,
-                    row_fn=None) -> bytes:
+                    row_fn=None,
+                    only_keys: set | None = None) -> bytes:
     """
     Legge i record di una tabella (vedi select_rows) e
     li serializza come CSV con separatore ";".
     row_fn: funzione (cols, riga come lista) che modifica la riga in uscita.
     Ritorna i bytes del CSV.
     """
-    rows = select_rows(conn, schema, table, source_filter, cols, excluded_keys, fk_col, where)
+    rows = select_rows(conn, schema, table, source_filter, cols, excluded_keys, fk_col, where, only_keys)
     if row_fn:
         rows = [list(r) for r in rows]
         for r in rows:
@@ -432,12 +436,16 @@ def fetch_table_csv(conn, schema: str, table: str,
     return buf.getvalue().encode("utf-8")
 
 
-def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = None) -> bytes:
+def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = None,
+              key_filter: set | None = None) -> bytes:
     """
     Costruisce il contenuto di un archivio ZIP per un dato _source del flusso (vedi FLOWS).
     Usa prd per le tabelle prd_tables, raw per tutte le altre.
     excluded_out: se passata, riceve le righe escluse perché il fornitore è già in SAP.
+    key_filter:   codici fornitore dell'estrazione ristretta (None = output completo); non
+                  scrive i file di scarto, già prodotti dall'output completo.
     """
+    write_discards = key_filter is None
     buf = io.BytesIO()
     # Fornitori/vettori già creati in SAP (BUT000): esclusi da tutte le tabelle
     sap_map  = get_but000_map(conn, sort_cols=flow["sap_sort_cols"])
@@ -483,7 +491,8 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             if prd_cols:
                 excluded += already_in_sap_rows(conn, prd_schema, prd_table, source_name, "LIFNR(k/*)", sap_map)
                 csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols,
-                                            excluded_keys=sap_keys or None, fk_col="LIFNR(k/*)")
+                                            excluded_keys=sap_keys or None, fk_col="LIFNR(k/*)",
+                                            only_keys=key_filter)
                 n_rows = csv_bytes.count(b"\r\n") - 1
                 if n_rows <= 0:
                     log.info(f"  {prd_schema}.{prd_table}: 0 righe per '{source_name}' — skip")
@@ -513,38 +522,37 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             if not raw_cols:
                 log.warning(f"  SKIP raw.{raw_table} — nessuna colonna")
                 continue
-            # Tabelle con merge in prd (es. filtro VIES dei codici fiscali): righe lette da prd
-            schema = "prd" if raw_table in flow.get("from_prd", ()) and get_columns(conn, "prd", raw_table) else "raw"
 
             _is_master = raw_table == flow["master"]
             discard_keys = unmapped if _is_master else orphan_keys | unmapped
-            if discard_keys:
+            if discard_keys and write_discards:
                 write_discarded_csv(conn, raw_table, source_name,
                                    raw_cols, discard_keys, "LIFNR(k/*)")
-            excluded += already_in_sap_rows(conn, schema, raw_table, source_name, "LIFNR(k/*)", sap_map)
+            excluded += already_in_sap_rows(conn, "raw", raw_table, source_name, "LIFNR(k/*)", sap_map)
             excluded_keys = (sap_keys | unmapped if _is_master else orphan_keys | sap_keys | unmapped) or None
             valid_if = get_row_rule(conn, raw_table)
             if valid_if:
-                invalid = select_rows(conn, schema, raw_table, source_name, raw_cols,
+                invalid = select_rows(conn, "raw", raw_table, source_name, raw_cols,
                                       excluded_keys, "LIFNR(k/*)", where=f"NOT ({valid_if})")
-                if invalid:
+                if invalid and write_discards:
                     write_discarded_rows(raw_table, raw_cols, invalid)
-                    log.warning(f"  [{ROW_RULES[raw_table][0]}] {schema}.{raw_table}: {len(invalid)} righe escluse "
+                    log.warning(f"  [{ROW_RULES[raw_table][0]}] raw.{raw_table}: {len(invalid)} righe escluse "
                                 f"dallo ZIP '{source_name}'")
             csv_bytes = fetch_table_csv(
-                conn, schema, raw_table, source_name, raw_cols,
+                conn, "raw", raw_table, source_name, raw_cols,
                 excluded_keys=excluded_keys,
                 fk_col="LIFNR(k/*)",
                 where=valid_if,
                 row_fn=row_fns.get(raw_table),
+                only_keys=key_filter,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
-                log.info(f"  {schema}.{raw_table}: 0 righe per source '{source_name}' — skip")
+                log.info(f"  raw.{raw_table}: 0 righe per source '{source_name}' — skip")
                 continue
 
             zf.writestr(f"{raw_table}.csv", csv_bytes)
-            log.info(f"  + {schema}.{raw_table}: {n_rows} righe")
+            log.info(f"  + raw.{raw_table}: {n_rows} righe")
 
     if excluded_out is not None:
         excluded_out.extend(excluded)
@@ -572,6 +580,13 @@ def main():
                 zip_bytes = build_zip(conn, source_name, flow, excluded_out=excluded)
                 write_output_zip(source_name, zip_bytes)
                 write_already_in_sap(source_name, excluded)
+                if flow.get("customer_ref"):
+                    # Estrazione ristretta (test): fornitori con cliente di riferimento o LIFNR nell'elenco
+                    codes = get_export_filter(conn)
+                    keys  = {lifnr for lifnr, ref in get_customer_ref_map(conn, source_name).items()
+                             if ref in codes or lifnr.strip() in codes}
+                    write_test_zip(source_name, lambda: build_zip(conn, source_name, flow, key_filter=keys),
+                                   keys, "fornitori")
 
     finally:
         conn.close()

@@ -412,7 +412,7 @@ VALUES
     ('CK418','Clienti estesi a fornitori (05a): IBAN del fornitore diverso da quelli del cliente (se uguale la riga non è esportata)',
      'BP','S_SUPP_BANK#ZBP_AddAppoggioBanca','IBAN(k)',
      'S_CUST_BANK_DATA#ZBP-AppoggioBanca (prd, via REF_KUNNR)','Warning','CROSS_TABLE',TRUE,NOW()),
-    ('CK419','Clienti estesi a fornitori (05a): identificativo fiscale del fornitore diverso da quello del cliente (se uguale la riga non è esportata)',
+    ('CK419','Clienti estesi a fornitori (05a): identificativo fiscale del fornitore diverso da quello del cliente (non caricato: il file non è esportato)',
      'BP','S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc','TAXTYPE / TAXNUM',
      'S_CUST_TAXNUMBERS#ZBP-CodiciFisc (prd, via REF_KUNNR)','Warning','CROSS_TABLE',TRUE,NOW()),
 

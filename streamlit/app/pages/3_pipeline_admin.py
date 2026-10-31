@@ -383,6 +383,8 @@ with tab_ctrl:
         "Se l'elenco contiene codici cliente, la pipeline genera **anche** gli ZIP con i soli clienti indicati "
         "(anagrafica clienti, gestione credito e interlocutori) nella cartella **out_source_mdg/test**. "
         "I destinatari merci non sono inclusi: devono essere già caricati in SAP e presenti in SAP_EXPORT_BUT000. "
+        "Per i clienti estesi a fornitori (**DM06-05a**) è incluso il fornitore se nell'elenco c'è il suo "
+        "cliente di riferimento oppure il suo codice fornitore (LIFNR). "
         "Gli ZIP completi in out_source_mdg non cambiano. Elenco vuoto = nessuna estrazione ristretta."
     )
     render_code_list("export-filter", "Estrazione ristretta **attiva**")

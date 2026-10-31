@@ -6,7 +6,7 @@ depends:
 description: >
   Funzioni per i clienti già in SAP estesi al ruolo fornitore (flusso DM06-05a,
   raw."S_SUPPL_GEN#AddDatiGenerali", cliente di riferimento in REF_KUNNR).
-  Unica fonte delle regole, usate dai check CK207/CK418/CK419 e da prd.export_suppliers_zip:
+  Unica fonte delle regole, usate dai check CK207/CK418/CK419 e da prd.export_suppliers_zip (CK418):
     - stg.fn_fornitori_da_clienti(): coppie fornitore (LIFNR) -> cliente (REF_KUNNR);
     - stg.fn_norm_taxnum(taxtype, taxnum): identificativo fiscale normalizzato come in
       CK207/CK801/CK803 (maiuscolo, solo lettere e cifre, prefisso paese del TAXTYPE);
