@@ -18,10 +18,29 @@ description: >
     - S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc
     - S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc
     - S_CUST_TAXNUMBERS#ZBP-CodiciFisc
+  Clienti estesi a fornitori (flusso DM06-05a, S_SUPPL_GEN#AddDatiGenerali): il fornitore
+  e il suo cliente di riferimento (REF_KUNNR) sono lo stesso soggetto e non sono segnalati
+  come duplicati tra loro; lo sono se un terzo BP ha la stessa identità fiscale.
   Un esito per ogni BP controllato: Ok, oppure Warning con le combinazioni
   condivise e i BP coinvolti.
 connection: mdg_postgres
 @bruin */
+
+-- Fornitori del flusso DM06-05a -> cliente di riferimento; nessuna riga se il flusso non è caricato
+CREATE OR REPLACE FUNCTION stg.fn_fornitori_da_clienti()
+RETURNS TABLE (lifnr text, kunnr text)
+LANGUAGE plpgsql STABLE
+AS $$
+BEGIN
+    IF to_regclass('raw."S_SUPPL_GEN#AddDatiGenerali"') IS NULL THEN
+        RETURN;
+    END IF;
+    RETURN QUERY EXECUTE
+        'SELECT DISTINCT TRIM("LIFNR(k/*)")::text, TRIM("REF_KUNNR")::text
+         FROM raw."S_SUPPL_GEN#AddDatiGenerali"
+         WHERE length(TRIM("REF_KUNNR")) > 0';
+END;
+$$;
 
 INSERT INTO stg.check_results (
     source_table, category, object_key, check_id,
@@ -41,33 +60,40 @@ WITH all_taxnums AS (
     FROM raw."S_CUST_TAXNUMBERS#ZBP-CodiciFisc"
 ),
 -- Una riga per BP (ruolo + codice) con i suoi identificativi fiscali IT0 / IT1 / IT2
--- (anche i BP esteri, che hanno solo la P.IVA del proprio paese)
+-- (anche i BP esteri, che hanno solo la P.IVA del proprio paese).
+-- soggetto: i fornitori del flusso 05a coincidono con il loro cliente di riferimento
 bp AS (
     SELECT
         ruolo,
         bp_key,
+        CASE WHEN ruolo = 'Fornitore' AND MIN(fc.kunnr) IS NOT NULL
+             THEN 'Cliente:' || MIN(fc.kunnr)
+             ELSE ruolo || ':' || TRIM(bp_key)
+        END                                                            AS soggetto,
         MIN(source_table)                                              AS source_table,
         MIN(zip_source)                                                AS zip_source,
         MAX(TRIM(taxnum)) FILTER (WHERE taxtype = 'IT0')               AS it0,
         MAX(TRIM(taxnum)) FILTER (WHERE taxtype = 'IT1')               AS it1,
         MAX(TRIM(taxnum)) FILTER (WHERE taxtype = 'IT2')               AS it2
     FROM all_taxnums
+    LEFT JOIN stg.fn_fornitori_da_clienti() fc
+           ON ruolo = 'Fornitore' AND fc.lifnr = TRIM(bp_key)
     WHERE taxnum IS NOT NULL
       AND TRIM(taxnum) <> ''
     GROUP BY ruolo, bp_key
 ),
 -- Combinazioni che identificano il soggetto fiscale
 identita AS (
-    SELECT ruolo, bp_key, source_table, zip_source,
+    SELECT ruolo, bp_key, soggetto, source_table, zip_source,
            'IT1=' || it1 || ' / IT2=' || it2 AS combinazione
     FROM bp WHERE it1 IS NOT NULL AND it2 IS NOT NULL
     UNION ALL
-    SELECT ruolo, bp_key, source_table, zip_source,
+    SELECT ruolo, bp_key, soggetto, source_table, zip_source,
            'IT0=' || it0 || ' / IT1=' || it1
     FROM bp WHERE it0 IS NOT NULL AND it1 IS NOT NULL
     UNION ALL
     -- BP esteri (senza codice fiscale italiano): identificativo fiscale estero (UE ed extra-UE)
-    SELECT a.ruolo, a.bp_key, b.source_table, b.zip_source,
+    SELECT a.ruolo, a.bp_key, b.soggetto, b.source_table, b.zip_source,
            a.taxtype || '=' || CASE
                WHEN regexp_replace(UPPER(a.taxnum), '[[:space:].-]', '', 'g') LIKE UPPER(LEFT(a.taxtype, 2)) || '%'
                    THEN regexp_replace(UPPER(a.taxnum), '[[:space:].-]', '', 'g')
@@ -88,7 +114,8 @@ dup AS (
                    ORDER BY ruolo || ' ' || bp_key)                        AS bp_coinvolti
     FROM identita
     GROUP BY combinazione
-    HAVING COUNT(DISTINCT ruolo || ':' || bp_key) > 1
+    -- duplicato se i BP appartengono ad almeno due soggetti diversi
+    HAVING COUNT(DISTINCT soggetto) > 1
 ),
 -- BP con identità fiscale condivisa: combinazioni condivise e BP coinvolti in un'unica riga
 duplicati AS (

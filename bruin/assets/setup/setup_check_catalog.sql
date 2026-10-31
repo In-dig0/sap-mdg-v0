@@ -265,7 +265,7 @@ VALUES
      'PIR','S_SCALES#INFORSCALES','KBETR',
      NULL,'Error','EXISTENCE',TRUE,NOW()),
 
-    ('CK207','BP: identità fiscale duplicata tra fornitori e clienti (stessi IT1+IT2, IT0+IT1 o identificativo estero)',
+    ('CK207','BP: identità fiscale duplicata tra fornitori e clienti (stessi IT1+IT2, IT0+IT1 o identificativo estero); esclusa la coppia fornitore 05a / proprio cliente',
      'BP','ZBP_CodiciFisc + ZBP_AddCodiciFisc (SUPPL) + ZBP-CodiciFisc (CUST)','IT0 / IT1 / IT2',
      NULL,'Warning','EXISTENCE',TRUE,NOW()),
 
@@ -346,9 +346,9 @@ VALUES
      'BP','varie (tabelle secondarie 01-ZBP-Vettori)','LIFNR(k/*)',
      'S_SUPPL_GEN#ZBP_DatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
 
-    ('CK402','Orfani flusso ZBP-Fornitori: codice fornitore (LIFNR) assente nella tab. master',
-     'BP','varie (tabelle secondarie 04-ZBP-Fornitori)','LIFNR(k/*)',
-     'S_SUPPL_GEN#ZBP_DatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
+    ('CK402','Orfani flussi ZBP-Fornitori e ZBP-FornitoriCli: codice fornitore (LIFNR) assente nella tab. master del flusso',
+     'BP','varie (tabelle secondarie 06a-ZBP-Fornitori e 05a-ZBP-FornitoriCli)','LIFNR(k/*)',
+     'S_SUPPL_GEN#ZBP_DatiGenerali / S_SUPPL_GEN#AddDatiGenerali','Error','CROSS_TABLE',FALSE,NOW()),
 
     ('CK403','Orfani flusso ZDM-Clienti: codice cliente (KUNNR) assente nella tab. master',
      'BP','varie (tabelle secondarie 02-ZDM-Clienti)','KUNNR(k/*)',
@@ -503,9 +503,9 @@ VALUES
      'PO','S_EKPO + S_EKKO','MATNR + VERKF',
      'S_SUPPL_GEN#ZBP_DatiGenerali (LANGU_CORR) / S_MAKT (SPRAS, MAKTX)','Error','CROSS_SOURCE',TRUE,NOW()),
 
-    ('CK524','Ordini di acquisto (S_EKKO): fornitore VERKF presente nell''anagrafica fornitori S_SUPPL_GEN#ZBP_DatiGenerali',
+    ('CK524','Ordini di acquisto (S_EKKO): fornitore VERKF presente nell''anagrafica fornitori (ZBP o clienti estesi a fornitori 05a)',
      'PO','S_EKKO','VERKF',
-     'S_SUPPL_GEN#ZBP_DatiGenerali (LIFNR)','Error','CROSS_SOURCE',TRUE,NOW()),
+     'S_SUPPL_GEN#ZBP_DatiGenerali / S_SUPPL_GEN#AddDatiGenerali (LIFNR)','Error','CROSS_SOURCE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',

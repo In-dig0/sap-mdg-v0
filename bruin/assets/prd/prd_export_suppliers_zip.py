@@ -7,10 +7,18 @@ description: >
     - tutte le altre tabelle fornitori da schema raw
   e, per i fornitori destinatari merci (flusso DM06-02b):
     - prd."S_SUPPL_GEN#ZDM_DatiGenerali" + raw."S_ROLES#ZDM_RuoliFornitori"
+  e, per i clienti già in SAP estesi al ruolo fornitore (flusso DM06-05a-ZBP-FornitoriCli):
+    - le tabelle raw ...Add... del flusso, con master raw."S_SUPPL_GEN#AddDatiGenerali".
+      REF_KUNNR e KUNNR sono trascodificati con il codice SAP del cliente (PARTNER di
+      ref.SAP_EXPORT_BUT000, tramite BU_SORT2); LIFNR resta il codice del vecchio ERP.
+      I fornitori il cui cliente non è in BUT000 sono esclusi da tutte le tabelle e
+      scritti in <tabella>_discarded.csv. Negli interlocutori (S_SUPPL_CONT#ZBP-AddInterlocutore)
+      email in minuscolo e nome, paese, regione (e CAP per BR) dall'anagrafica del cliente
+      di riferimento (prd."S_CUST_GEN#ZBP_DatiGenerali", come negli interlocutori clienti).
   Un ZIP separato viene creato per ogni valore distinto di _source
   (es. "DM06-01a-ZBP-Vettori.zip", "DM06-02b-ZDM-Fornitori.zip").
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
-  Le righe segnalate dai check in ROW_RULES (CK051: settore industriale non in TB038A)
+  Le righe segnalate dai check in ROW_RULES (CK051/CK052: settore industriale non in TB038A)
   sono escluse e scritte in <tabella>_discarded.csv; se non ne resta nessuna il CSV non
   è scritto.
   Negli interlocutori (S_SUPPL_CONT#ZBP-Interlocutore) le email E_MAIL_B/E_MAIL sono in
@@ -45,6 +53,7 @@ from prd_export_clienti_zip import (
     get_but000_map, already_in_sap_rows, write_already_in_sap, write_output_zip,
     write_discarded_rows,
 )
+from prd_export_clienti_add_zip import get_customer_data, contact_row_fn as customer_contact_row_fn
 
 logging.basicConfig(
     level=logging.INFO,
@@ -99,12 +108,34 @@ DM_RAW_TABLES = [
     "S_SUPPL_GEN#ZDM_DatiGenerali",            # sostituita da prd
 ]
 
+# Clienti già in SAP estesi al ruolo fornitore (DM06-05a): solo tabelle raw, master Add
+CLI_MASTER     = "S_SUPPL_GEN#AddDatiGenerali"
+CLI_CONTACT    = "S_SUPPL_CONT#ZBP-AddInterlocutore"
+CLI_REF_COLS   = ["REF_KUNNR", "KUNNR"]          # codice cliente, trascodificato in SAP
+CLI_RAW_TABLES = [
+    CLI_MASTER,
+    "S_ROLES#ZBP_AddRuoliFornitori",
+    "S_SUPPL_COMPANY#ZBP_AddDatiSocieta",
+    "S_SUPPL_PURCHASING#ZBP_AddOrganAcq",
+    "S_SUPPL_PARTNER#ZBP_AddPartner",
+    "S_SUPP_BANK#ZBP_AddAppoggioBanca",
+    "S_SUPPL_INDUSTRY#ZBP_AddSettoriIndust",
+    "S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc",
+    CLI_CONTACT,
+]
+
 # Righe escluse dallo ZIP (e scritte in <tabella>_discarded.csv) quando il check è attivo:
 # tabella -> (check_id, tabella ref necessaria, condizione SQL delle righe valide)
 ROW_RULES = {
     # CK051: coppia ISTYPE + IND_SECTOR presente in TB038A
     "S_SUPPL_INDUSTRY#ZBP_SettoriIndust": (
         "CK051", "SAP_EXPORT_TB038A",
+        'EXISTS (SELECT 1 FROM ref."SAP_EXPORT_TB038A" t'
+        ' WHERE t."ISTYPE" = "ISTYPE(k/*)" AND t."IND_SECTOR" = "IND_SECTOR(k/*)")',
+    ),
+    # CK052: stessa regola per i settori del flusso 05a
+    "S_SUPPL_INDUSTRY#ZBP_AddSettoriIndust": (
+        "CK052", "SAP_EXPORT_TB038A",
         'EXISTS (SELECT 1 FROM ref."SAP_EXPORT_TB038A" t'
         ' WHERE t."ISTYPE" = "ISTYPE(k/*)" AND t."IND_SECTOR" = "IND_SECTOR(k/*)")',
     ),
@@ -119,7 +150,8 @@ EMAIL_COLS     = ["E_MAIL_B", "E_MAIL"]
 PRD_TABLE_NAMES = {table for _, table in PRD_TABLES + DM_PRD_TABLES}
 
 # Flussi esportati. sap_sort_cols: colonne di BUT000 con il vecchio codice dei BP già in
-# SAP (esclusi dallo ZIP); orphan_check: check degli orfani nelle tabelle secondarie.
+# SAP (esclusi dallo ZIP); orphan_check: check degli orfani nelle tabelle secondarie;
+# customer_ref: flusso dei clienti estesi a fornitori (trascodifica di REF_KUNNR/KUNNR).
 FLOWS = [
     {"prd_tables": PRD_TABLES, "raw_tables": RAW_TABLES,
      "master": "S_SUPPL_GEN#ZBP_DatiGenerali", "orphan_check": "CK402",
@@ -127,6 +159,9 @@ FLOWS = [
     {"prd_tables": DM_PRD_TABLES, "raw_tables": DM_RAW_TABLES,
      "master": "S_SUPPL_GEN#ZDM_DatiGenerali", "orphan_check": None,
      "sap_sort_cols": ("BU_SORT1", "BU_SORT2")},
+    {"prd_tables": [], "raw_tables": CLI_RAW_TABLES,
+     "master": CLI_MASTER, "orphan_check": "CK402",
+     "sap_sort_cols": ("BU_SORT1",), "customer_ref": True},
 ]
 
 
@@ -184,9 +219,9 @@ def remove_discarded_csv(tables: list[str]):
             log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)
 
 
-def get_distinct_sources(conn, prd_tables: list) -> list[str]:
-    """Recupera i valori distinti di _source dalla tabella prd principale del flusso."""
-    schema, table = prd_tables[0]
+def get_distinct_sources(conn, flow: dict) -> list[str]:
+    """Valori distinti di _source della tabella principale del flusso (prd, o la master raw)."""
+    schema, table = flow["prd_tables"][0] if flow["prd_tables"] else ("raw", flow["master"])
     fqt = f'{schema}.{q(table)}'
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass(%s)", (fqt,))
@@ -268,6 +303,26 @@ def contact_row_fn(suppliers: dict):
         for col, val in zip(("VNAME", "LNAME", "COUNTRY", "REGION"), data):
             if col in cols:
                 row[cols.index(col)] = val
+    return fn
+
+
+def get_customer_ref_map(conn, source_name: str) -> dict:
+    """Flusso 05a: LIFNR -> codice del cliente di riferimento (REF_KUNNR) dalla master raw."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f'SELECT "LIFNR(k/*)", TRIM("REF_KUNNR") FROM raw.{q(CLI_MASTER)} WHERE "_source" = %s',
+            (source_name,),
+        )
+        return {lifnr: ref for lifnr, ref in cur.fetchall() if lifnr}
+
+
+def customer_ref_row_fn(customer_codes: dict):
+    """Flusso 05a: REF_KUNNR e KUNNR (vecchio codice cliente) -> codice SAP del cliente."""
+    def fn(cols: list, row: list):
+        for col in CLI_REF_COLS:
+            if col in cols and row[cols.index(col)]:
+                old = row[cols.index(col)].strip()
+                row[cols.index(col)] = customer_codes.get(old, old)
     return fn
 
 
@@ -382,8 +437,24 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
     elif check_id:
         log.info("  [%s] Nessuna chiave orfana per '%s'.", check_id, source_name)
 
-    contact_fn = (contact_row_fn(get_supplier_data(conn))
-                  if CONTACT_TABLE in flow["raw_tables"] else None)
+    # Flusso 05a: codice SAP del cliente di riferimento; senza corrispondenza il fornitore è escluso
+    row_fns = {}
+    unmapped = set()
+    if flow.get("customer_ref"):
+        customer_codes = get_but000_map(conn, sort_cols=("BU_SORT2",))
+        ref_map  = get_customer_ref_map(conn, source_name)
+        unmapped = {lifnr for lifnr, ref in ref_map.items() if ref not in customer_codes}
+        if unmapped:
+            log.warning("  *** %d fornitori con cliente di riferimento non presente in BUT000 (BU_SORT2) "
+                        "esclusi da '%s': %s", len(unmapped), source_name, sorted(unmapped))
+        row_fns[CLI_MASTER] = customer_ref_row_fn(customer_codes)
+        customers = get_customer_data(conn)
+        row_fns[CLI_CONTACT] = customer_contact_row_fn(
+            {lifnr: customers[ref] for lifnr, ref in ref_map.items() if ref in customers},
+            key_col="LIFNR(k/*)")
+
+    if CONTACT_TABLE in flow["raw_tables"]:
+        row_fns[CONTACT_TABLE] = contact_row_fn(get_supplier_data(conn))
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
 
@@ -425,11 +496,12 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
                 continue
 
             _is_master = raw_table == flow["master"]
-            if not _is_master and orphan_keys:
+            discard_keys = unmapped if _is_master else orphan_keys | unmapped
+            if discard_keys:
                 write_discarded_csv(conn, raw_table, source_name,
-                                   raw_cols, orphan_keys, "LIFNR(k/*)")
+                                   raw_cols, discard_keys, "LIFNR(k/*)")
             excluded += already_in_sap_rows(conn, "raw", raw_table, source_name, "LIFNR(k/*)", sap_map)
-            excluded_keys = (sap_keys if _is_master else orphan_keys | sap_keys) or None
+            excluded_keys = (sap_keys | unmapped if _is_master else orphan_keys | sap_keys | unmapped) or None
             valid_if = get_row_rule(conn, raw_table)
             if valid_if:
                 invalid = select_rows(conn, "raw", raw_table, source_name, raw_cols,
@@ -443,7 +515,7 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
                 excluded_keys=excluded_keys,
                 fk_col="LIFNR(k/*)",
                 where=valid_if,
-                row_fn=contact_fn if raw_table == CONTACT_TABLE else None,
+                row_fn=row_fns.get(raw_table),
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
@@ -461,14 +533,14 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    remove_discarded_csv(RAW_TABLES + DM_RAW_TABLES)
+    remove_discarded_csv(RAW_TABLES + DM_RAW_TABLES + CLI_RAW_TABLES)
     conn = get_connection()
 
     try:
         for flow in FLOWS:
-            sources = get_distinct_sources(conn, flow["prd_tables"])
+            sources = get_distinct_sources(conn, flow)
             if not sources:
-                log.warning(f"Nessun valore di _source in prd.{flow['master']} — nulla da esportare.")
+                log.warning(f"Nessun valore di _source per {flow['master']} — nulla da esportare.")
                 continue
 
             log.info(f"Sorgenti trovate: {sources}")

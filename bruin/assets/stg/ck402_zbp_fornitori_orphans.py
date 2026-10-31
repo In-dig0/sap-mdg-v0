@@ -4,9 +4,12 @@ type: python
 depends:
   - stg.clean_check_results
 description: >
-  CK402 — CROSS_TABLE: flusso ZBP-Fornitori (file ZIP il cui nome contiene "ZBP-Fornitori").
-  Verifica che ogni LIFNR nelle tabelle secondarie del flusso
-  esista nella master S_SUPPL_GEN#ZBP_DatiGenerali.
+  CK402 — CROSS_TABLE: flussi fornitori ZBP. Verifica che ogni LIFNR nelle tabelle
+  secondarie del flusso esista nella master del flusso:
+    - ZBP-FornitoriCli (clienti estesi a fornitori, DM06-05a): S_SUPPL_GEN#AddDatiGenerali
+    - ZBP-Fornitori (DM06-06a):                                S_SUPPL_GEN#ZBP_DatiGenerali
+  Il flusso di un file ZIP è il primo di ZIP_FLOWS contenuto nel nome
+  ("ZBP-FornitoriCli" contiene anche "ZBP-Fornitori": va controllato per primo).
 @bruin """
 
 import os
@@ -23,15 +26,17 @@ DB_CONFIG = {
 }
 
 CHECK_ID     = "CK402"
-# Nome del flusso cercato nel nome del file ZIP (es. "DM06-01a-ZBP-Vettori.zip" contiene "ZBP-Vettori")
-ZIP_FLOW     = "ZBP-Fornitori"
-MASTER_TABLE = "S_SUPPL_GEN#ZBP_DatiGenerali"
+# Flusso cercato nel nome del file ZIP -> master del flusso; i nomi più specifici per primi
+ZIP_FLOWS    = [
+    ("ZBP-FornitoriCli", "S_SUPPL_GEN#AddDatiGenerali"),
+    ("ZBP-Fornitori",    "S_SUPPL_GEN#ZBP_DatiGenerali"),
+]
 MASTER_FK    = "LIFNR(k/*)"
 SECONDARY_FK = "LIFNR(k/*)"
 
 def q(name): return '"' + name.replace('"', '""') + '"'
 
-def get_secondary_tables(cur):
+def get_secondary_tables(cur, master_table):
     cur.execute("""
         SELECT DISTINCT table_name
         FROM information_schema.columns
@@ -39,8 +44,21 @@ def get_secondary_tables(cur):
           AND column_name = %s
           AND table_name != %s
         ORDER BY table_name
-    """, (SECONDARY_FK, MASTER_TABLE))
+    """, (SECONDARY_FK, master_table))
     return [r[0] for r in cur.fetchall()]
+
+def source_filter(flow_idx):
+    """Condizione SQL (con parametri) sui file ZIP del flusso: esclusi quelli dei flussi precedenti."""
+    sql    = 'sec."_source" ILIKE %s'
+    params = [f"%{ZIP_FLOWS[flow_idx][0]}%"]
+    for prev_flow, _ in ZIP_FLOWS[:flow_idx]:
+        sql += ' AND sec."_source" NOT ILIKE %s'
+        params.append(f"%{prev_flow}%")
+    return sql, params
+
+def table_exists(cur, table):
+    cur.execute("SELECT to_regclass(%s)", (f"raw.{q(table)}",))
+    return cur.fetchone()[0] is not None
 
 def main():
     conn = psycopg2.connect(**DB_CONFIG)
@@ -60,75 +78,80 @@ def main():
             sev_row  = cur.fetchone()
             severity = sev_row[0] if sev_row else "Error"
 
-            secondary_tables = get_secondary_tables(cur)
             total_orphans = 0
 
-            for sec_table in secondary_tables:
-                # Errori: SECONDARY_FK non presente nella master
-                cur.execute(f"""
-                    SELECT DISTINCT sec.{q(SECONDARY_FK)}, sec."_source"
-                    FROM raw.{q(sec_table)} sec
-                    WHERE sec."_source" ILIKE %s
-                      AND sec.{q(SECONDARY_FK)} IS NOT NULL
-                      AND sec.{q(SECONDARY_FK)} <> ''
-                      AND NOT EXISTS (
-                          SELECT 1 FROM raw.{q(MASTER_TABLE)} mst
-                          WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
-                      )
-                """, (f"%{ZIP_FLOW}%",))
+            for flow_idx, (zip_flow, master_table) in enumerate(ZIP_FLOWS):
+                if not table_exists(cur, master_table):
+                    print(f"[SKIP] {CHECK_ID} — {zip_flow}: master raw.{master_table} non caricata")
+                    continue
+                src_sql, src_params = source_filter(flow_idx)
 
-                rows_err = []
-                for rec in cur.fetchall():
-                    rows_err.append((
-                        sec_table, 'BP', rec[0], CHECK_ID,
-                        f"[{SECONDARY_FK.split('(')[0]}={rec[0]}] presente in {sec_table} "
-                        f"ma assente nella master {MASTER_TABLE}",
-                        severity, run_id, rec[1], now,
-                    ))
+                for sec_table in get_secondary_tables(cur, master_table):
+                    # Errori: SECONDARY_FK non presente nella master
+                    cur.execute(f"""
+                        SELECT DISTINCT sec.{q(SECONDARY_FK)}, sec."_source"
+                        FROM raw.{q(sec_table)} sec
+                        WHERE {src_sql}
+                          AND sec.{q(SECONDARY_FK)} IS NOT NULL
+                          AND sec.{q(SECONDARY_FK)} <> ''
+                          AND NOT EXISTS (
+                              SELECT 1 FROM raw.{q(master_table)} mst
+                              WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
+                          )
+                    """, src_params)
 
-                if rows_err:
-                    execute_values(cur, """
-                        INSERT INTO stg.check_results (
-                            source_table, category, object_key, check_id,
-                            message, status, run_id, zip_source, created_at
-                        ) VALUES %s
-                    """, rows_err, page_size=500)
-                    total_orphans += len(rows_err)
-                    print(f"[WARN] {CHECK_ID} — {sec_table}: {len(rows_err)} orfani")
+                    rows_err = []
+                    for rec in cur.fetchall():
+                        rows_err.append((
+                            sec_table, 'BP', rec[0], CHECK_ID,
+                            f"[{SECONDARY_FK.split('(')[0]}={rec[0]}] presente in {sec_table} "
+                            f"ma assente nella master {master_table}",
+                            severity, run_id, rec[1], now,
+                        ))
 
-                # Ok: SECONDARY_FK presente nella master
-                cur.execute(f"""
-                    SELECT DISTINCT sec.{q(SECONDARY_FK)}, sec."_source"
-                    FROM raw.{q(sec_table)} sec
-                    WHERE sec."_source" ILIKE %s
-                      AND sec.{q(SECONDARY_FK)} IS NOT NULL
-                      AND sec.{q(SECONDARY_FK)} <> ''
-                      AND EXISTS (
-                          SELECT 1 FROM raw.{q(MASTER_TABLE)} mst
-                          WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
-                      )
-                """, (f"%{ZIP_FLOW}%",))
+                    if rows_err:
+                        execute_values(cur, """
+                            INSERT INTO stg.check_results (
+                                source_table, category, object_key, check_id,
+                                message, status, run_id, zip_source, created_at
+                            ) VALUES %s
+                        """, rows_err, page_size=500)
+                        total_orphans += len(rows_err)
+                        print(f"[WARN] {CHECK_ID} — {sec_table}: {len(rows_err)} orfani")
 
-                rows_ok = []
-                for rec in cur.fetchall():
-                    rows_ok.append((
-                        sec_table, 'BP', rec[0], CHECK_ID,
-                        'Ok',
-                        'Ok', run_id, rec[1], now,
-                    ))
+                    # Ok: SECONDARY_FK presente nella master
+                    cur.execute(f"""
+                        SELECT DISTINCT sec.{q(SECONDARY_FK)}, sec."_source"
+                        FROM raw.{q(sec_table)} sec
+                        WHERE {src_sql}
+                          AND sec.{q(SECONDARY_FK)} IS NOT NULL
+                          AND sec.{q(SECONDARY_FK)} <> ''
+                          AND EXISTS (
+                              SELECT 1 FROM raw.{q(master_table)} mst
+                              WHERE mst.{q(MASTER_FK)} = sec.{q(SECONDARY_FK)}
+                          )
+                    """, src_params)
 
-                if rows_ok:
-                    execute_values(cur, """
-                        INSERT INTO stg.check_results (
-                            source_table, category, object_key, check_id,
-                            message, status, run_id, zip_source, created_at
-                        ) VALUES %s
-                    """, rows_ok, page_size=500)
-                    print(f"[OK] {CHECK_ID} — {sec_table}: {len(rows_ok)} record ok")
+                    rows_ok = []
+                    for rec in cur.fetchall():
+                        rows_ok.append((
+                            sec_table, 'BP', rec[0], CHECK_ID,
+                            'Ok',
+                            'Ok', run_id, rec[1], now,
+                        ))
+
+                    if rows_ok:
+                        execute_values(cur, """
+                            INSERT INTO stg.check_results (
+                                source_table, category, object_key, check_id,
+                                message, status, run_id, zip_source, created_at
+                            ) VALUES %s
+                        """, rows_ok, page_size=500)
+                        print(f"[OK] {CHECK_ID} — {sec_table}: {len(rows_ok)} record ok")
 
         conn.commit()
         if total_orphans == 0:
-            print(f"[OK] {CHECK_ID} — nessun orfano nel flusso {ZIP_FLOW}")
+            print(f"[OK] {CHECK_ID} — nessun orfano nei flussi {[f for f, _ in ZIP_FLOWS]}")
         else:
             print(f"[WARN] {CHECK_ID} — totale orfani: {total_orphans}")
     finally:

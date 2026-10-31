@@ -121,13 +121,16 @@ def get_customer_data(conn) -> dict:
         return {r[0]: r[1:] for r in cur.fetchall()}
 
 
-def contact_row_fn(customers: dict):
-    """Interlocutori: email in minuscolo; nome, paese, regione (e CAP per BR) dall'anagrafica cliente."""
+def contact_row_fn(customers: dict, key_col: str = KEY_COL):
+    """
+    Interlocutori: email in minuscolo; nome, paese, regione (e CAP per BR) dall'anagrafica cliente.
+    key_col: colonna chiave della riga, cercata in customers (anche fornitori 05a: LIFNR -> dati del cliente).
+    """
     def fn(cols: list, row: list):
         for col in EMAIL_COLS:
             if col in cols and row[cols.index(col)]:
                 row[cols.index(col)] = row[cols.index(col)].strip().lower()
-        data = customers.get(row[cols.index(KEY_COL)])
+        data = customers.get(row[cols.index(key_col)])
         if not data:
             return
         first, last, org1, country, region, post_code = data
