@@ -6,7 +6,9 @@ depends:
 description: >
   Legge tutti i file ZIP da /project/datalake/in_source_pprod/,
   estrae i CSV e li carica nello schema raw di PostgreSQL.
-  Nome tabella = nome file CSV senza estensione (virgolette doppie).
+  Nome tabella = nome file CSV senza estensione (virgolette doppie); le banche fornitori
+  sono sempre caricate come S_SUPP_BANK#..., anche se l'ERP usa il nome SAP S_SUPPL_BANK#...
+  (TABLE_PREFIX; l'export dei fornitori riscrive il nome SAP nello ZIP).
   Nomi colonne = intestazioni originali invariate (virgolette doppie).
   Colonne con (k) nel suffisso → UNIQUE INDEX sulla tabella.
   Duplicati su chiave: scartati e loggati prima dell'insert.
@@ -49,10 +51,24 @@ DB_CONFIG = {
 INBOUND_PATH = "/project/datalake/in_source_pprod"
 RAW_SCHEMA   = "raw"
 
+# Prefissi del nome CSV ricondotti al nome tabella usato da MDG: l'ERP chiama le banche
+# fornitori S_SUPP_BANK#... (struttura SAP: S_SUPPL_BANK); se corregge il nome, le tabelle
+# restano le stesse
+TABLE_PREFIX = {"S_SUPPL_BANK#": "S_SUPP_BANK#"}
+
 
 # ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
+
+def table_name_for(csv_filename: str) -> str:
+    """Nome della tabella raw per un CSV: nome file senza estensione (prefissi in TABLE_PREFIX)."""
+    name = os.path.splitext(csv_filename)[0]
+    for prefix, table_prefix in TABLE_PREFIX.items():
+        if name.startswith(prefix):
+            return table_prefix + name[len(prefix):]
+    return name
+
 
 def identify_keys(raw_cols: list) -> list:
     return [c.strip() for c in raw_cols if re.search(r"\(.*?k.*?\)", c.strip())]
@@ -321,7 +337,7 @@ def process_zip(zip_path: str, conn):
         log.info(f"  CSV trovati: {len(csv_files)}")
 
         for csv_filename in csv_files:
-            table_name = os.path.splitext(csv_filename)[0]
+            table_name = table_name_for(csv_filename)
             log.info(f"  -> {csv_filename}")
             log.info(f"     Tabella: {RAW_SCHEMA}.{q(table_name)}")
 

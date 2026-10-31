@@ -22,6 +22,8 @@ description: >
   Un ZIP separato viene creato per ogni valore distinto di _source
   (es. "DM06-01a-ZBP-Vettori.zip", "DM06-02b-ZDM-Fornitori.zip").
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
+  Le banche fornitori (tabelle S_SUPP_BANK#..., nome dato dall'ERP) sono scritte con il nome
+  della struttura SAP S_SUPPL_BANK#... (CSV_NAME), mappato in automatico nel caricamento.
   Le righe escluse dalle regole in ROW_RULES sono scritte in <tabella>_discarded.csv; se non
   ne resta nessuna il CSV non è scritto:
     - CK051/CK052: settore industriale non in TB038A;
@@ -83,6 +85,14 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR = "/project/datalake/out_source_mdg"
+
+# Nome del CSV nello ZIP per le tabelle il cui nome differisce dalla struttura SAP: l'ERP
+# chiama le banche fornitori S_SUPP_BANK#..., la struttura SAP è S_SUPPL_BANK (con il nome
+# corretto il file è mappato in automatico nel caricamento in SAP)
+CSV_NAME = {
+    "S_SUPP_BANK#ZBP_AppoggioBanca":    "S_SUPPL_BANK#ZBP_AppoggioBanca",
+    "S_SUPP_BANK#ZBP_AddAppoggioBanca": "S_SUPPL_BANK#ZBP_AddAppoggioBanca",
+}
 
 # Colonne audit da escludere dai CSV di output
 AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
@@ -502,7 +512,7 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
                 if n_rows <= 0:
                     log.info(f"  {prd_schema}.{prd_table}: 0 righe per '{source_name}' — skip")
                     continue
-                zf.writestr(f"{prd_table}.csv", csv_bytes)
+                zf.writestr(f"{CSV_NAME.get(prd_table, prd_table)}.csv", csv_bytes)
                 log.info(f"  + {prd_schema}.{prd_table}: {n_rows} righe")
             else:
                 log.warning(f"  Nessuna colonna trovata per {prd_schema}.{prd_table}")
@@ -558,7 +568,7 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
                 log.info(f"  {schema}.{raw_table}: 0 righe per source '{source_name}' — skip")
                 continue
 
-            zf.writestr(f"{raw_table}.csv", csv_bytes)
+            zf.writestr(f"{CSV_NAME.get(raw_table, raw_table)}.csv", csv_bytes)
             log.info(f"  + {schema}.{raw_table}: {n_rows} righe")
 
     if excluded_out is not None:
@@ -586,7 +596,7 @@ def main():
                 excluded  = []
                 zip_bytes = build_zip(conn, source_name, flow, excluded_out=excluded)
                 write_output_zip(source_name, zip_bytes)
-                write_already_in_sap(source_name, excluded)
+                write_already_in_sap(source_name, excluded, CSV_NAME)
                 if flow.get("customer_ref"):
                     # Estrazione ristretta (test): fornitori con cliente di riferimento o LIFNR nell'elenco
                     codes = get_export_filter(conn)

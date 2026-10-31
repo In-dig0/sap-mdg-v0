@@ -37,9 +37,13 @@ import psycopg2
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import PRD_CSV_NAME as PRD_CSV_NAME_CLIENTI
 from prd_export_dest_merci_zip import PRD_CSV_NAME as PRD_CSV_NAME_DM
+from prd_export_suppliers_zip import CSV_NAME as CSV_NAME_FORNITORI
 
 # Tabelle prd con nome diverso dalla tabella raw corrispondente
 PRD_TO_RAW = {**PRD_CSV_NAME_CLIENTI, **PRD_CSV_NAME_DM}
+
+# CSV negli ZIP (e nei riepiloghi dei BP già in SAP) con nome diverso dalla tabella raw
+CSV_TO_RAW = {csv: table for table, csv in CSV_NAME_FORNITORI.items()}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -121,7 +125,8 @@ def get_already_in_sap_exclusions() -> dict[str, int]:
             continue
         with open(os.path.join(OUTPUT_DIR, name), encoding="utf-8-sig", newline="") as f:
             for row in csv.DictReader(f, delimiter=";"):
-                excluded[row["TABELLA"]] = excluded.get(row["TABELLA"], 0) + int(row["RIGHE"])
+                table = CSV_TO_RAW.get(row["TABELLA"], row["TABELLA"])
+                excluded[table] = excluded.get(table, 0) + int(row["RIGHE"])
     return excluded
 
 
@@ -137,6 +142,7 @@ def count_csv_rows(zip_path: str) -> dict[str, int]:
                 if not name.endswith(".csv"):
                     continue
                 table = name.replace(".csv", "")
+                table = CSV_TO_RAW.get(table, table)
                 with zf.open(name) as f:
                     # Conta le righe lette (escludi header)
                     reader = csv.reader(
