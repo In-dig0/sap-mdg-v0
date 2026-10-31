@@ -13,6 +13,10 @@ description: >
   Le righe segnalate dai check in ROW_RULES (CK051: settore industriale non in TB038A)
   sono escluse e scritte in <tabella>_discarded.csv; se non ne resta nessuna il CSV non
   è scritto.
+  Negli interlocutori (S_SUPPL_CONT#ZBP-Interlocutore) le email E_MAIL_B/E_MAIL sono in
+  minuscolo; VNAME/LNAME, COUNTRY e REGION vengono dall'anagrafica
+  prd."S_SUPPL_GEN#ZBP_DatiGenerali" (corretta in STG): NAME_FIRST_P/NAME_LAST_P per
+  le persone fisiche (NATPERS = X), LNAME = NAME_FIRST (VNAME vuoto) per le società.
   I fornitori/vettori già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT1) sono esclusi
   da tutte le tabelle: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP
   non è generato.
@@ -105,6 +109,11 @@ ROW_RULES = {
         ' WHERE t."ISTYPE" = "ISTYPE(k/*)" AND t."IND_SECTOR" = "IND_SECTOR(k/*)")',
     ),
 }
+
+# Interlocutori fornitori: nome, paese e regione dall'anagrafica fornitori in prd
+CONTACT_TABLE  = "S_SUPPL_CONT#ZBP-Interlocutore"
+PRD_SUPPLIER   = "S_SUPPL_GEN#ZBP_DatiGenerali"
+EMAIL_COLS     = ["E_MAIL_B", "E_MAIL"]
 
 # Nomi tabella raw sostituiti da prd (vengono skippati nella sezione raw)
 PRD_TABLE_NAMES = {table for _, table in PRD_TABLES + DM_PRD_TABLES}
@@ -225,6 +234,43 @@ def get_orphan_keys(conn, check_id: str) -> set:
         return {r[0] for r in cur.fetchall()}
 
 
+def get_supplier_data(conn) -> dict:
+    """Codice fornitore -> (VNAME, LNAME, COUNTRY, REGION) degli interlocutori, dall'anagrafica in prd."""
+    if not get_columns(conn, "prd", PRD_SUPPLIER):
+        log.warning(f"  prd.{PRD_SUPPLIER} non trovata — interlocutori senza dati anagrafici")
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            f'SELECT TRIM("LIFNR(k/*)"), COALESCE(TRIM("NATPERS"), \'\'), '
+            f'COALESCE(TRIM("NAME_FIRST"), \'\'), '
+            f'COALESCE(TRIM("NAME_FIRST_P"), \'\'), COALESCE(TRIM("NAME_LAST_P"), \'\'), '
+            f'COALESCE(TRIM("COUNTRY"), \'\'), COALESCE(TRIM("REGION"), \'\') '
+            f'FROM prd.{q(PRD_SUPPLIER)}'
+        )
+        data = {}
+        for key, natpers, org1, first_p, last_p, country, region in cur.fetchall():
+            if natpers == "X" or first_p or last_p:    # persona fisica
+                data[key] = (first_p, last_p, country, region)
+            else:                                      # società
+                data[key] = ("", org1, country, region)
+        return data
+
+
+def contact_row_fn(suppliers: dict):
+    """Interlocutori: email in minuscolo; VNAME/LNAME, COUNTRY e REGION dall'anagrafica fornitore."""
+    def fn(cols: list, row: list):
+        for col in EMAIL_COLS:
+            if col in cols and row[cols.index(col)]:
+                row[cols.index(col)] = row[cols.index(col)].strip().lower()
+        data = suppliers.get((row[cols.index("LIFNR(k/*)")] or "").strip())
+        if not data:
+            return
+        for col, val in zip(("VNAME", "LNAME", "COUNTRY", "REGION"), data):
+            if col in cols:
+                row[cols.index(col)] = val
+    return fn
+
+
 def get_row_rule(conn, table: str) -> str | None:
     """
     Condizione SQL delle righe valide di una tabella con regola in ROW_RULES, se il check
@@ -276,13 +322,19 @@ def fetch_table_csv(conn, schema: str, table: str,
                     source_filter: str, cols: list[str],
                     excluded_keys: set | None = None,
                     fk_col: str | None = None,
-                    where: str | None = None) -> bytes:
+                    where: str | None = None,
+                    row_fn=None) -> bytes:
     """
     Legge i record di una tabella (vedi select_rows) e
     li serializza come CSV con separatore ";".
+    row_fn: funzione (cols, riga come lista) che modifica la riga in uscita.
     Ritorna i bytes del CSV.
     """
     rows = select_rows(conn, schema, table, source_filter, cols, excluded_keys, fk_col, where)
+    if row_fn:
+        rows = [list(r) for r in rows]
+        for r in rows:
+            row_fn(cols, r)
     if excluded_keys and fk_col and fk_col in cols:
         log.warning(
             "  [%s] %s.%s: %d chiavi escluse (orfani o BP già in SAP, _source=%s)",
@@ -329,6 +381,9 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
         )
     elif check_id:
         log.info("  [%s] Nessuna chiave orfana per '%s'.", check_id, source_name)
+
+    contact_fn = (contact_row_fn(get_supplier_data(conn))
+                  if CONTACT_TABLE in flow["raw_tables"] else None)
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
 
@@ -388,6 +443,7 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
                 excluded_keys=excluded_keys,
                 fk_col="LIFNR(k/*)",
                 where=valid_if,
+                row_fn=contact_fn if raw_table == CONTACT_TABLE else None,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
