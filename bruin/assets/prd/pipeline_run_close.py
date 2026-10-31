@@ -34,6 +34,8 @@ depends:
   - stg.ck415_po_orphans
   - stg.ck416_customer_vbund_akont
   - stg.ck417_supplier_vbund_akont
+  - stg.ck418_fornitori_cli_banca_cliente
+  - stg.ck419_fornitori_cli_codici_fiscali_cliente
   - stg.ck520_po_materiale_marc
   - stg.ck521_po_unita_misura
   - stg.ck522_po_materiale_stato

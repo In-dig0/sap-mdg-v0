@@ -8,7 +8,8 @@ description: >
   e, per i fornitori destinatari merci (flusso DM06-02b):
     - prd."S_SUPPL_GEN#ZDM_DatiGenerali" + raw."S_ROLES#ZDM_RuoliFornitori"
   e, per i clienti già in SAP estesi al ruolo fornitore (flusso DM06-05a-ZBP-FornitoriCli):
-    - le tabelle raw ...Add... del flusso, con master raw."S_SUPPL_GEN#AddDatiGenerali".
+    - le tabelle raw ...Add... del flusso, con master raw."S_SUPPL_GEN#AddDatiGenerali";
+      i codici fiscali da prd."S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc" (filtro VIES).
       REF_KUNNR e KUNNR sono trascodificati con il codice SAP del cliente (PARTNER di
       ref.SAP_EXPORT_BUT000, tramite BU_SORT2); LIFNR resta il codice del vecchio ERP.
       I fornitori il cui cliente non è in BUT000 sono esclusi da tutte le tabelle e
@@ -18,9 +19,11 @@ description: >
   Un ZIP separato viene creato per ogni valore distinto di _source
   (es. "DM06-01a-ZBP-Vettori.zip", "DM06-02b-ZDM-Fornitori.zip").
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
-  Le righe segnalate dai check in ROW_RULES (CK051/CK052: settore industriale non in TB038A)
-  sono escluse e scritte in <tabella>_discarded.csv; se non ne resta nessuna il CSV non
-  è scritto.
+  Le righe escluse dalle regole in ROW_RULES sono scritte in <tabella>_discarded.csv; se non
+  ne resta nessuna il CSV non è scritto:
+    - CK051/CK052: settore industriale non in TB038A;
+    - CK418/CK419 (flusso 05a): coordinata bancaria (IBAN) o identificativo fiscale uguale a
+      quello del cliente di riferimento, già sul BP in SAP.
   Negli interlocutori (S_SUPPL_CONT#ZBP-Interlocutore) le email E_MAIL_B/E_MAIL sono in
   minuscolo; VNAME/LNAME, COUNTRY e REGION vengono dall'anagrafica
   prd."S_SUPPL_GEN#ZBP_DatiGenerali" (corretta in STG): NAME_FIRST_P/NAME_LAST_P per
@@ -31,6 +34,9 @@ description: >
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
 depends:
   - ingestion.ingest_xlsx_to_ref
+  - setup.fn_fornitori_cli
+  - prd.merge_banche_clienti
+  - prd.merge_taxnumbers_clienti
   - prd.merge_fornitori
   - prd.merge_fornitori_dm
   - prd.merge_taxnumbers_fornitori
@@ -125,19 +131,28 @@ CLI_RAW_TABLES = [
 ]
 
 # Righe escluse dallo ZIP (e scritte in <tabella>_discarded.csv) quando il check è attivo:
-# tabella -> (check_id, tabella ref necessaria, condizione SQL delle righe valide)
+# tabella -> (check_id, tabella necessaria come "schema.tabella" o None, condizione SQL delle righe valide)
 ROW_RULES = {
     # CK051: coppia ISTYPE + IND_SECTOR presente in TB038A
     "S_SUPPL_INDUSTRY#ZBP_SettoriIndust": (
-        "CK051", "SAP_EXPORT_TB038A",
+        "CK051", "ref.SAP_EXPORT_TB038A",
         'EXISTS (SELECT 1 FROM ref."SAP_EXPORT_TB038A" t'
         ' WHERE t."ISTYPE" = "ISTYPE(k/*)" AND t."IND_SECTOR" = "IND_SECTOR(k/*)")',
     ),
     # CK052: stessa regola per i settori del flusso 05a
     "S_SUPPL_INDUSTRY#ZBP_AddSettoriIndust": (
-        "CK052", "SAP_EXPORT_TB038A",
+        "CK052", "ref.SAP_EXPORT_TB038A",
         'EXISTS (SELECT 1 FROM ref."SAP_EXPORT_TB038A" t'
         ' WHERE t."ISTYPE" = "ISTYPE(k/*)" AND t."IND_SECTOR" = "IND_SECTOR(k/*)")',
+    ),
+    # CK418/CK419 (flusso 05a): dati uguali a quelli del cliente di riferimento, già in SAP
+    "S_SUPP_BANK#ZBP_AddAppoggioBanca": (
+        "CK418", None,
+        'NOT stg.fn_iban_uguale_cliente("LIFNR(k/*)", "IBAN(k)")',
+    ),
+    "S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc": (
+        "CK419", None,
+        'NOT stg.fn_taxnum_uguale_cliente("LIFNR(k/*)", "TAXTYPE(k/*)", "TAXNUM(*)")',
     ),
 }
 
@@ -151,7 +166,8 @@ PRD_TABLE_NAMES = {table for _, table in PRD_TABLES + DM_PRD_TABLES}
 
 # Flussi esportati. sap_sort_cols: colonne di BUT000 con il vecchio codice dei BP già in
 # SAP (esclusi dallo ZIP); orphan_check: check degli orfani nelle tabelle secondarie;
-# customer_ref: flusso dei clienti estesi a fornitori (trascodifica di REF_KUNNR/KUNNR).
+# customer_ref: flusso dei clienti estesi a fornitori (trascodifica di REF_KUNNR/KUNNR);
+# from_prd: tabelle del flusso lette dal merge in prd invece che da raw.
 FLOWS = [
     {"prd_tables": PRD_TABLES, "raw_tables": RAW_TABLES,
      "master": "S_SUPPL_GEN#ZBP_DatiGenerali", "orphan_check": "CK402",
@@ -161,7 +177,8 @@ FLOWS = [
      "sap_sort_cols": ("BU_SORT1", "BU_SORT2")},
     {"prd_tables": [], "raw_tables": CLI_RAW_TABLES,
      "master": CLI_MASTER, "orphan_check": "CK402",
-     "sap_sort_cols": ("BU_SORT1",), "customer_ref": True},
+     "sap_sort_cols": ("BU_SORT1",), "customer_ref": True,
+     "from_prd": {"S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc"}},   # filtro VIES (CK803)
 ]
 
 
@@ -334,16 +351,18 @@ def get_row_rule(conn, table: str) -> str | None:
     rule = ROW_RULES.get(table)
     if not rule:
         return None
-    check_id, ref_table, valid_if = rule
+    check_id, required, valid_if = rule
     with conn.cursor() as cur:
         cur.execute("SELECT COALESCE(is_active, FALSE) FROM stg.check_catalog WHERE check_id = %s", (check_id,))
         row = cur.fetchone()
         if not row or not row[0]:
             return None
-        cur.execute("SELECT to_regclass(%s)", (f"ref.{q(ref_table)}",))
-        if cur.fetchone()[0] is None:
-            log.warning(f"  [{check_id}] ref.{ref_table} non caricata — righe di {table} non filtrate")
-            return None
+        if required:
+            schema, req_table = required.split(".", 1)
+            cur.execute("SELECT to_regclass(%s)", (f"{schema}.{q(req_table)}",))
+            if cur.fetchone()[0] is None:
+                log.warning(f"  [{check_id}] {required} non caricata — righe di {table} non filtrate")
+                return None
     return valid_if
 
 
@@ -494,24 +513,26 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             if not raw_cols:
                 log.warning(f"  SKIP raw.{raw_table} — nessuna colonna")
                 continue
+            # Tabelle con merge in prd (es. filtro VIES dei codici fiscali): righe lette da prd
+            schema = "prd" if raw_table in flow.get("from_prd", ()) and get_columns(conn, "prd", raw_table) else "raw"
 
             _is_master = raw_table == flow["master"]
             discard_keys = unmapped if _is_master else orphan_keys | unmapped
             if discard_keys:
                 write_discarded_csv(conn, raw_table, source_name,
                                    raw_cols, discard_keys, "LIFNR(k/*)")
-            excluded += already_in_sap_rows(conn, "raw", raw_table, source_name, "LIFNR(k/*)", sap_map)
+            excluded += already_in_sap_rows(conn, schema, raw_table, source_name, "LIFNR(k/*)", sap_map)
             excluded_keys = (sap_keys | unmapped if _is_master else orphan_keys | sap_keys | unmapped) or None
             valid_if = get_row_rule(conn, raw_table)
             if valid_if:
-                invalid = select_rows(conn, "raw", raw_table, source_name, raw_cols,
+                invalid = select_rows(conn, schema, raw_table, source_name, raw_cols,
                                       excluded_keys, "LIFNR(k/*)", where=f"NOT ({valid_if})")
                 if invalid:
                     write_discarded_rows(raw_table, raw_cols, invalid)
-                    log.warning(f"  [{ROW_RULES[raw_table][0]}] raw.{raw_table}: {len(invalid)} righe escluse "
+                    log.warning(f"  [{ROW_RULES[raw_table][0]}] {schema}.{raw_table}: {len(invalid)} righe escluse "
                                 f"dallo ZIP '{source_name}'")
             csv_bytes = fetch_table_csv(
-                conn, "raw", raw_table, source_name, raw_cols,
+                conn, schema, raw_table, source_name, raw_cols,
                 excluded_keys=excluded_keys,
                 fk_col="LIFNR(k/*)",
                 where=valid_if,
@@ -519,11 +540,11 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
-                log.info(f"  raw.{raw_table}: 0 righe per source '{source_name}' — skip")
+                log.info(f"  {schema}.{raw_table}: 0 righe per source '{source_name}' — skip")
                 continue
 
             zf.writestr(f"{raw_table}.csv", csv_bytes)
-            log.info(f"  + raw.{raw_table}: {n_rows} righe")
+            log.info(f"  + {schema}.{raw_table}: {n_rows} righe")
 
     if excluded_out is not None:
         excluded_out.extend(excluded)

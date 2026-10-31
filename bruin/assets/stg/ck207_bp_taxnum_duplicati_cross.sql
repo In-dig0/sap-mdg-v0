@@ -3,6 +3,7 @@ name: stg.ck207_bp_taxnum_duplicati_cross
 type: pg.sql
 depends:
   - stg.clean_check_results
+  - setup.fn_fornitori_cli      # stg.fn_fornitori_da_clienti()
 description: >
   CK207 — EXISTENCE: Business Partner (Fornitori + Clienti): identità fiscale
   duplicata tra BP diversi, anche tra fornitori e clienti.
@@ -20,27 +21,12 @@ description: >
     - S_CUST_TAXNUMBERS#ZBP-CodiciFisc
   Clienti estesi a fornitori (flusso DM06-05a, S_SUPPL_GEN#AddDatiGenerali): il fornitore
   e il suo cliente di riferimento (REF_KUNNR) sono lo stesso soggetto e non sono segnalati
-  come duplicati tra loro; lo sono se un terzo BP ha la stessa identità fiscale.
+  come duplicati tra loro (stg.fn_fornitori_da_clienti); lo sono se un terzo BP ha la
+  stessa identità fiscale.
   Un esito per ogni BP controllato: Ok, oppure Warning con le combinazioni
   condivise e i BP coinvolti.
 connection: mdg_postgres
 @bruin */
-
--- Fornitori del flusso DM06-05a -> cliente di riferimento; nessuna riga se il flusso non è caricato
-CREATE OR REPLACE FUNCTION stg.fn_fornitori_da_clienti()
-RETURNS TABLE (lifnr text, kunnr text)
-LANGUAGE plpgsql STABLE
-AS $$
-BEGIN
-    IF to_regclass('raw."S_SUPPL_GEN#AddDatiGenerali"') IS NULL THEN
-        RETURN;
-    END IF;
-    RETURN QUERY EXECUTE
-        'SELECT DISTINCT TRIM("LIFNR(k/*)")::text, TRIM("REF_KUNNR")::text
-         FROM raw."S_SUPPL_GEN#AddDatiGenerali"
-         WHERE length(TRIM("REF_KUNNR")) > 0';
-END;
-$$;
 
 INSERT INTO stg.check_results (
     source_table, category, object_key, check_id,

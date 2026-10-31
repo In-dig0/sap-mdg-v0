@@ -38,6 +38,7 @@ def run_query_check(check_id: str, sql, required: list, category: str = "PO"):
     required: tabelle necessarie come (schema, tabella); se ne manca una il controllo è saltato.
     sql: query con le colonne (source_table, object_key, message, zip_source), oppure funzione
          che riceve il cursore e restituisce la query (None = niente da controllare).
+         Una quinta colonna facoltativa è il messaggio degli esiti Ok (vuota = "Ok").
     """
     conn = psycopg2.connect(**DB_CONFIG)
     try:
@@ -65,12 +66,13 @@ def run_query_check(check_id: str, sql, required: list, category: str = "PO"):
                     return
             cur.execute(sql)
             results, n_err = [], 0
-            for source_table, key, msg, source in cur.fetchall():
+            for source_table, key, msg, source, *ok_msg in cur.fetchall():
                 if msg:
                     n_err += 1
                     results.append((source_table, category, key, check_id, msg, severity, run_id, source, now))
                 else:
-                    results.append((source_table, category, key, check_id, "Ok", "Ok", run_id, source, now))
+                    results.append((source_table, category, key, check_id, (ok_msg or [None])[0] or "Ok", "Ok",
+                                    run_id, source, now))
 
             if results:
                 execute_values(cur, """

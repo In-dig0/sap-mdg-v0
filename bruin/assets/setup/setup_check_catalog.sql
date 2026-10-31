@@ -409,6 +409,12 @@ VALUES
     ('CK417','Fornitori: coerenza società partner VBUND e conto di riconciliazione AKONT(*) intercompany',
      'BP','S_SUPPL_GEN#ZBP_DatiGenerali + S_SUPPL_COMPANY#ZBP_DatiSocieta/AddDatiSocieta','VBUND + AKONT(*)',
      NULL,'Error','CROSS_TABLE',TRUE,NOW()),
+    ('CK418','Clienti estesi a fornitori (05a): IBAN del fornitore diverso da quelli del cliente (se uguale la riga non è esportata)',
+     'BP','S_SUPP_BANK#ZBP_AddAppoggioBanca','IBAN(k)',
+     'S_CUST_BANK_DATA#ZBP-AppoggioBanca (prd, via REF_KUNNR)','Warning','CROSS_TABLE',TRUE,NOW()),
+    ('CK419','Clienti estesi a fornitori (05a): identificativo fiscale del fornitore diverso da quello del cliente (se uguale la riga non è esportata)',
+     'BP','S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc','TAXTYPE / TAXNUM',
+     'S_CUST_TAXNUMBERS#ZBP-CodiciFisc (prd, via REF_KUNNR)','Warning','CROSS_TABLE',TRUE,NOW()),
 
     -- CROSS_SOURCE — CK501-CK506
     ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X); esclusi MSTAE 01/08',
