@@ -415,6 +415,9 @@ VALUES
     ('CK419','Clienti estesi a fornitori (05a): identificativo fiscale del fornitore diverso da quello del cliente (non caricato: il file non è esportato)',
      'BP','S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc','TAXTYPE / TAXNUM',
      'S_CUST_TAXNUMBERS#ZBP-CodiciFisc (prd, via REF_KUNNR)','Warning','CROSS_TABLE',TRUE,NOW()),
+    ('CK420','Fornitori (06a e 05a): fornitore partner LIFN2 diverso da LIFNR non presente in SAP (la riga non è esportata)',
+     'BP','S_SUPPL_PARTNER#ZBP_Partner / AddPartner','LIFN2(k)',
+     'SAP_EXPORT_BUT000 (BU_SORT1)','Warning','CROSS_SOURCE',TRUE,NOW()),
 
     -- CROSS_SOURCE — CK501-CK506
     ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X); esclusi MSTAE 01/08',

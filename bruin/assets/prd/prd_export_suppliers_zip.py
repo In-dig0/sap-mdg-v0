@@ -27,6 +27,8 @@ description: >
   Le righe escluse dalle regole in ROW_RULES sono scritte in <tabella>_discarded.csv; se non
   ne resta nessuna il CSV non è scritto:
     - CK051/CK052: settore industriale non in TB038A;
+    - CK420: partner con fornitore LIFN2 (diverso da LIFNR) non presente in SAP (BUT000, BU_SORT1);
+      LIFN2 è già il codice del fornitore in SAP ed è esportato senza trascodifica;
     - CK418 (flusso 05a): coordinata bancaria (IBAN) uguale a quella del cliente di
       riferimento, già sul BP in SAP.
   Negli interlocutori (S_SUPPL_CONT#ZBP-Interlocutore) le email E_MAIL_B/E_MAIL sono in
@@ -149,6 +151,9 @@ CLI_RAW_TABLES = [
     CLI_CONTACT,
 ]   # S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc non esportata: codici fiscali già caricati con il cliente
 
+LIFN2_IN_SAP = ('COALESCE(TRIM("LIFN2(k)"), \'\') IN (\'\', TRIM("LIFNR(k/*)"))'
+                ' OR EXISTS (SELECT 1 FROM ref."SAP_EXPORT_BUT000" b WHERE TRIM(b."BU_SORT1") = TRIM("LIFN2(k)"))')
+
 # Righe escluse dallo ZIP (e scritte in <tabella>_discarded.csv) quando il check è attivo:
 # tabella -> (check_id, tabella necessaria come "schema.tabella" o None, condizione SQL delle righe valide)
 ROW_RULES = {
@@ -164,6 +169,10 @@ ROW_RULES = {
         'EXISTS (SELECT 1 FROM ref."SAP_EXPORT_TB038A" t'
         ' WHERE t."ISTYPE" = "ISTYPE(k/*)" AND t."IND_SECTOR" = "IND_SECTOR(k/*)")',
     ),
+    # CK420: fornitore partner LIFN2 (diverso da LIFNR) già in SAP; il codice è quello del
+    # fornitore in SAP (es. indirizzi di ordinazione ZDM del flusso 02b), esportato invariato
+    "S_SUPPL_PARTNER#ZBP_Partner":    ("CK420", "ref.SAP_EXPORT_BUT000", LIFN2_IN_SAP),
+    "S_SUPPL_PARTNER#ZBP_AddPartner": ("CK420", "ref.SAP_EXPORT_BUT000", LIFN2_IN_SAP),
     # CK418 (flusso 05a): IBAN uguale a quello del cliente di riferimento, già in SAP
     "S_SUPP_BANK#ZBP_AddAppoggioBanca": (
         "CK418", None,
