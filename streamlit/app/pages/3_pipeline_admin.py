@@ -177,7 +177,7 @@ def api_delete_raw_source(source: str):
         return None, str(e)
 
 def api_get_code_list(path: str):
-    """GET /db/{path} — elenco di codici cliente (export-filter, export-exclude-add)."""
+    """GET /db/{path} — elenco di codici (export-filter, export-exclude-add, export-exclude-fornitori-cli)."""
     try:
         r = requests.get(f"{API_BASE}/db/{path}", timeout=10)
         r.raise_for_status()
@@ -196,9 +196,22 @@ def api_set_code_list(path: str, codes: list[str]):
     except Exception as e:
         return None, str(e)
 
-def render_code_list(path: str, active_label: str):
-    """Editor di un elenco di codici cliente salvato tramite API (/db/{path})."""
+def code_list_section(path: str, title: str, icon: str, caption: str, active_label: str):
+    """Elenco di codici in un expander chiuso; il titolo indica se l'elenco è attivo."""
     codes, err = api_get_code_list(path)
+    if err:
+        stato = "non disponibile"
+    elif codes:
+        stato = f"attivo, {len(codes)} codici"
+    else:
+        stato = "vuoto"
+    # key: l'expander resta aperto anche quando il titolo cambia dopo un salvataggio
+    with st.expander(f"{title} — {stato}", icon=icon, key=f"{path}_expander"):
+        st.caption(caption)
+        render_code_list(path, active_label, codes, err)
+
+def render_code_list(path: str, active_label: str, codes: list[str], err: str | None):
+    """Editor di un elenco di codici cliente salvato tramite API (/db/{path})."""
     if err:
         st.warning(f"Impossibile leggere l'elenco: {err}")
         return
@@ -377,29 +390,35 @@ with tab_ctrl:
 
     st.divider()
 
-    # ── 1. Estrazione ristretta (test) ───────────────────────────────────
-    st.subheader("🧪 Estrazione ristretta (test)")
-    st.caption(
+    # ── 1. Elenchi di codici per gli export ─────────────────────────────
+    st.subheader("📋 Elenchi per gli export")
+    st.caption("Elenchi manuali letti dagli export al prossimo run della pipeline.")
+    code_list_section(
+        "export-filter", "Estrazione ristretta (test)", ":material/science:",
         "Se l'elenco contiene codici cliente, la pipeline genera **anche** gli ZIP con i soli clienti indicati "
         "(anagrafica clienti, gestione credito e interlocutori) nella cartella **out_source_mdg/test**. "
         "I destinatari merci non sono inclusi: devono essere già caricati in SAP e presenti in SAP_EXPORT_BUT000. "
         "Per i clienti estesi a fornitori (**DM06-05a**) è incluso il fornitore se nell'elenco c'è il suo "
         "cliente di riferimento oppure il suo codice fornitore (LIFNR). "
-        "Gli ZIP completi in out_source_mdg non cambiano. Elenco vuoto = nessuna estrazione ristretta."
+        "Gli ZIP completi in out_source_mdg non cambiano. Elenco vuoto = nessuna estrazione ristretta.",
+        "Estrazione ristretta **attiva**",
     )
-    render_code_list("export-filter", "Estrazione ristretta **attiva**")
-
-    st.divider()
-
-    # ── 1b. Clienti con dati aggiuntivi già caricati in SAP ─────────────
-    st.subheader("✅ Clienti con interlocutori e credito già caricati in SAP")
-    st.caption(
+    code_list_section(
+        "export-exclude-add", "Clienti con interlocutori e credito già caricati in SAP", ":material/task_alt:",
         "I clienti dell'elenco sono esclusi dagli ZIP **DM06-03b** (interlocutori) e **DM06-07a** "
         "(gestione credito), che si caricano in SAP con un job di aggiornamento. "
         "Negli ZIP di creazione (vettori, DM, clienti) i Business Partner già presenti in "
-        "SAP_EXPORT_BUT000 sono invece esclusi in automatico."
+        "SAP_EXPORT_BUT000 sono invece esclusi in automatico.",
+        "Esclusione **attiva**",
     )
-    render_code_list("export-exclude-add", "Esclusione **attiva**")
+    code_list_section(
+        "export-exclude-fornitori-cli", "Fornitori da clienti (DM06-05a) già caricati in SAP", ":material/task_alt:",
+        "I fornitori dell'elenco sono esclusi da tutti i file dello ZIP **DM06-05a** e riportati nel "
+        "riepilogo DM06-05a-ZBP-FornitoriCli_gia_in_SAP.csv. Indicare il codice cliente di riferimento "
+        "(REF_KUNNR) oppure il codice fornitore (LIFNR). Serve perché il BP è già in SAP_EXPORT_BUT000 "
+        "come cliente: l'esclusione automatica non riconosce l'estensione a fornitore già caricata.",
+        "Esclusione **attiva**",
+    )
 
     st.divider()
 

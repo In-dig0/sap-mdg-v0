@@ -36,6 +36,10 @@ description: >
   Estrazione ristretta (test) del flusso 05a: se stg.export_filter contiene codici, viene
   generato anche lo ZIP dei soli fornitori il cui cliente di riferimento (REF_KUNNR) o il cui
   LIFNR è nell'elenco, in out_source_mdg/test.
+  Fornitori 05a già caricati in SAP: il BP è in BUT000 come cliente, quindi l'esclusione
+  automatica non li riconosce; sono esclusi da tutte le tabelle se il cliente di riferimento
+  (REF_KUNNR) o il LIFNR è in stg.export_exclude_fornitori_cli (elenco manuale), con
+  riepilogo in <nome ZIP>_gia_in_SAP.csv.
   I fornitori/vettori già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT1) sono esclusi
   da tutte le tabelle: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP
   non è generato.
@@ -344,6 +348,16 @@ def get_customer_ref_map(conn, source_name: str) -> dict:
         return {lifnr: ref for lifnr, ref in cur.fetchall() if lifnr}
 
 
+def get_exclude_fornitori_cli(conn) -> set:
+    """Flusso 05a: codici (REF_KUNNR o LIFNR) già caricati in SAP (stg.export_exclude_fornitori_cli)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('stg.export_exclude_fornitori_cli') IS NOT NULL")
+        if not cur.fetchone()[0]:
+            return set()
+        cur.execute("SELECT TRIM(kunnr) FROM stg.export_exclude_fornitori_cli WHERE COALESCE(TRIM(kunnr), '') <> ''")
+        return {r[0] for r in cur.fetchall()}
+
+
 def customer_ref_row_fn(customer_codes: dict):
     """Flusso 05a: REF_KUNNR e KUNNR (vecchio codice cliente) -> codice SAP del cliente."""
     def fn(cols: list, row: list):
@@ -489,6 +503,15 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
         if unmapped:
             log.warning("  *** %d fornitori con cliente di riferimento non presente in BUT000 (BU_SORT2) "
                         "esclusi da '%s': %s", len(unmapped), source_name, sorted(unmapped))
+        # Fornitori già caricati in SAP (elenco manuale): esclusi come i BP già in BUT000
+        done_codes = get_exclude_fornitori_cli(conn)
+        done = {lifnr: customer_codes.get(ref, "") for lifnr, ref in ref_map.items()
+                if ref in done_codes or lifnr.strip() in done_codes}
+        if done:
+            log.info("  %d fornitori già caricati in SAP (stg.export_exclude_fornitori_cli) esclusi da '%s': %s",
+                     len(done), source_name, sorted(done))
+            sap_map  = {**sap_map, **done}
+            sap_keys = set(sap_map)
         row_fns[CLI_MASTER] = customer_ref_row_fn(customer_codes)
         customers = get_customer_data(conn)
         row_fns[CLI_CONTACT] = customer_contact_row_fn(

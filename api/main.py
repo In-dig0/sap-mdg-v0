@@ -1038,7 +1038,9 @@ def _raw_tables_with_source(cur) -> list[str]:
 #   stg.export_filter      — estrazione ristretta (test): solo questi clienti in out_source_mdg/test
 #   stg.export_exclude_add — clienti con dati aggiuntivi (interlocutori, credito) già caricati in SAP:
 #                            esclusi dagli ZIP DM06-03b e DM06-07a
-CODE_LIST_TABLES = {"export_filter", "export_exclude_add"}
+#   stg.export_exclude_fornitori_cli — clienti estesi a fornitori (DM06-05a) già caricati in SAP
+#                            (REF_KUNNR o LIFNR): esclusi dallo ZIP DM06-05a
+CODE_LIST_TABLES = {"export_filter", "export_exclude_add", "export_exclude_fornitori_cli"}
 
 
 class ExportFilterRequest(BaseModel):
@@ -1109,6 +1111,18 @@ def get_export_exclude_add():
 def set_export_exclude_add(req: ExportFilterRequest):
     """Sostituisce l'elenco dei clienti con dati aggiuntivi già caricati (lista vuota = nessuna esclusione)."""
     return _set_code_list("export_exclude_add", req.kunnr)
+
+
+@app.get("/db/export-exclude-fornitori-cli", tags=["Database"])
+def get_export_exclude_fornitori_cli():
+    """Clienti estesi a fornitori (DM06-05a) già caricati in SAP (esclusi dallo ZIP 05a)."""
+    return _get_code_list("export_exclude_fornitori_cli")
+
+
+@app.put("/db/export-exclude-fornitori-cli", tags=["Database"])
+def set_export_exclude_fornitori_cli(req: ExportFilterRequest):
+    """Sostituisce l'elenco dei fornitori 05a già caricati (lista vuota = nessuna esclusione)."""
+    return _set_code_list("export_exclude_fornitori_cli", req.kunnr)
 
 
 @app.get("/db/raw/sources", tags=["Database"])

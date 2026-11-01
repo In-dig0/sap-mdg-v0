@@ -112,6 +112,17 @@ CREATE TABLE IF NOT EXISTS stg.export_exclude_add (
 );
 
 -- =============================================================================
+-- stg.export_exclude_fornitori_cli — clienti estesi a fornitori (flusso DM06-05a) già
+-- caricati in SAP: codice cliente (REF_KUNNR) o codice fornitore (LIFNR), esclusi dallo
+-- ZIP DM06-05a. Gestita dalla pagina Gestione Pipeline (API /db/export-exclude-fornitori-cli).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS stg.export_exclude_fornitori_cli (
+    kunnr           VARCHAR(20)  NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_export_exclude_fornitori_cli PRIMARY KEY (kunnr)
+);
+
+-- =============================================================================
 -- stg."S_CUST_TAXNUMBERS#ZBP-CodiciFisc_STG" — eccezioni ai codici fiscali dei
 -- clienti, inserite a mano (pagina Modifica Tabelle). Le colonne del file ERP
 -- identificano la riga (KUNNR + TAXTYPE) e ne riportano i valori originali;
