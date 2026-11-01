@@ -19,6 +19,8 @@ description: >
   fornitore creato in SAP (BU_SORT1 di ref.SAP_EXPORT_BUT000; se la tabella non è caricata,
   i vettori di raw S_SUPPL_GEN#ZBP_DatiGenerali) sono escluse e scritte negli scarti:
   in SAP darebbero errore (fornitore non esistente in LFA1).
+  In S_CUST_BANK_DATA#ZBP-AppoggioBanca EBPP_ACCNAME = "CC_CLIENTE", per riconoscere in SAP
+  le coordinate del BP arrivate dal flusso clienti (CC_FORNITORE nei flussi fornitori).
   In S_CUST_TAXNUMBERS#ZBP-CodiciFisc le righe senza identificativo fiscale (TAXNUM vuoto)
   sono escluse e scritte negli scarti (in SAP danno errore).
   Estrazione ristretta (test): se stg.export_filter contiene codici cliente, viene
@@ -70,6 +72,11 @@ PRD_TABLES = [
     ("prd", "S_CUST_TAXNUMBERS#ZBP-CodiciFisc"),
     ("prd", "S_CUST_BANK_DATA#ZBP-AppoggioBanca"),
 ]
+
+# Coordinate bancarie dei clienti: EBPP_ACCNAME fisso, per riconoscere in SAP le coordinate
+# del BP arrivate dal flusso clienti (nei flussi fornitori: CC_FORNITORE)
+BANK_TABLE    = "S_CUST_BANK_DATA#ZBP-AppoggioBanca"
+BANK_ACCNAME  = {"EBPP_ACCNAME": "CC_CLIENTE"}
 
 # Nome del CSV nello ZIP per le tabelle prd il cui nome differisce dall'originale:
 # l'output deve avere gli stessi nomi del file in ingresso (usati dal caricamento in SAP)
@@ -308,6 +315,15 @@ def fetch_table_csv(conn, schema: str, table: str,
     writer.writerow(cols)
     writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
     return buf.getvalue().encode("utf-8")
+
+
+def fixed_values_row_fn(values: dict):
+    """Imposta valori fissi nelle colonne indicate (colonna -> valore)."""
+    def fn(cols: list, row: list):
+        for col, value in values.items():
+            if col in cols:
+                row[cols.index(col)] = value
+    return fn
 
 
 def get_but000_map(conn, sort_cols: tuple = ("BU_SORT2", "BU_SORT1")) -> dict[str, str]:
@@ -635,6 +651,7 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
                 csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols, key_filter=kf,
                                             excluded_keys=sap_keys or None, fk_col="KUNNR(k/*)",
                                             drop_if_all_empty=TAXNUM_COLS if prd_table == TAXNUM_TABLE else None,
+                                            row_fn=fixed_values_row_fn(BANK_ACCNAME) if prd_table == BANK_TABLE else None,
                                             write_discards=not key_filter)
                 n_rows = csv_bytes.count(b"\r\n") - 1
                 if n_rows <= 0:

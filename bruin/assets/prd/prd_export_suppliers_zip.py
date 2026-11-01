@@ -13,6 +13,8 @@ description: >
       sul BP, caricati con il flusso clienti (CK419 segnala quelli diversi dal cliente);
       le coordinate bancarie da prd."S_SUPP_BANK#ZBP_AddAppoggioBanca" (stesse regole
       CK047/CK055/CK214 delle banche dei fornitori ZBP).
+  Coordinate bancarie di fornitori e vettori (01a, 06a, 05a): EBPP_ACCNAME = "CC_FORNITORE",
+  per riconoscere in SAP le coordinate del BP arrivate dai flussi fornitori.
       REF_KUNNR e KUNNR sono trascodificati con il codice SAP del cliente (PARTNER di
       ref.SAP_EXPORT_BUT000, tramite BU_SORT2); LIFNR resta il codice del vecchio ERP.
       I fornitori il cui cliente non è in BUT000 sono esclusi da tutte le tabelle e
@@ -71,7 +73,7 @@ import psycopg2
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import (
     get_but000_map, already_in_sap_rows, write_already_in_sap, write_output_zip,
-    write_discarded_rows, get_export_filter, write_test_zip,
+    write_discarded_rows, get_export_filter, write_test_zip, fixed_values_row_fn,
 )
 from prd_export_clienti_add_zip import get_customer_data, contact_row_fn as customer_contact_row_fn
 
@@ -140,13 +142,19 @@ DM_RAW_TABLES = [
 CLI_MASTER     = "S_SUPPL_GEN#AddDatiGenerali"
 CLI_CONTACT    = "S_SUPPL_CONT#ZBP-AddInterlocutore"
 CLI_REF_COLS   = ["REF_KUNNR", "KUNNR"]          # codice cliente, trascodificato in SAP
+CLI_BANK       = "S_SUPP_BANK#ZBP_AddAppoggioBanca"
+
+# Coordinate bancarie di fornitori e vettori (01a, 06a, 05a): EBPP_ACCNAME fisso, per
+# riconoscere in SAP le coordinate del BP arrivate dai flussi fornitori
+BANK_ACCNAME  = {"EBPP_ACCNAME": "CC_FORNITORE"}
+SUPPLIER_BANK = "S_SUPP_BANK#ZBP_AppoggioBanca"
 CLI_RAW_TABLES = [
     CLI_MASTER,
     "S_ROLES#ZBP_AddRuoliFornitori",
     "S_SUPPL_COMPANY#ZBP_AddDatiSocieta",
     "S_SUPPL_PURCHASING#ZBP_AddOrganAcq",
     "S_SUPPL_PARTNER#ZBP_AddPartner",
-    "S_SUPP_BANK#ZBP_AddAppoggioBanca",
+    CLI_BANK,
     "S_SUPPL_INDUSTRY#ZBP_AddSettoriIndust",
     CLI_CONTACT,
 ]   # S_SUPPL_TAXNUMBERS#ZBP_AddCodiciFisc non esportata: codici fiscali già caricati con il cliente
@@ -174,7 +182,7 @@ ROW_RULES = {
     "S_SUPPL_PARTNER#ZBP_Partner":    ("CK420", "ref.SAP_EXPORT_BUT000", LIFN2_IN_SAP),
     "S_SUPPL_PARTNER#ZBP_AddPartner": ("CK420", "ref.SAP_EXPORT_BUT000", LIFN2_IN_SAP),
     # CK418 (flusso 05a): IBAN uguale a quello del cliente di riferimento, già in SAP
-    "S_SUPP_BANK#ZBP_AddAppoggioBanca": (
+    CLI_BANK: (
         "CK418", None,
         'NOT stg.fn_iban_uguale_cliente("LIFNR(k/*)", "IBAN(k)")',
     ),
@@ -202,7 +210,7 @@ FLOWS = [
     {"prd_tables": [], "raw_tables": CLI_RAW_TABLES,
      "master": CLI_MASTER, "orphan_check": "CK402",
      "sap_sort_cols": ("BU_SORT1",), "customer_ref": True,
-     "from_prd": {"S_SUPP_BANK#ZBP_AddAppoggioBanca"}},   # filtri CK047/CK055/CK214
+     "from_prd": {CLI_BANK}},   # filtri CK047/CK055/CK214
 ]
 
 
@@ -522,10 +530,13 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             sap_map  = {**sap_map, **done}
             sap_keys = set(sap_map)
         row_fns[CLI_MASTER] = customer_ref_row_fn(customer_codes)
+        row_fns[CLI_BANK]   = fixed_values_row_fn(BANK_ACCNAME)
         customers = get_customer_data(conn)
         row_fns[CLI_CONTACT] = customer_contact_row_fn(
             {lifnr: customers[ref] for lifnr, ref in ref_map.items() if ref in customers},
             key_col="LIFNR(k/*)")
+
+    row_fns[SUPPLIER_BANK] = fixed_values_row_fn(BANK_ACCNAME)
 
     if CONTACT_TABLE in flow["raw_tables"]:
         row_fns[CONTACT_TABLE] = contact_row_fn(get_supplier_data(conn))
@@ -539,7 +550,7 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
                 excluded += already_in_sap_rows(conn, prd_schema, prd_table, source_name, "LIFNR(k/*)", sap_map)
                 csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols,
                                             excluded_keys=sap_keys or None, fk_col="LIFNR(k/*)",
-                                            only_keys=key_filter)
+                                            row_fn=row_fns.get(prd_table), only_keys=key_filter)
                 n_rows = csv_bytes.count(b"\r\n") - 1
                 if n_rows <= 0:
                     log.info(f"  {prd_schema}.{prd_table}: 0 righe per '{source_name}' — skip")
