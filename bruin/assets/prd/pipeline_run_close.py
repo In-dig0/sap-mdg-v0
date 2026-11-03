@@ -42,6 +42,7 @@ depends:
   - stg.ck522_po_materiale_stato
   - stg.ck523_po_materiale_descr_lingua
   - stg.ck524_po_fornitore_anagrafica
+  - stg.ck525_materiale_in_sap_marc
   - stg.ck401_zbp_vettori_orphans
   - stg.ck402_zbp_fornitori_orphans
   - stg.ck403_zdm_clienti_orphans

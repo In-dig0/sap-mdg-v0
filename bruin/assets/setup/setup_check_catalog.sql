@@ -515,6 +515,9 @@ VALUES
     ('CK524','Ordini di acquisto (S_EKKO): fornitore VERKF presente nell''anagrafica fornitori (ZBP o clienti estesi a fornitori 05a)',
      'PO','S_EKKO','VERKF',
      'S_SUPPL_GEN#ZBP_DatiGenerali / S_SUPPL_GEN#AddDatiGenerali (LIFNR)','Error','CROSS_SOURCE',TRUE,NOW()),
+    ('CK525','Flussi materiali (codici doganali, distinte base, cicli, info record, ordini, info cliente): materiale non ancora migrato in SAP (S_MARITC: riga non esportata)',
+     'MAT','S_MARITC / S_BOM_HEADER / S_BOM_ITEM / S_MAPL / S_EINA / S_EKPO / S_CUSTMAT','MATNR (+ WERKS)',
+     'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',

@@ -6,7 +6,8 @@ depends:
 description: >
   Legge tutti i file ZIP da /project/datalake/in_source_pprod/,
   estrae i CSV e li carica nello schema raw di PostgreSQL.
-  Nome tabella = nome file CSV senza estensione (virgolette doppie); le banche fornitori
+  Nome tabella = nome file CSV senza estensione e senza sottocartelle dello ZIP
+  (virgolette doppie); le banche fornitori
   sono sempre caricate come S_SUPP_BANK#..., anche se l'ERP usa il nome SAP S_SUPPL_BANK#...
   (TABLE_PREFIX; l'export dei fornitori riscrive il nome SAP nello ZIP).
   Nomi colonne = intestazioni originali invariate (virgolette doppie).
@@ -62,8 +63,11 @@ TABLE_PREFIX = {"S_SUPPL_BANK#": "S_SUPP_BANK#"}
 # ---------------------------------------------------------------------------
 
 def table_name_for(csv_filename: str) -> str:
-    """Nome della tabella raw per un CSV: nome file senza estensione (prefissi in TABLE_PREFIX)."""
-    name = os.path.splitext(csv_filename)[0]
+    """
+    Nome della tabella raw per un CSV: nome file senza estensione e senza le eventuali
+    sottocartelle dello ZIP (es. DM03A_MATERIALI/S_MARA.csv -> S_MARA), prefissi in TABLE_PREFIX.
+    """
+    name = os.path.splitext(os.path.basename(csv_filename))[0]
     for prefix, table_prefix in TABLE_PREFIX.items():
         if name.startswith(prefix):
             return table_prefix + name[len(prefix):]

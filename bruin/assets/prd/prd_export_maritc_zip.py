@@ -8,7 +8,8 @@ description: >
   S_MARITC_discarded.csv e segnalati in modo evidente nel log:
     - CK034: codice doganale COMCO vuoto o assente in SAP_CommodityCodesEU01;
     - CK506: coppia MATNR(k/*)+PLANT(k/*) assente in S_MARC;
-    - CK511: MATNR(k/*) assente in S_MARA.
+    - CK511: MATNR(k/*) assente in S_MARA;
+    - CK525: materiale non ancora migrato in SAP nella divisione (SAP_EXPORT_MARC).
   Gli esiti sono letti dall'ultimo run di ciascun check in stg.check_results.
   Nel CSV di output il codice materiale MATNR(k/*) è senza spazi iniziali e finali.
   Il CSV usa separatore ";" e non include colonne audit.
@@ -17,6 +18,7 @@ depends:
   - stg.ck034_maritc_comco
   - stg.ck506_maritc_in_marc
   - stg.ck511_maritc_mara
+  - stg.ck525_materiale_in_sap_marc
 @bruin """
 
 import os
@@ -52,6 +54,8 @@ EXCLUDE_CHECKS = {
     "CK506": ('"MATNR(k/*)" || \'|\' || "PLANT(k/*)"',
               "coppia MATNR+PLANT assente in S_MARC (PRODUCT(k/*)+WERKS(k/*))"),
     "CK511": ('"MATNR(k/*)"', "MATNR assente in S_MARA (PRODUCT(k/*))"),
+    "CK525": ('"MATNR(k/*)" || \'|\' || "PLANT(k/*)"',
+              "materiale non ancora migrato in SAP nella divisione (SAP_EXPORT_MARC)"),
 }
 MATNR_COL  = "MATNR(k/*)"        # scritto senza spazi iniziali e finali
 
@@ -163,7 +167,8 @@ def get_columns(conn) -> list[str]:
 def get_excluded_keys(conn) -> dict[str, set]:
     """
     Chiavi in errore (status diverso da Ok) dell'ultimo run di ciascun check attivo di
-    EXCLUDE_CHECKS: {check_id: {object_key}}. I check disattivati sono ignorati.
+    EXCLUDE_CHECKS sulle righe di S_MARITC (CK525 controlla anche altre tabelle):
+    {check_id: {object_key}}. I check disattivati sono ignorati.
     """
     excluded = {}
     with conn.cursor() as cur:
@@ -178,9 +183,10 @@ def get_excluded_keys(conn) -> dict[str, set]:
                 SELECT DISTINCT object_key
                 FROM stg.check_results
                 WHERE check_id = %s
+                  AND source_table = %s
                   AND status  != 'Ok'
                   AND run_id  = (SELECT MAX(run_id) FROM stg.check_results WHERE check_id = %s)
-            """, (check_id, check_id))
+            """, (check_id, RAW_TABLE, check_id))
             keys = {r[0] for r in cur.fetchall()}
             if keys:
                 excluded[check_id] = keys
