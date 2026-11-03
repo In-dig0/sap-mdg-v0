@@ -4,11 +4,18 @@ type: python
 description: >
   Genera l'archivio ZIP di output per i codici doganali (S_MARITC).
   La tabella viene letta dallo schema raw.
-  I record con coppia MATNR(k/*)+PLANT(k/*) orfana (CK506: coppia assente
-  in S_MARC) vengono esclusi dall'output e segnalati in modo evidente nel log.
+  I record che non superano i controlli attivi vengono esclusi dall'output, scritti in
+  S_MARITC_discarded.csv e segnalati in modo evidente nel log:
+    - CK034: codice doganale COMCO vuoto o assente in SAP_CommodityCodesEU01;
+    - CK506: coppia MATNR(k/*)+PLANT(k/*) assente in S_MARC;
+    - CK511: MATNR(k/*) assente in S_MARA.
+  Gli esiti sono letti dall'ultimo run di ciascun check in stg.check_results.
+  Nel CSV di output il codice materiale MATNR(k/*) è senza spazi iniziali e finali.
   Il CSV usa separatore ";" e non include colonne audit.
   Output: /project/datalake/out_source_mdg/<_source>
 depends:
+  - stg.ck034_maritc_comco
+  - stg.ck506_maritc_in_marc
   - stg.ck511_maritc_mara
 @bruin """
 
@@ -37,8 +44,16 @@ DB_CONFIG = {
 
 OUTPUT_DIR = "/project/datalake/out_source_mdg"
 RAW_TABLE  = "S_MARITC"
-CHECK_ID   = "CK511"
-FK_COL     = "MATNR(k/*)"        # colonna usata come chiave orfani in check_results
+# Controlli le cui righe in errore sono escluse dall'output:
+# check_id -> (espressione SQL uguale all'object_key del check, descrizione del motivo)
+EXCLUDE_CHECKS = {
+    "CK034": ('"MATNR(k/*)" || \'|\' || "PLANT(k/*)"',
+              "codice doganale COMCO vuoto o assente in SAP_CommodityCodesEU01"),
+    "CK506": ('"MATNR(k/*)" || \'|\' || "PLANT(k/*)"',
+              "coppia MATNR+PLANT assente in S_MARC (PRODUCT(k/*)+WERKS(k/*))"),
+    "CK511": ('"MATNR(k/*)"', "MATNR assente in S_MARA (PRODUCT(k/*))"),
+}
+MATNR_COL  = "MATNR(k/*)"        # scritto senza spazi iniziali e finali
 
 # Colonne audit da escludere dai CSV di output
 AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
@@ -52,48 +67,62 @@ def q(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def write_discarded_csv(conn, table: str, source_name: str,
-                        cols: list, orphan_keys: set, fk_col: str):
+def sanitize(val):
+    if val is None:
+        return ""
+    if isinstance(val, float) and math.isnan(val):
+        return ""
+    if isinstance(val, str) and val.strip() == "NaN":
+        return ""
+    return val
+
+
+def rows_to_csv(cols: list[str], rows: list, strip_cols: set = frozenset()) -> bytes:
+    """CSV con separatore ";"; le colonne in strip_cols sono scritte senza spazi iniziali e finali."""
+    idx = [i for i, c in enumerate(cols) if c in strip_cols]
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
+    writer.writerow(cols)
+    for row in rows:
+        row = [sanitize(v) for v in row]
+        for i in idx:
+            if isinstance(row[i], str):
+                row[i] = row[i].strip()
+        writer.writerow(row)
+    return buf.getvalue().encode("utf-8")
+
+
+def exclusion_condition(excluded: dict[str, set]) -> tuple[str, list]:
+    """Condizione SQL delle righe in errore in almeno un check di EXCLUDE_CHECKS, con i parametri."""
+    parts, params = [], []
+    for check_id, keys in excluded.items():
+        expr = EXCLUDE_CHECKS[check_id][0]
+        parts.append(f'{expr} IN ({",".join(["%s"] * len(keys))})')
+        params += sorted(keys)
+    return " OR ".join(parts), params
+
+
+def write_discarded_csv(conn, source_name: str, cols: list, excluded: dict[str, set]):
     """
-    Scrive i record scartati (orfani) in un file CSV nella cartella OUTPUT_DIR.
-    Nome file: <table>_discarded.csv  (es. S_ROLES#ZBP_RuoliFornitori_discarded.csv)
-    Se non ci sono orfani o la colonna chiave non è presente, non scrive nulla.
+    Scrive i record esclusi in OUTPUT_DIR/S_MARITC_discarded.csv (valori come in raw).
+    Se non ci sono esclusioni non scrive nulla.
     """
-    if not orphan_keys or fk_col not in cols:
+    if not excluded:
         return
-    fqt      = "raw." + q(table)
-    col_list = ", ".join(q(c) for c in cols)
-    placeholders = ",".join(["%s"] * len(orphan_keys))
+    cond, params = exclusion_condition(excluded)
     with conn.cursor() as cur:
         cur.execute(
-            f'SELECT {col_list} FROM {fqt}'
-            f' WHERE "_source" = %s'
-            f' AND {q(fk_col)} IN ({placeholders})'
-            f' ORDER BY 1',
-            (source_name, *orphan_keys)
+            f'SELECT {", ".join(q(c) for c in cols)} FROM raw.{q(RAW_TABLE)}'
+            f' WHERE "_source" = %s AND ({cond}) ORDER BY 1, 2',
+            [source_name, *params],
         )
         rows = cur.fetchall()
     if not rows:
         return
-    import io as _io, csv as _csv, math as _math
-    def sanitize(val):
-        if val is None: return ""
-        if isinstance(val, float) and _math.isnan(val): return ""
-        if isinstance(val, str) and val.strip() == "NaN": return ""
-        return val
-    buf = _io.StringIO()
-    writer = _csv.writer(buf, delimiter=";", quoting=_csv.QUOTE_MINIMAL,
-                         lineterminator="\r\n")
-    writer.writerow(cols)
-    writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
-    safe_table = table.replace("#", "_").replace("/", "_")
-    out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(buf.getvalue())
-    log.warning(
-        "  [DISCARDED] %s: %d record orfani scritti in %s",
-        table, len(rows), out_path
-    )
+    out_path = os.path.join(OUTPUT_DIR, f"{RAW_TABLE}_discarded.csv")
+    with open(out_path, "wb") as f:
+        f.write(rows_to_csv(cols, rows))
+    log.warning("  [DISCARDED] %s: %d record esclusi scritti in %s", RAW_TABLE, len(rows), out_path)
 
 
 def remove_discarded_csv(tables: list[str]):
@@ -131,92 +160,57 @@ def get_columns(conn) -> list[str]:
         return [r[0] for r in cur.fetchall() if r[0] not in AUDIT_COLS]
 
 
-def get_orphan_keys(conn) -> set:
+def get_excluded_keys(conn) -> dict[str, set]:
     """
-    Recupera le chiavi orfane dall'ultimo run di CK506 in stg.check_results.
-    CK506 segnala coppie MATNR+PLANT assenti in S_MARC — come object_key
-    viene usato MATNR(k/*), quindi filtriamo su quello.
-    Ritorna set vuoto se il check non è attivo o non ha risultati.
+    Chiavi in errore (status diverso da Ok) dell'ultimo run di ciascun check attivo di
+    EXCLUDE_CHECKS: {check_id: {object_key}}. I check disattivati sono ignorati.
     """
+    excluded = {}
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT COALESCE(is_active, FALSE)
-            FROM stg.check_catalog WHERE check_id = %s
-        """, (CHECK_ID,))
-        row = cur.fetchone()
-        if not row or not row[0]:
-            return set()
-        cur.execute("""
-            SELECT DISTINCT object_key
-            FROM stg.check_results
-            WHERE check_id = %s
-              AND status  != 'Ok'
-              AND run_id  = (
-                  SELECT MAX(run_id) FROM stg.check_results
-                  WHERE check_id = %s
-              )
-        """, (CHECK_ID, CHECK_ID))
-        return {r[0] for r in cur.fetchall()}
+        for check_id in EXCLUDE_CHECKS:
+            cur.execute("SELECT COALESCE(is_active, FALSE) FROM stg.check_catalog WHERE check_id = %s",
+                        (check_id,))
+            row = cur.fetchone()
+            if not row or not row[0]:
+                log.info("  [%s] disattivato nel catalogo — nessuna esclusione", check_id)
+                continue
+            cur.execute("""
+                SELECT DISTINCT object_key
+                FROM stg.check_results
+                WHERE check_id = %s
+                  AND status  != 'Ok'
+                  AND run_id  = (SELECT MAX(run_id) FROM stg.check_results WHERE check_id = %s)
+            """, (check_id, check_id))
+            keys = {r[0] for r in cur.fetchall()}
+            if keys:
+                excluded[check_id] = keys
+    return excluded
 
 
-def log_orphans(orphan_keys: set, source_name: str):
-    """Logga in modo evidente le chiavi orfane rimosse."""
+def log_excluded(excluded: dict[str, set], source_name: str):
+    """Logga in modo evidente le chiavi escluse, per check."""
     sep = "=" * 72
     log.warning(sep)
-    log.warning(
-        "  *** [%s] %d record ESCLUSI dall'output per '%s'",
-        CHECK_ID, len(orphan_keys), source_name
-    )
-    log.warning(
-        "  Motivo: %s — MATNR assente in S_MARA (PRODUCT(k/*))", CHECK_ID
-    )
-    log.warning("  %-6s %-40s", "#", FK_COL)
-    log.warning("  %s %s", "-" * 6, "-" * 40)
-    for i, key in enumerate(sorted(orphan_keys), 1):
-        log.warning("  %-6d %s", i, key)
-    log.warning("  Totale: %d record rimossi dall'archivio ZIP.", len(orphan_keys))
+    log.warning("  *** Record ESCLUSI dall'output per '%s'", source_name)
+    for check_id, keys in excluded.items():
+        log.warning("  [%s] %d chiavi — %s", check_id, len(keys), EXCLUDE_CHECKS[check_id][1])
+        for i, key in enumerate(sorted(keys), 1):
+            log.warning("    %-6d %s", i, key)
     log.warning(sep)
 
 
-def fetch_csv(conn, source_name: str, cols: list[str],
-              orphan_keys: set) -> bytes:
-    """
-    Legge i record filtrati per _source, escludendo in SQL le chiavi orfane.
-    """
-    fqt      = f'raw.{q(RAW_TABLE)}'
-    col_list = ", ".join(q(c) for c in cols)
-
+def fetch_csv(conn, source_name: str, cols: list[str], excluded: dict[str, set]) -> bytes:
+    """Legge i record filtrati per _source, escludendo in SQL le chiavi in errore."""
+    sql    = f'SELECT {", ".join(q(c) for c in cols)} FROM raw.{q(RAW_TABLE)} WHERE "_source" = %s'
+    params = [source_name]
+    if excluded:
+        cond, cond_params = exclusion_condition(excluded)
+        sql    += f" AND NOT ({cond})"
+        params += cond_params
     with conn.cursor() as cur:
-        if orphan_keys:
-            placeholders = ",".join(["%s"] * len(orphan_keys))
-            cur.execute(
-                f'SELECT {col_list} FROM {fqt}'
-                f' WHERE "_source" = %s'
-                f' AND {q(FK_COL)} NOT IN ({placeholders})'
-                f' ORDER BY 1',
-                (source_name, *orphan_keys)
-            )
-        else:
-            cur.execute(
-                f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s ORDER BY 1',
-                (source_name,)
-            )
+        cur.execute(sql + " ORDER BY 1, 2", params)
         rows = cur.fetchall()
-
-    def sanitize(val):
-        if val is None:
-            return ""
-        if isinstance(val, float) and math.isnan(val):
-            return ""
-        if isinstance(val, str) and val.strip() == "NaN":
-            return ""
-        return val
-
-    buf = io.StringIO()
-    writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
-    writer.writerow(cols)
-    writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
-    return buf.getvalue().encode("utf-8")
+    return rows_to_csv(cols, rows, strip_cols={MATNR_COL})
 
 
 def main():
@@ -235,27 +229,21 @@ def main():
             log.warning("Nessuna colonna trovata per raw.%s — skip.", RAW_TABLE)
             return
 
-        # Carica orfani una volta sola (sono globali, non dipendono dalla sorgente)
-        orphan_keys = get_orphan_keys(conn)
-        if orphan_keys:
-            log.warning(
-                "  [%s] %d chiavi orfane trovate — verranno escluse da tutti i ZIP.",
-                CHECK_ID, len(orphan_keys)
-            )
-        else:
-            log.info("  [%s] Nessuna chiave orfana — output completo.", CHECK_ID)
+        # Esclusioni caricate una volta sola (globali, non dipendono dalla sorgente)
+        excluded = get_excluded_keys(conn)
+        if not excluded:
+            log.info("  Nessun record da escludere — output completo.")
 
         log.info("Sorgenti trovate: %s", sources)
 
         for source_name in sources:
             log.info("=== Generazione ZIP: %s ===", source_name)
 
-            if orphan_keys:
-                log_orphans(orphan_keys, source_name)
-                write_discarded_csv(conn, RAW_TABLE, source_name,
-                                   cols, orphan_keys, FK_COL)
+            if excluded:
+                log_excluded(excluded, source_name)
+                write_discarded_csv(conn, source_name, cols, excluded)
 
-            csv_bytes = fetch_csv(conn, source_name, cols, orphan_keys)
+            csv_bytes = fetch_csv(conn, source_name, cols, excluded)
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
                 log.info("  raw.%s: 0 righe per '%s' — skip", RAW_TABLE, source_name)
