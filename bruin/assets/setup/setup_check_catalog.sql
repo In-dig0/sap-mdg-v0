@@ -418,6 +418,9 @@ VALUES
     ('CK420','Fornitori (06a e 05a): fornitore partner LIFN2 diverso da LIFNR non presente in SAP (la riga non è esportata)',
      'BP','S_SUPPL_PARTNER#ZBP_Partner / AddPartner','LIFN2(k)',
      'SAP_EXPORT_BUT000 (BU_SORT1)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK421','Info record: scaglione senza condizione padre in S_COND#INFORCOND con la stessa chiave completa (SAP lo rifiuta)',
+     'PIR','S_SCALES#INFORSCALES','INFNR, EKORG, ESOKZ, WERKS, KOPOS, COND_TYPE, VALID_FROM, VALID_TO',
+     'raw.S_COND#INFORCOND (stessa chiave)','Error','CROSS_TABLE',TRUE,NOW()),
 
     -- CROSS_SOURCE — CK501-CK506
     ('CK501','Materiali: distinta base (BOM) obbligatoria per produzione interna o mista (BESKZ in E, X); esclusi MSTAE 01/08',
@@ -519,7 +522,7 @@ VALUES
      'MAT','S_MARITC / S_BOM_HEADER / S_BOM_ITEM / S_MAPL / S_EINA / S_EKPO / S_CUSTMAT','MATNR (+ WERKS)',
      'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
     ('CK526','Info record: fornitore LIFNR(*) senza codice SAP in BUT000 (l''info record non è esportato)',
-     'MAT','S_EINA#INFORMATFOR','LIFNR(*)',
+     'PIR','S_EINA#INFORMATFOR','LIFNR(*)',
      'SAP_EXPORT_BUT000 (BU_SORT1 / REF_KUNNR e BU_SORT2)','Warning','CROSS_SOURCE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)

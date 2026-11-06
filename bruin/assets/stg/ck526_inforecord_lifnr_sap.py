@@ -45,5 +45,5 @@ if __name__ == "__main__":
         check_id="CK526",
         sql=build_sql,
         required=[("raw", "S_EINA#INFORMATFOR"), ("ref", "SAP_EXPORT_BUT000")],
-        category="MAT",
+        category="PIR",
     )
