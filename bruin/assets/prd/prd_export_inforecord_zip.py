@@ -8,15 +8,22 @@ description: >
     - S_EINE#INFORDATIACQ
     - S_SCALES#INFORSCALES
     - S_COND#INFORCOND
-  Tutte le tabelle vengono scritte integralmente — nessuna esclusione
-  di record orfani (CK407 segnala le anomalie nel report qualita, ma non
-  blocca la scrittura dell'output).
+  Nessuna esclusione di record orfani (CK407 segnala le anomalie nel report
+  qualita, ma non blocca la scrittura dell'output).
+  In S_EINA#INFORMATFOR il fornitore LIFNR(*) (codice del vecchio ERP) è trascodificato con
+  il codice SAP (PARTNER di ref.SAP_EXPORT_BUT000): tramite BU_SORT1 oppure, per i fornitori
+  del flusso 05a (BP creato come cliente), tramite REF_KUNNR e BU_SORT2.
+  Gli info record con fornitore senza codice SAP (CK526) non sono esportati, in nessuna delle
+  quattro tabelle: finiscono in <tabella>_discarded.csv. Se BUT000 non è caricata LIFNR(*)
+  resta invariato e non si esclude nulla.
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source.
   Output: /project/datalake/out_source_mdg/<_source>
 depends:
   - stg.ck407_inforecord_orphans
   - stg.ck512_inforecord_matnr_lifnr
+  - stg.ck526_inforecord_lifnr_sap
+  - ingestion.ingest_xlsx_to_ref
 @bruin """
 
 import os
@@ -25,7 +32,11 @@ import csv
 import zipfile
 import logging
 import math
+import sys
 import psycopg2
+
+sys.path.insert(0, os.path.dirname(__file__))
+from prd_export_clienti_zip import get_but000_map, write_discarded_rows, remove_discarded_csv
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,6 +57,9 @@ OUTPUT_DIR = "/project/datalake/out_source_mdg"
 AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 
 MASTER_TABLE = "S_EINA#INFORMATFOR"
+LIFNR_COL    = "LIFNR(*)"
+INFNR_COL    = "INFNR(k/*)"
+CLI_SUPPLIER_TABLE = "S_SUPPL_GEN#AddDatiGenerali"   # flusso 05a: fornitori estesi da cliente
 
 RAW_TABLES = [
     "S_EINA#INFORMATFOR",
@@ -91,7 +105,49 @@ def table_exists(conn, table):
         return cur.fetchone() is not None
 
 
-def fetch_table_csv(conn, table, source_name, cols):
+def get_lifnr_map(conn):
+    """
+    Vecchio codice fornitore -> codice SAP: BU_SORT1 di BUT000 oppure, per i fornitori 05a
+    che in SAP sono il BP del cliente, REF_KUNNR tramite BU_SORT2.
+    """
+    lifnr_map = get_but000_map(conn, sort_cols=("BU_SORT1",))
+    if not lifnr_map or not table_exists(conn, CLI_SUPPLIER_TABLE):
+        return lifnr_map
+    customer_codes = get_but000_map(conn, sort_cols=("BU_SORT2",))
+    with conn.cursor() as cur:
+        cur.execute(f'SELECT DISTINCT TRIM("LIFNR(k/*)"), TRIM("REF_KUNNR") FROM raw.{q(CLI_SUPPLIER_TABLE)}')
+        for lifnr, kunnr in cur.fetchall():
+            if kunnr in customer_codes:
+                lifnr_map.setdefault(lifnr, customer_codes[kunnr])
+    return lifnr_map
+
+
+def get_excluded_infnr(conn, lifnr_map):
+    """Info record con fornitore senza codice SAP (CK526). Vuoto se BUT000 non è caricata."""
+    if not lifnr_map:
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(f'SELECT {q(INFNR_COL)}, {q(LIFNR_COL)} FROM raw.{q(MASTER_TABLE)}')
+        missing = {infnr: (lifnr or "").strip() for infnr, lifnr in cur.fetchall()
+                   if (lifnr or "").strip() not in lifnr_map}
+    if missing:
+        log.warning("  *** %d info record ESCLUSI, fornitori senza codice SAP in BUT000: %s",
+                    len(missing), ", ".join(sorted(set(missing.values()))))
+    return set(missing)
+
+
+def transcode_lifnr(cols, rows, lifnr_map):
+    """Sostituisce LIFNR(*) con il codice SAP (senza BUT000 il codice resta invariato)."""
+    idx = cols.index(LIFNR_COL)
+    out = []
+    for row in rows:
+        row = list(row)
+        row[idx] = lifnr_map.get((row[idx] or "").strip(), row[idx])
+        out.append(row)
+    return out
+
+
+def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded):
     fqt      = "raw." + q(table)
     col_list = ", ".join(q(c) for c in cols)
     with conn.cursor() as cur:
@@ -100,6 +156,13 @@ def fetch_table_csv(conn, table, source_name, cols):
             (source_name,)
         )
         rows = cur.fetchall()
+    idx = cols.index(INFNR_COL)
+    discarded = [row for row in rows if row[idx] in excluded]
+    if discarded:
+        write_discarded_rows(table, cols, discarded)
+        rows = [row for row in rows if row[idx] not in excluded]
+    if table == MASTER_TABLE:
+        rows = transcode_lifnr(cols, rows, lifnr_map)
 
     def sanitize(val):
         if val is None: return ""
@@ -114,7 +177,7 @@ def fetch_table_csv(conn, table, source_name, cols):
     return buf.getvalue().encode("utf-8")
 
 
-def build_zip(conn, source_name, cols_map):
+def build_zip(conn, source_name, cols_map, lifnr_map, excluded):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for table in RAW_TABLES:
@@ -122,7 +185,7 @@ def build_zip(conn, source_name, cols_map):
             if not cols:
                 log.warning("  SKIP raw.%s — tabella non trovata o senza colonne", table)
                 continue
-            csv_bytes = fetch_table_csv(conn, table, source_name, cols)
+            csv_bytes = fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded)
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
                 log.info("  raw.%s: 0 righe per '%s' — skip", table, source_name)
@@ -135,6 +198,7 @@ def build_zip(conn, source_name, cols_map):
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    remove_discarded_csv(RAW_TABLES)
     conn = get_connection()
     try:
         if not table_exists(conn, MASTER_TABLE):
@@ -154,10 +218,12 @@ def main():
                     log.warning("  raw.%s — nessuna colonna, verra omessa.", table)
             else:
                 log.warning("  raw.%s — tabella non trovata, verra omessa.", table)
+        lifnr_map = get_lifnr_map(conn)
+        excluded  = get_excluded_infnr(conn, lifnr_map)
         log.info("Sorgenti trovate: %s", sources)
         for source_name in sources:
             log.info("=== Generazione ZIP: %s ===", source_name)
-            zip_bytes   = build_zip(conn, source_name, cols_map)
+            zip_bytes   = build_zip(conn, source_name, cols_map, lifnr_map, excluded)
             output_path = os.path.join(OUTPUT_DIR, source_name)
             with open(output_path, "wb") as f:
                 f.write(zip_bytes)

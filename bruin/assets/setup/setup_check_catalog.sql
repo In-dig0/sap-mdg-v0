@@ -518,6 +518,9 @@ VALUES
     ('CK525','Flussi materiali (codici doganali, distinte base, cicli, info record, ordini, info cliente): materiale non ancora migrato in SAP (S_MARITC: riga non esportata)',
      'MAT','S_MARITC / S_BOM_HEADER / S_BOM_ITEM / S_MAPL / S_EINA / S_EKPO / S_CUSTMAT','MATNR (+ WERKS)',
      'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK526','Info record: fornitore LIFNR(*) senza codice SAP in BUT000 (l''info record non è esportato)',
+     'MAT','S_EINA#INFORMATFOR','LIFNR(*)',
+     'SAP_EXPORT_BUT000 (BU_SORT1 / REF_KUNNR e BU_SORT2)','Warning','CROSS_SOURCE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',
