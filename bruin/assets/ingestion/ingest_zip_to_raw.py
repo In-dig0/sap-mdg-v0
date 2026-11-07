@@ -13,15 +13,14 @@ description: >
   Nomi colonne = intestazioni originali invariate (virgolette doppie).
   Colonne con (k) nel suffisso → UNIQUE INDEX sulla tabella.
   Duplicati su chiave: scartati e loggati prima dell'insert.
-  Righe malformate (campi in eccesso): skippate e loggatecon numero riga.
+  Righe malformate (campi in eccesso o mancanti): scartate e loggate con numero riga.
   Codifica: UTF-8; i file non UTF-8 validi sono letti come Windows-1252 (es. 'Ø' nelle
   descrizioni materiali) e loggati. In raw, e quindi negli export, il testo è UTF-8.
   Caratteri non stampabili: rimossi e loggati.
   Codice materiale senza spazi iniziali e finali (TRIM_COLS): materiali DM03A, codici
   doganali S_MARITC, distinte base, info record acquisti. Il numero di valori corretti è loggato.
-  Righe con un numero di campi diverso dall'intestazione (quelle con campi in eccesso sono
-  scartate, quelle con campi mancanti caricate con i valori vuoti in coda) e duplicati sono
-  anche scritti in
+  Righe con un numero di campi diverso dall'intestazione (in eccesso o mancanti) non sono
+  caricate. Righe scartate e duplicati sono anche scritti in
   out_source_mdg/discarded/ingestione_scarti.csv (ZIP;CSV;TABELLA;RIGA;CHIAVE;MOTIVO;CONTENUTO),
   riscritto a ogni run (rimosso se non ci sono scarti).
   Colonne audit: _source TEXT, _loaded_at TIMESTAMPTZ.
@@ -192,37 +191,40 @@ class BadLineCollector:
 
 def scan_bad_lines(clean_bytes: bytes, csv_filename: str) -> list:
     """
-    Pre-scansiona il CSV riga per riga per trovare le righe con
-    un numero di campi diverso dall'header.
-    Restituisce lista di dict con numero riga, campi attesi/trovati e contenuto.
+    Pre-scansiona il CSV per trovare i record con un numero di campi diverso dall'header.
+    I campi sono contati con il modulo csv (separatore ";", virgolette come pandas), così un
+    ";" dentro un valore tra virgolette non è contato come separatore.
+    Restituisce lista di dict con righe del file (prima e ultima), campi attesi/trovati e contenuto.
     """
     bad = []
-    lines = clean_bytes.decode("utf-8").splitlines()
-    if not lines:
+    reader = csv.reader(io.StringIO(clean_bytes.decode("utf-8"), newline=""), delimiter=";")
+    header = next(reader, None)
+    if not header:
         return bad
-
-    # Numero campi attesi dall'header
-    header_fields = len(lines[0].split(";"))
-
-    for i, line in enumerate(lines[1:], start=2):  # riga 1 = header, partiamo da 2
-        if not line.strip():
-            continue
-        n_fields = len(line.split(";"))
-        if n_fields != header_fields:
-            preview = line[:120] + ("..." if len(line) > 120 else "")
+    expected = len(header)
+    start = reader.line_num + 1
+    for row in reader:
+        end = reader.line_num
+        # righe vuote o di soli spazi ignorate (pandas non le carica)
+        if any(f.strip() for f in row) and len(row) != expected:
+            line = ";".join(row)
             bad.append({
-                "line_num":  i,
-                "expected":  header_fields,
-                "found":     n_fields,
-                "preview":   preview,
+                "line_num":  start,
+                "last_line": end,
+                "expected":  expected,
+                "found":     len(row),
+                "preview":   line[:120] + ("..." if len(line) > 120 else ""),
             })
+        start = end + 1
     return bad
 
 
 def read_csv_safe(raw_bytes: bytes, csv_filename: str, zip_name: str = "", table: str = "") -> tuple:
     """
     Legge il CSV intercettando e loggando:
-    - Righe malformate (numero campi diverso dall'header) con numero riga e preview
+    - Righe malformate (numero campi diverso dall'header), con numero riga e preview: non
+      caricate, sia con campi in eccesso sia con campi mancanti (pandas le completerebbe con
+      valori vuoti, spostando di colonna i valori successivi)
     - Byte non UTF-8 e caratteri non stampabili (clean_bytes)
     Restituisce (df, n_bad_lines).
     """
@@ -234,28 +236,24 @@ def read_csv_safe(raw_bytes: bytes, csv_filename: str, zip_name: str = "", table
     if bad_lines:
         for b in bad_lines:
             log.warning(
-                f"    [RIGA SKIPPATA] {csv_filename} "
+                f"    [RIGA SCARTATA] {csv_filename} "
                 f"riga {b['line_num']}: "
                 f"attesi {b['expected']} campi, trovati {b['found']} | "
                 f"contenuto: {b['preview']}"
             )
         log.warning(
-            f"    [RIEPILOGO] {csv_filename}: {len(bad_lines)} righe skippate "
+            f"    [RIEPILOGO] {csv_filename}: {len(bad_lines)} righe scartate "
             f"per formato non valido"
         )
-        # pandas scarta le righe con campi in eccesso, ma carica quelle con campi mancanti
-        # completandole con valori vuoti: i valori successivi risultano spostati di colonna
         REJECTS.extend(
             [zip_name, csv_filename, table, b["line_num"], "",
-             (f"Scartata: attesi {b['expected']} campi, trovati {b['found']}" if b["found"] > b["expected"] else
-              f"Caricata con campi mancanti: attesi {b['expected']}, trovati {b['found']} "
-              f"(i valori possono risultare spostati di colonna)"),
-             b["preview"]]
+             f"Scartata: attesi {b['expected']} campi, trovati {b['found']}", b["preview"]]
             for b in bad_lines
         )
 
-    # Step 3: lettura CSV — sopprimo il ParserWarning di pandas
-    # perché le righe malformate sono già state loggiate da scan_bad_lines
+    # Step 3: lettura CSV senza le righe malformate (righe del file, 0 = intestazione).
+    # Sopprimo il ParserWarning di pandas: le righe sono già state loggiate da scan_bad_lines
+    skip = sorted({n - 1 for b in bad_lines for n in range(b["line_num"], b["last_line"] + 1)})
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", pd.errors.ParserWarning)
         df = pd.read_csv(
@@ -264,6 +262,7 @@ def read_csv_safe(raw_bytes: bytes, csv_filename: str, zip_name: str = "", table
             encoding="utf-8",
             dtype=str,
             keep_default_na=False,
+            skiprows=skip or None,
             on_bad_lines="skip",  # skip silenzioso: il log lo gestiamo noi
         )
 
@@ -451,7 +450,7 @@ def write_rejects():
         writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
         writer.writerow(REJECTS_HEADER)
         writer.writerows(REJECTS)
-    log.warning(f"  [SCARTI INGESTIONE] {len(REJECTS)} righe con anomalie (scartate, duplicate o caricate incomplete): {REJECTS_FILE}")
+    log.warning(f"  [SCARTI INGESTIONE] {len(REJECTS)} righe scartate (formato non valido o duplicati): {REJECTS_FILE}")
 
 
 def main():
