@@ -40,6 +40,7 @@ depends:
   - stg.ck424_fornitori_cli_cliente_sap
   - stg.ck425_customer_add_cliente_sap
   - stg.ck426_customer_add_solo_dm
+  - stg.ck421_inforecord_scales_cond
 @bruin """
 
 import os

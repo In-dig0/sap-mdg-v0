@@ -19,6 +19,8 @@ description: >
   resta invariato e non si esclude nulla per CK526.
   Allo stesso modo, con l'esclusione dall'output di CK528 attiva nel catalogo (default:
   disattivata), non sono esportati gli info record con materiale non ancora migrato in SAP.
+  CK421 (esclusione dall'output attiva nel catalogo): gli scaglioni senza condizione padre con
+  la stessa chiave in S_COND non sono esportati (solo lo scaglione, l'info record resta).
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source.
   Output: /project/datalake/out_source_mdg/<_source>
@@ -27,6 +29,7 @@ depends:
   - stg.ck512_inforecord_matnr_lifnr
   - stg.ck526_inforecord_lifnr_sap
   - stg.ck528_inforecord_materiale_in_sap_marc
+  - stg.ck421_inforecord_scales_cond
   - ingestion.ingest_xlsx_to_ref
 @bruin """
 
@@ -65,6 +68,10 @@ AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 
 MASTER_TABLE = "S_EINA#INFORMATFOR"
 LIFNR_COL    = "LIFNR(*)"
+SCALES_TABLE = "S_SCALES#INFORSCALES"
+# Chiave degli scaglioni nell'object_key di CK421
+SCALES_KEY_COLS = ["INFNR(k/*)", "EKORG(k/*)", "ESOKZ(k/*)", "WERKS(k)", "KOPOS(k/*)",
+                   "COND_TYPE(k/*)", "VALID_FROM(k/*)", "LINE_NO(k/*)"]
 INFNR_COL    = "INFNR(k/*)"
 CLI_SUPPLIER_TABLE = "S_SUPPL_GEN#AddDatiGenerali"   # flusso 05a: fornitori estesi da cliente
 
@@ -159,6 +166,25 @@ def get_excluded_infnr(conn, lifnr_map):
     return excluded
 
 
+def get_excluded_scales(conn) -> dict:
+    """
+    Scaglioni senza condizione padre in S_COND (CK421), se l'esclusione dall'output è attiva nel
+    catalogo: {chiave dello scaglione: messaggio del check}.
+    """
+    with conn.cursor() as cur:
+        if not exclusion_enabled(cur, "CK421"):
+            return {}
+        cur.execute("""
+            SELECT object_key, message FROM stg.check_results
+            WHERE check_id = 'CK421' AND status <> 'Ok'
+              AND run_id = (SELECT MAX(run_id) FROM stg.check_results WHERE check_id = 'CK421')
+        """)
+        scales = dict(cur.fetchall())
+    if scales:
+        log.warning("  *** [CK421] %d scaglioni ESCLUSI, senza condizione padre in S_COND", len(scales))
+    return scales
+
+
 def transcode_lifnr(cols, rows, lifnr_map):
     """Sostituisce LIFNR(*) con il codice SAP (senza BUT000 il codice resta invariato)."""
     idx = cols.index(LIFNR_COL)
@@ -170,7 +196,7 @@ def transcode_lifnr(cols, rows, lifnr_map):
     return out
 
 
-def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded):
+def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, excluded_scales):
     fqt      = "raw." + q(table)
     col_list = ", ".join(q(c) for c in cols)
     with conn.cursor() as cur:
@@ -188,6 +214,12 @@ def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded):
         add_discards(table, cols, discarded, check, reason)
     if groups:
         rows = [row for row in rows if row[idx] not in excluded]
+    if table == SCALES_TABLE and excluded_scales:
+        key_idx = [cols.index(c) for c in SCALES_KEY_COLS]
+        scale_key = lambda row: "|".join(row[i] or "" for i in key_idx)
+        dropped = [row for row in rows if scale_key(row) in excluded_scales]
+        add_discards(table, cols, dropped, "CK421", lambda row: excluded_scales[scale_key(row)])
+        rows = [row for row in rows if scale_key(row) not in excluded_scales]
     if table == MASTER_TABLE:
         rows = transcode_lifnr(cols, rows, lifnr_map)
 
@@ -204,7 +236,7 @@ def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded):
     return buf.getvalue().encode("utf-8")
 
 
-def build_zip(conn, source_name, cols_map, lifnr_map, excluded):
+def build_zip(conn, source_name, cols_map, lifnr_map, excluded, excluded_scales):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for table in RAW_TABLES:
@@ -212,7 +244,7 @@ def build_zip(conn, source_name, cols_map, lifnr_map, excluded):
             if not cols:
                 log.warning("  SKIP raw.%s — tabella non trovata o senza colonne", table)
                 continue
-            csv_bytes = fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded)
+            csv_bytes = fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, excluded_scales)
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
                 log.info("  raw.%s: 0 righe per '%s' — skip", table, source_name)
@@ -247,10 +279,11 @@ def main():
                 log.warning("  raw.%s — tabella non trovata, verra omessa.", table)
         lifnr_map = get_lifnr_map(conn)
         excluded  = get_excluded_infnr(conn, lifnr_map)
+        excluded_scales = get_excluded_scales(conn)
         log.info("Sorgenti trovate: %s", sources)
         for source_name in sources:
             log.info("=== Generazione ZIP: %s ===", source_name)
-            zip_bytes   = build_zip(conn, source_name, cols_map, lifnr_map, excluded)
+            zip_bytes   = build_zip(conn, source_name, cols_map, lifnr_map, excluded, excluded_scales)
             output_path = output_zip_path(OUTPUT_DIR, source_name)
             with open(output_path, "wb") as f:
                 f.write(zip_bytes)

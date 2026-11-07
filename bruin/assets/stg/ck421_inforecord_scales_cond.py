@@ -8,8 +8,9 @@ description: >
   condizione padre in S_COND#INFORCOND con la stessa chiave completa (INFNR, EKORG, ESOKZ,
   WERKS, KOPOS, COND_TYPE, VALID_FROM, VALID_TO), altrimenti SAP lo rifiuta (messaggio
   /LTB/MC 416: "does not exist at a higher level in the hierarchy").
-  Il messaggio indica se la condizione esiste con un ESOKZ diverso. Solo segnalazione: la
-  riga resta nell'output. Un esito per scaglione.
+  Il messaggio indica se la condizione esiste con un ESOKZ diverso. Con l'esclusione dall'output
+  attiva nel catalogo lo scaglione non è esportato (prd.export_inforecord_zip, file discarded/):
+  l'info record e la condizione restano. Un esito per scaglione.
 @bruin """
 
 import os

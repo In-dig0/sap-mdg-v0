@@ -611,6 +611,7 @@ DELETE FROM stg.check_catalog WHERE check_id IN ('CK202', 'CK204', 'CK029');
 --   CK526                    info record acquisti           (prd.export_inforecord_zip)
 --   CK518/CK519/CK425/CK426      interlocutori e credito clienti (prd.export_clienti_add_zip)
 --   CK422/CK423              partner clienti                (prd.export_clienti_zip)
+--   CK421                    scaglioni info record          (prd.export_inforecord_zip)
 --   CK424                    fornitori 05a                  (prd.export_suppliers_zip)
 --   CK527 distinte base (prd.export_bom_zip) e CK528 info record (prd.export_inforecord_zip):
 --   supportati, default disattivato.
@@ -621,7 +622,7 @@ SET exclude_supported = check_id IN (
         'CK047', 'CK055', 'CK214', 'CK804',
         'CK048', 'CK056', 'CK213', 'CK802',
         'CK220', 'CK404', 'CK403', 'CK526',
-        'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426',
+        'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426', 'CK421',
         'CK527', 'CK528'),
     exclude_output = check_id IN (
         'CK034', 'CK506', 'CK511', 'CK525',
@@ -629,4 +630,4 @@ SET exclude_supported = check_id IN (
         'CK047', 'CK055', 'CK214', 'CK804',
         'CK048', 'CK056', 'CK213', 'CK802',
         'CK220', 'CK404', 'CK403', 'CK526',
-        'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426');
+        'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426', 'CK421');
