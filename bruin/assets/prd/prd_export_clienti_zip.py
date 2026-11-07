@@ -66,6 +66,7 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR = "/project/datalake/out_source_mdg"
+DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")   # righe scartate dagli export
 
 AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 
@@ -141,6 +142,8 @@ PARTNER_KEY_COLS = ["KUNNR(k/*)", "VKORG(k/*)", "VTWEG(k/*)", "SPART(k/*)", "PAR
 
 # Estrazione ristretta (test): codici cliente in stg.export_filter -> ZIP in out_source_mdg/test
 TEST_DIR = os.path.join(OUTPUT_DIR, "test")
+# Riepiloghi (BP già in SAP, quadratura): sottocartella report
+REPORT_DIR = os.path.join(OUTPUT_DIR, "report")
 
 
 def get_connection():
@@ -420,7 +423,7 @@ def already_in_sap_rows(conn, schema: str, table: str, source_name: str,
 
 def already_in_sap_path(source_name: str) -> str:
     """Riepilogo dei BP esclusi da uno ZIP perché già in SAP: <nome ZIP>_gia_in_SAP.csv."""
-    return os.path.join(OUTPUT_DIR, f"{os.path.splitext(source_name)[0]}_gia_in_SAP.csv")
+    return os.path.join(REPORT_DIR, f"{os.path.splitext(source_name)[0]}_gia_in_SAP.csv")
 
 
 def write_already_in_sap(source_name: str, entries: list[tuple], csv_names: dict | None = None):
@@ -433,6 +436,7 @@ def write_already_in_sap(source_name: str, entries: list[tuple], csv_names: dict
         os.remove(path)
     if not entries:
         return
+    os.makedirs(REPORT_DIR, exist_ok=True)
     with open(path, "w", encoding="utf-8-sig", newline="") as f:
         writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
         writer.writerow(["TABELLA", "CODICE", "CODICE_SAP", "RIGHE"])
@@ -490,7 +494,8 @@ def write_discarded_csv(conn, table: str, source_name: str,
     writer.writerow(cols)
     writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
     safe_table = table.replace("#", "_").replace("/", "_")
-    out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+    out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
+    os.makedirs(DISCARDED_DIR, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(buf.getvalue())
     log.warning(
@@ -502,7 +507,8 @@ def write_discarded_csv(conn, table: str, source_name: str,
 def write_discarded_rows(table: str, cols: list, rows: list):
     """Accoda righe escluse a <table>_discarded.csv (intestazione solo se il file è nuovo)."""
     safe_table = table.replace("#", "_").replace("/", "_")
-    out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+    out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
+    os.makedirs(DISCARDED_DIR, exist_ok=True)
     new_file   = not os.path.exists(out_path)
     with open(out_path, "a", encoding="utf-8", newline="") as f:
         writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
@@ -520,7 +526,7 @@ def remove_discarded_csv(tables: list[str]):
     """
     for table in tables:
         safe_table = table.replace("#", "_").replace("/", "_")
-        out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+        out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
         if os.path.exists(out_path):
             os.remove(out_path)
             log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)

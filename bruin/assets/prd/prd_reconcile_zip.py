@@ -10,10 +10,12 @@ description: >
   conteggio raw e indicate nella colonna "esclusi":
     - righe filtrate nel merge verso prd (VIES, coordinate bancarie IT/UE o
       incomplete, record STG cancellati);
-    - righe scritte dagli export nei file <tabella>_discarded.csv (orfani,
-      partner senza riferimento);
-    - righe di BP già presenti in SAP, dai riepiloghi <nome ZIP>_gia_in_SAP.csv. Scrive anche un file CSV di riepilogo in
-  out_source_mdg/reconcile_report.csv.
+    - righe scritte dagli export nei file discarded/<tabella>_discarded.csv (orfani,
+      partner senza riferimento, check con esclusione dall'output);
+    - righe di BP già presenti in SAP, dai riepiloghi report/<nome ZIP>_gia_in_SAP.csv.
+  Scrive anche un file CSV di riepilogo in out_source_mdg/report/reconcile_report.csv.
+  Rimuove dalla cartella principale i file di scarto e i riepiloghi delle versioni precedenti
+  (ora nelle sottocartelle discarded/ e report/): nella cartella restano gli ZIP per SAP.
 depends:
   - prd.export_suppliers_zip
   - prd.export_clienti_zip
@@ -61,7 +63,9 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR  = "/project/datalake/out_source_mdg"
-REPORT_FILE = os.path.join(OUTPUT_DIR, "reconcile_report.csv")
+DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")
+REPORT_DIR    = os.path.join(OUTPUT_DIR, "report")
+REPORT_FILE   = os.path.join(REPORT_DIR, "reconcile_report.csv")
 
 
 def get_connection():
@@ -107,7 +111,7 @@ def get_discard_exclusions(raw_tables) -> dict[str, int]:
     excluded = {}
     for table in raw_tables:
         safe_table = table.replace("#", "_").replace("/", "_")
-        path = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+        path = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
         if not os.path.exists(path):
             continue
         with open(path, encoding="utf-8", newline="") as f:
@@ -120,10 +124,12 @@ def get_discard_exclusions(raw_tables) -> dict[str, int]:
 def get_already_in_sap_exclusions() -> dict[str, int]:
     """Righe dei BP già in SAP escluse dagli export (somma della colonna RIGHE per TABELLA)."""
     excluded = {}
-    for name in os.listdir(OUTPUT_DIR):
+    if not os.path.isdir(REPORT_DIR):
+        return excluded
+    for name in os.listdir(REPORT_DIR):
         if not name.endswith("_gia_in_SAP.csv"):
             continue
-        with open(os.path.join(OUTPUT_DIR, name), encoding="utf-8-sig", newline="") as f:
+        with open(os.path.join(REPORT_DIR, name), encoding="utf-8-sig", newline="") as f:
             for row in csv.DictReader(f, delimiter=";"):
                 table = CSV_TO_RAW.get(row["TABELLA"], row["TABELLA"])
                 excluded[table] = excluded.get(table, 0) + int(row["RIGHE"])
@@ -158,7 +164,21 @@ def count_csv_rows(zip_path: str) -> dict[str, int]:
     return result
 
 
+def remove_legacy_files():
+    """
+    File di scarto e riepiloghi scritti nella cartella principale dalle versioni precedenti
+    (ora in discarded/ e report/): rimossi, così in out_source_mdg restano gli output per SAP.
+    """
+    for name in os.listdir(OUTPUT_DIR):
+        path = os.path.join(OUTPUT_DIR, name)
+        if os.path.isfile(path) and (name.endswith(("_discarded.csv", "_gia_in_SAP.csv"))
+                                     or name == "reconcile_report.csv"):
+            os.remove(path)
+            log.info("  Rimosso file della versione precedente: %s", path)
+
+
 def main():
+    remove_legacy_files()
     conn = get_connection()
     try:
         log.info("=== Quadratura record raw <-> ZIP ===")
@@ -273,6 +293,7 @@ def main():
 
         # ── 5. Scrivi CSV di riepilogo ───────────────────────────────────────
         # utf-8-sig (con BOM): Excel riconosce la codifica e mostra correttamente i caratteri
+        os.makedirs(REPORT_DIR, exist_ok=True)
         with open(REPORT_FILE, "w", encoding="utf-8-sig", newline="") as f:
             writer = csv.DictWriter(
                 f, fieldnames=["tabella", "raw_count", "zip_count", "esclusi", "stato", "zip_source"],

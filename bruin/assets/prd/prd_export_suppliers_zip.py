@@ -94,6 +94,7 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR = "/project/datalake/out_source_mdg"
+DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")   # righe scartate dagli export
 
 # Nome del CSV nello ZIP per le tabelle il cui nome differisce dalla struttura SAP: l'ERP
 # chiama le banche fornitori S_SUPP_BANK#..., la struttura SAP è S_SUPPL_BANK (con il nome
@@ -264,7 +265,7 @@ def remove_discarded_csv(tables: list[str]):
     """
     for table in tables:
         safe_table = table.replace("#", "_").replace("/", "_")
-        out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+        out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
         if os.path.exists(out_path):
             os.remove(out_path)
             log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)

@@ -57,6 +57,7 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR = "/project/datalake/out_source_mdg"
+DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")   # righe scartate dagli export
 
 AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 
@@ -241,7 +242,8 @@ def write_discarded_csv(conn, table: str, source_name: str,
     writer.writerow(cols)
     writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
     safe_table = table.replace("#", "_").replace("/", "_")
-    out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+    out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
+    os.makedirs(DISCARDED_DIR, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(buf.getvalue())
     log.warning(
@@ -258,7 +260,7 @@ def remove_discarded_csv(tables: list[str]):
     """
     for table in tables:
         safe_table = table.replace("#", "_").replace("/", "_")
-        out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+        out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
         if os.path.exists(out_path):
             os.remove(out_path)
             log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)

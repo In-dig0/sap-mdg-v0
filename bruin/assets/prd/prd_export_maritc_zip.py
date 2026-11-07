@@ -50,6 +50,7 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR = "/project/datalake/out_source_mdg"
+DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")   # righe scartate
 RAW_TABLE  = "S_MARITC"
 # Controlli le cui righe in errore sono escluse dall'output:
 # check_id -> (espressione SQL uguale all'object_key del check, descrizione del motivo)
@@ -113,7 +114,7 @@ def exclusion_condition(excluded: dict[str, set]) -> tuple[str, list]:
 
 def write_discarded_csv(conn, source_name: str, cols: list, excluded: dict[str, set]):
     """
-    Scrive i record esclusi in OUTPUT_DIR/S_MARITC_discarded.csv (valori come in raw).
+    Scrive i record esclusi in DISCARDED_DIR/S_MARITC_discarded.csv (valori come in raw).
     Se non ci sono esclusioni non scrive nulla.
     """
     if not excluded:
@@ -128,7 +129,8 @@ def write_discarded_csv(conn, source_name: str, cols: list, excluded: dict[str, 
         rows = cur.fetchall()
     if not rows:
         return
-    out_path = os.path.join(OUTPUT_DIR, f"{RAW_TABLE}_discarded.csv")
+    out_path = os.path.join(DISCARDED_DIR, f"{RAW_TABLE}_discarded.csv")
+    os.makedirs(DISCARDED_DIR, exist_ok=True)
     with open(out_path, "wb") as f:
         f.write(rows_to_csv(cols, rows))
     log.warning("  [DISCARDED] %s: %d record esclusi scritti in %s", RAW_TABLE, len(rows), out_path)
@@ -142,7 +144,7 @@ def remove_discarded_csv(tables: list[str]):
     """
     for table in tables:
         safe_table = table.replace("#", "_").replace("/", "_")
-        out_path   = os.path.join(OUTPUT_DIR, f"{safe_table}_discarded.csv")
+        out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
         if os.path.exists(out_path):
             os.remove(out_path)
             log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)

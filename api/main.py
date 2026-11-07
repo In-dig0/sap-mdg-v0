@@ -41,6 +41,12 @@ FOLDER_REGISTRY: dict[str, dict] = {
     "out_mdg": {"path": lambda: OUT_MDG_PATH,                "label": "out_source_mdg",    "semaphore": False, "readonly": False},
     # ZIP dell'estrazione ristretta (test), generati se stg.export_filter contiene codici
     "out_mdg_test": {"path": lambda: OUT_MDG_PATH / "test",  "label": "out_source_mdg/test", "semaphore": False, "readonly": False},
+    # Righe scartate dagli export (per tabella e per controllo)
+    "out_mdg_discarded": {"path": lambda: OUT_MDG_PATH / "discarded", "label": "out_source_mdg/discarded",
+                          "semaphore": False, "readonly": False},
+    # Riepiloghi: BP già in SAP, quadratura
+    "out_mdg_report": {"path": lambda: OUT_MDG_PATH / "report", "label": "out_source_mdg/report",
+                       "semaphore": False, "readonly": False},
 }
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -842,6 +848,41 @@ def delete_out_mdg_test_file(filename: str):
 @app.delete("/files/out_mdg_test", tags=["File"])
 def delete_all_out_mdg_test_files():
     return _delete_all_files("out_mdg_test")
+
+# ── Endpoints per le sottocartelle discarded e report di out_source_mdg ──
+
+def _list_optional_folder(endpoint: str) -> dict:
+    """Come _list_folder, ma cartella vuota se non ancora creata dalla pipeline."""
+    folder = FOLDER_REGISTRY[endpoint]["path"]()
+    if not folder.exists():
+        return {"path": str(folder), "count": 0, "files": []}
+    return _list_folder(endpoint)
+
+@app.get("/files/out_mdg_discarded", tags=["File"])
+def list_out_mdg_discarded():
+    """Lista i file di scarto (out_source_mdg/discarded)."""
+    return _list_optional_folder("out_mdg_discarded")
+
+@app.delete("/files/out_mdg_discarded/{filename}", tags=["File"])
+def delete_out_mdg_discarded_file(filename: str):
+    return _delete_file("out_mdg_discarded", filename)
+
+@app.delete("/files/out_mdg_discarded", tags=["File"])
+def delete_all_out_mdg_discarded_files():
+    return _delete_all_files("out_mdg_discarded")
+
+@app.get("/files/out_mdg_report", tags=["File"])
+def list_out_mdg_report():
+    """Lista i riepiloghi (out_source_mdg/report)."""
+    return _list_optional_folder("out_mdg_report")
+
+@app.delete("/files/out_mdg_report/{filename}", tags=["File"])
+def delete_out_mdg_report_file(filename: str):
+    return _delete_file("out_mdg_report", filename)
+
+@app.delete("/files/out_mdg_report", tags=["File"])
+def delete_all_out_mdg_report_files():
+    return _delete_all_files("out_mdg_report")
 
 # ---------------------------------------------------------------------------
 # Endpoints DB — Gestione tabelle PostgreSQL
