@@ -659,6 +659,8 @@ def list_folders():
             "label":    cfg["label"],
             "semaphore": cfg["semaphore"],
             "readonly":  cfg.get("readonly", False),
+            # Cartelle di uscita (output di MDG): in Streamlit separate da quelle di ingresso
+            "direction": "out" if key.startswith("out_") else "in",
             "exists":   cfg["path"]().exists(),
         }
         for key, cfg in FOLDER_REGISTRY.items()

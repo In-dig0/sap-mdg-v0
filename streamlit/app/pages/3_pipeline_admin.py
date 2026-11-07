@@ -547,17 +547,37 @@ with tab_sftp:
     if not folders:
         st.warning("Impossibile recuperare le cartelle SFTP dall'API. Verifica che FastAPI sia raggiungibile.")
 
-    # Dizionario label → endpoint per il radio
-    folder_options    = {f["label"]: f["endpoint"]  for f in folders}
+    # Cartelle di ingresso (file per MDG) e di uscita (output di MDG), scelte in due passi
+    # per non confonderle: prima la direzione, poi la cartella
     folder_semaphore  = {f["endpoint"]: f["semaphore"] for f in folders}
     folder_readonly   = {f["endpoint"]: f.get("readonly", False) for f in folders}
+    groups = {
+        "in":  {f["label"]: f["endpoint"] for f in folders if f.get("direction", "in") == "in"},
+        "out": {f["label"]: f["endpoint"] for f in folders if f.get("direction") == "out"},
+    }
+    direction = st.radio(
+        "Direzione",
+        options=["in", "out"],
+        format_func=lambda d: "📥 INGRESSO — file da caricare in MDG" if d == "in"
+                              else "📤 USCITA — file generati da MDG",
+        horizontal=True,
+        key="sftp_direction",
+    )
+    is_out = direction == "out"
+    folder_options = groups[direction]
+    if is_out:
+        st.success("📤 **Cartelle di USCITA**: ZIP per SAP, scarti e riepiloghi prodotti dalla pipeline. "
+                   "Qui non si caricano file.", icon=":material/output:")
+    else:
+        st.info("📥 **Cartelle di INGRESSO**: estrazioni dell'ERP e tabelle di controllo da caricare in MDG.",
+                icon=":material/input:")
 
-    sel_col, _ = st.columns([2, 4])
+    sel_col, _ = st.columns([3, 3])
     selected_label = sel_col.radio(
         "Cartella",
         options=list(folder_options.keys()),
         horizontal=True,
-        key="sftp_folder_sel",
+        key=f"sftp_folder_sel_{direction}",
     )
     endpoint = folder_options[selected_label]
     has_semaphore = folder_semaphore.get(endpoint, False)
@@ -651,7 +671,10 @@ with tab_sftp:
                     st.warning(f"⚠️ Clicca di nuovo **{svuota_label}** per confermare.")
 
     st.divider()
-    if not is_readonly:
+    if is_out:
+        st.caption(f"ℹ️ **{selected_label}** è una cartella di uscita: i file sono generati dalla pipeline "
+                   "e si possono scaricare o eliminare, non caricare.")
+    elif not is_readonly:
         upload_types = ["zip", "csv", "txt"] if has_semaphore else ["xlsx", "csv"]
         with st.expander(f"⬆️ Upload in {selected_label}", expanded=False):
             st.caption(f"Carica file direttamente nella cartella **{selected_label}** senza usare un client SFTP.")
