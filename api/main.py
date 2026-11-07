@@ -47,6 +47,9 @@ FOLDER_REGISTRY: dict[str, dict] = {
     # Riepiloghi: BP già in SAP, quadratura
     "out_mdg_report": {"path": lambda: OUT_MDG_PATH / "report", "label": "out_source_mdg/report",
                        "semaphore": False, "readonly": False},
+    # Backup dell'output dei run precedenti (ultimi 10)
+    "out_mdg_backup": {"path": lambda: OUT_MDG_PATH / "backup", "label": "out_source_mdg/backup",
+                       "semaphore": False, "readonly": False},
 }
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -668,7 +671,7 @@ def list_folders():
 
 
 def _list_folder(endpoint: str) -> dict:
-    """Helper generico: lista i file di una cartella dal registry."""
+    """Helper generico: lista i file di una cartella dal registry (le sottocartelle non sono elencate)."""
     cfg = FOLDER_REGISTRY.get(endpoint)
     if not cfg:
         raise HTTPException(status_code=404, detail=f"Endpoint '{endpoint}' non registrato.")
@@ -677,6 +680,8 @@ def _list_folder(endpoint: str) -> dict:
         raise HTTPException(status_code=404, detail=f"Cartella non trovata: {folder}")
     files = []
     for f in sorted(folder.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+        if f.is_dir():
+            continue
         stat = f.stat()
         files.append({
             "name":         f.name,
@@ -704,19 +709,17 @@ def _delete_file(endpoint: str, filename: str):
 
 
 def _delete_all_files(endpoint: str):
-    """Helper generico: svuota una cartella."""
+    """Helper generico: svuota una cartella (solo i file: le sottocartelle, es. out_source_mdg/backup, restano)."""
     cfg = FOLDER_REGISTRY.get(endpoint)
     if not cfg:
         raise HTTPException(status_code=404, detail=f"Endpoint '{endpoint}' non registrato.")
     folder = cfg["path"]()
     eliminated = errors = 0
     for item in folder.iterdir():
+        if not item.is_file():
+            continue
         try:
-            if item.is_file():
-                item.unlink()
-            else:
-                import shutil
-                shutil.rmtree(item)
+            item.unlink()
             eliminated += 1
         except Exception:
             errors += 1
@@ -885,6 +888,19 @@ def delete_out_mdg_report_file(filename: str):
 @app.delete("/files/out_mdg_report", tags=["File"])
 def delete_all_out_mdg_report_files():
     return _delete_all_files("out_mdg_report")
+
+@app.get("/files/out_mdg_backup", tags=["File"])
+def list_out_mdg_backup():
+    """Lista i backup dell'output dei run precedenti (out_source_mdg/backup)."""
+    return _list_optional_folder("out_mdg_backup")
+
+@app.delete("/files/out_mdg_backup/{filename}", tags=["File"])
+def delete_out_mdg_backup_file(filename: str):
+    return _delete_file("out_mdg_backup", filename)
+
+@app.delete("/files/out_mdg_backup", tags=["File"])
+def delete_all_out_mdg_backup_files():
+    return _delete_all_files("out_mdg_backup")
 
 # ---------------------------------------------------------------------------
 # Endpoints DB — Gestione tabelle PostgreSQL

@@ -358,7 +358,10 @@ def colorize_line(line: str) -> str:
         return f'<span style="color:#a78bfa;">{escaped}</span>'
     elif "done_with_errors" in line:
         color = "#EF9F27"
-    elif "FAIL" in line or "[ERROR]" in line or "error" in line.lower():
+    # Rosso: errori veri (asset falliti, eccezioni, livello ERROR, es. righe scartate in
+    # ingestione). Non la parola "errori" nei messaggi dei check, che sono avvisi [WARN]
+    elif ("FAIL" in line or "[ERROR]" in line or "Failed:" in line or "Traceback" in line
+          or re.search(r"\w*(Error|Exception)\b|\.errors\.\w+", line)):
         color = "#e24b4a"
     elif "PASS" in line:
         color = "#4ade80"
@@ -884,12 +887,14 @@ with tab_log_file:
     pass_count = sum(1 for l in lines if "PASS" in l and "assets" not in l.lower())
     fail_count = sum(1 for l in lines if "FAIL" in l and "assets" not in l.lower())
     warn_count = sum(1 for l in lines if "[WARNING]" in l or "[WARN]" in l)
+    err_count  = sum(1 for l in lines if "[ERROR]" in l)
 
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Righe totali", len(lines))
     k2.metric("✅ PASS",      pass_count)
     k3.metric("❌ FAIL",      fail_count)
-    k4.metric("⚠️ WARNING",   warn_count)
+    k4.metric("🔴 ERROR",     err_count, help="Righe a livello ERROR, es. righe scartate in ingestione")
+    k5.metric("⚠️ WARNING",   warn_count)
 
     st.divider()
 
@@ -899,10 +904,20 @@ with tab_log_file:
         label += f" (filtrate da {len(lines)} totali)"
     st.caption(label)
 
-    # Visualizzazione (max 2000 righe)
-    display_lines = filtered[-2000:] if len(filtered) > 2000 else filtered
-    if len(filtered) > 2000:
-        st.warning(f"Mostrate le ultime 2000 righe su {len(filtered)}. Usa i filtri per restringere.")
+    # Visualizzazione: ultime N righe (scelta dell'utente)
+    col_n, _ = st.columns([1, 3])
+    max_lines = col_n.selectbox(
+        "Righe da mostrare",
+        options=[2000, 5000, 10000, 20000, 0],
+        index=1,
+        format_func=lambda n: "Tutte" if n == 0 else f"Ultime {n:,}".replace(",", "."),
+        key="log_max_lines",
+        help="Con molte righe la pagina può diventare lenta: in alternativa usa i filtri.",
+    )
+    display_lines = filtered[-max_lines:] if max_lines and len(filtered) > max_lines else filtered
+    if len(display_lines) < len(filtered):
+        st.warning(f"Mostrate le ultime {len(display_lines)} righe su {len(filtered)}. "
+                   "Aumenta il numero di righe o usa i filtri per restringere.")
 
     render_log_html(display_lines)
 

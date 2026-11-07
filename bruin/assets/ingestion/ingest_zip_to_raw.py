@@ -235,13 +235,13 @@ def read_csv_safe(raw_bytes: bytes, csv_filename: str, zip_name: str = "", table
     bad_lines = scan_bad_lines(clean, csv_filename)
     if bad_lines:
         for b in bad_lines:
-            log.warning(
+            log.error(
                 f"    [RIGA SCARTATA] {csv_filename} "
                 f"riga {b['line_num']}: "
                 f"attesi {b['expected']} campi, trovati {b['found']} | "
                 f"contenuto: {b['preview']}"
             )
-        log.warning(
+        log.error(
             f"    [RIEPILOGO] {csv_filename}: {len(bad_lines)} righe scartate "
             f"per formato non valido"
         )
@@ -340,7 +340,7 @@ def ingest_csv(cur, schema: str, table: str,
         for _, row in df_dupes.iterrows():
             key_values = {kd: row.get(ko, "?")
                           for kd, ko in zip(key_display, key_cols)}
-            log.warning(
+            log.error(
                 f"    [SCARTATO] Duplicato su chiave {key_values} "
                 f"— tabella {schema}.{q(table)}"
             )
@@ -450,7 +450,7 @@ def write_rejects():
         writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
         writer.writerow(REJECTS_HEADER)
         writer.writerows(REJECTS)
-    log.warning(f"  [SCARTI INGESTIONE] {len(REJECTS)} righe scartate (formato non valido o duplicati): {REJECTS_FILE}")
+    log.error(f"  [SCARTI INGESTIONE] {len(REJECTS)} righe scartate (formato non valido o duplicati): {REJECTS_FILE}")
 
 
 def main():
