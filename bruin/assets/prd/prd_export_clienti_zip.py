@@ -337,11 +337,13 @@ def fixed_values_row_fn(values: dict):
     return fn
 
 
-def get_but000_map(conn, sort_cols: tuple = ("BU_SORT2", "BU_SORT1")) -> dict[str, str]:
+def get_but000_map(conn, sort_cols: tuple = ("BU_SORT2", "BU_SORT1"),
+                   bu_groups: tuple | None = None) -> dict[str, str]:
     """
     Vecchio codice -> nuovo codice SAP (PARTNER) da ref.SAP_EXPORT_BUT000:
     clienti e destinatari merci tramite BU_SORT2, spedizionieri tramite BU_SORT1.
-    sort_cols: colonne usate, in ordine di priorità. Vuoto se la tabella non è stata caricata.
+    sort_cols: colonne usate, in ordine di priorità. bu_groups: solo i BP di questi gruppi
+    (BU_GROUP), tutti se None. Vuoto se la tabella non è stata caricata.
     """
     if not table_exists(conn, "ref", BUT000_TABLE):
         log.warning(f"  ref.{BUT000_TABLE} non trovata — {PARTNER_COL} non trascodificato")
@@ -352,6 +354,8 @@ def get_but000_map(conn, sort_cols: tuple = ("BU_SORT2", "BU_SORT1")) -> dict[st
             cur.execute(
                 f'SELECT {q(sort_col)}, "PARTNER" FROM ref.{q(BUT000_TABLE)} '
                 f'WHERE COALESCE(TRIM({q(sort_col)}), \'\') <> \'\' AND COALESCE("PARTNER", \'\') <> \'\''
+                + (' AND TRIM("BU_GROUP") = ANY(%s)' if bu_groups else ''),
+                (list(bu_groups),) if bu_groups else None,
             )
             for old, new in cur.fetchall():
                 mapping.setdefault(old.strip(), new)

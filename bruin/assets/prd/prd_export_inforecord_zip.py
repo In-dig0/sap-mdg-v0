@@ -11,8 +11,9 @@ description: >
   Nessuna esclusione di record orfani (CK407 segnala le anomalie nel report
   qualita, ma non blocca la scrittura dell'output).
   In S_EINA#INFORMATFOR il fornitore LIFNR(*) (codice del vecchio ERP) è trascodificato con
-  il codice SAP (PARTNER di ref.SAP_EXPORT_BUT000): tramite BU_SORT1 oppure, per i fornitori
-  del flusso 05a (BP creato come cliente), tramite REF_KUNNR e BU_SORT2.
+  il codice SAP (PARTNER di ref.SAP_EXPORT_BUT000, solo BP dei gruppi ZBP e ZIC, non i
+  destinatari merci ZDM): tramite BU_SORT1 oppure, per i fornitori del flusso 05a (BP creato
+  come cliente), tramite REF_KUNNR e BU_SORT2.
   Gli info record con fornitore senza codice SAP (CK526, se l'esclusione dall'output è attiva
   nel catalogo) non sono esportati, in nessuna delle quattro tabelle: finiscono in
   <tabella>_discarded.xlsx. Se BUT000 non è caricata LIFNR(*)
@@ -74,6 +75,7 @@ SCALES_KEY_COLS = ["INFNR(k/*)", "EKORG(k/*)", "ESOKZ(k/*)", "WERKS(k)", "KOPOS(
                    "COND_TYPE(k/*)", "VALID_FROM(k/*)", "LINE_NO(k/*)"]
 INFNR_COL    = "INFNR(k/*)"
 CLI_SUPPLIER_TABLE = "S_SUPPL_GEN#AddDatiGenerali"   # flusso 05a: fornitori estesi da cliente
+SUPPLIER_BU_GROUPS = ("ZBP", "ZIC")   # gruppi BP dei fornitori in BUT000 (esclusi i ZDM)
 
 RAW_TABLES = [
     "S_EINA#INFORMATFOR",
@@ -122,12 +124,12 @@ def table_exists(conn, table):
 def get_lifnr_map(conn):
     """
     Vecchio codice fornitore -> codice SAP: BU_SORT1 di BUT000 oppure, per i fornitori 05a
-    che in SAP sono il BP del cliente, REF_KUNNR tramite BU_SORT2.
+    che in SAP sono il BP del cliente, REF_KUNNR tramite BU_SORT2. Solo BP dei gruppi ZBP e ZIC.
     """
-    lifnr_map = get_but000_map(conn, sort_cols=("BU_SORT1",))
+    lifnr_map = get_but000_map(conn, sort_cols=("BU_SORT1",), bu_groups=SUPPLIER_BU_GROUPS)
     if not lifnr_map or not table_exists(conn, CLI_SUPPLIER_TABLE):
         return lifnr_map
-    customer_codes = get_but000_map(conn, sort_cols=("BU_SORT2",))
+    customer_codes = get_but000_map(conn, sort_cols=("BU_SORT2",), bu_groups=SUPPLIER_BU_GROUPS)
     with conn.cursor() as cur:
         cur.execute(f'SELECT DISTINCT TRIM("LIFNR(k/*)"), TRIM("REF_KUNNR") FROM raw.{q(CLI_SUPPLIER_TABLE)}')
         for lifnr, kunnr in cur.fetchall():
