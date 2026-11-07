@@ -438,7 +438,7 @@ def render_tab_controllo():
                         help=(
                             "Se attivo, i record che non superano il controllo non vengono scritti "
                             "nei file di output per SAP e finiscono in out_source_mdg/discarded "
-                            "(file <CHECK>_discarded.csv con il motivo). "
+                            "(file <CHECK>_discarded.xlsx con il motivo). "
                             "Vale solo se il controllo è attivo. Effetto dal prossimo run."
                             if supported else
                             "Esclusione non disponibile: l'export di questo flusso non sa "

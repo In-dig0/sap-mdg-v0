@@ -9,7 +9,7 @@ description: >
   Il codice materiale SAP è uguale a quello del vecchio ERP (confronto senza spazi iniziali
   e finali). Assente: Warning, in SAP la migrazione andrebbe in errore.
   Con l'esclusione dall'output attiva nel catalogo (default: disattivata) l'info record non
-  è esportato in nessuna delle quattro tabelle (prd.export_inforecord_zip, file *_discarded.csv).
+  è esportato in nessuna delle quattro tabelle (prd.export_inforecord_zip, file *_discarded.xlsx).
   Info record senza materiale esclusi dal controllo. Un esito per info record.
   Saltato se SAP_EXPORT_MARC non è caricata.
 @bruin """

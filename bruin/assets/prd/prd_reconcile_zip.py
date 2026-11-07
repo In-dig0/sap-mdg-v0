@@ -10,12 +10,14 @@ description: >
   conteggio raw e indicate nella colonna "esclusi":
     - righe filtrate nel merge verso prd (VIES, coordinate bancarie IT/UE o
       incomplete, record STG cancellati);
-    - righe scritte dagli export nei file discarded/<tabella>_discarded.csv (orfani,
+    - righe scritte dagli export nei file discarded/<tabella>_discarded.xlsx (orfani,
       partner senza riferimento, check con esclusione dall'output);
-    - righe di BP già presenti in SAP, dai riepiloghi report/<nome ZIP>_gia_in_SAP.csv.
-  Scrive anche un file CSV di riepilogo in out_source_mdg/report/reconcile_report.csv.
-  Rimuove dalla cartella principale i file di scarto e i riepiloghi delle versioni precedenti
-  (ora nelle sottocartelle discarded/ e report/): nella cartella restano gli ZIP per SAP.
+    - righe di BP già presenti in SAP, dai riepiloghi report/<nome ZIP>_gia_in_SAP.xlsx.
+  Scrive il report di quadratura in out_source_mdg/report/reconcile_report.xlsx e il riepilogo
+  degli scarti del run in out_source_mdg/discarded/RIEPILOGO_SCARTI.xlsx (righe per file di
+  scarto, controllo e motivo, compresi gli scarti dell'ingestione).
+  Rimuove i file delle versioni precedenti: scarti e riepiloghi nella cartella principale (ora
+  in discarded/ e report/) e i CSV di discarded/ e report/ (ora in Excel).
 depends:
   - prd.export_suppliers_zip
   - prd.export_clienti_zip
@@ -34,12 +36,14 @@ import csv
 import zipfile
 import logging
 import sys
+from collections import Counter
 import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import PRD_CSV_NAME as PRD_CSV_NAME_CLIENTI
 from prd_export_dest_merci_zip import PRD_CSV_NAME as PRD_CSV_NAME_DM
 from prd_export_suppliers_zip import CSV_NAME as CSV_NAME_FORNITORI
+from prd_discard_lib import DISCARDED_DIR, REPORT_DIR, count_discarded, read_xlsx, write_xlsx
 
 # Tabelle prd con nome diverso dalla tabella raw corrispondente
 PRD_TO_RAW = {**PRD_CSV_NAME_CLIENTI, **PRD_CSV_NAME_DM}
@@ -63,9 +67,9 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR  = "/project/datalake/out_source_mdg"
-DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")
-REPORT_DIR    = os.path.join(OUTPUT_DIR, "report")
-REPORT_FILE   = os.path.join(REPORT_DIR, "reconcile_report.csv")
+REPORT_FILE   = os.path.join(REPORT_DIR, "reconcile_report.xlsx")
+SUMMARY_FILE  = os.path.join(DISCARDED_DIR, "RIEPILOGO_SCARTI.xlsx")
+INGESTION_DISCARDS = "ingestione_scarti.xlsx"
 
 
 def get_connection():
@@ -107,15 +111,10 @@ def get_prd_exclusions(conn, raw_counts: dict[str, int]) -> dict[str, int]:
 
 
 def get_discard_exclusions(raw_tables) -> dict[str, int]:
-    """Righe scritte dagli export in <tabella>_discarded.csv (stesso nome file degli export)."""
+    """Righe scritte dagli export in discarded/<tabella>_discarded.xlsx (foglio "discarded")."""
     excluded = {}
     for table in raw_tables:
-        safe_table = table.replace("#", "_").replace("/", "_")
-        path = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
-        if not os.path.exists(path):
-            continue
-        with open(path, encoding="utf-8", newline="") as f:
-            n = sum(1 for _ in csv.reader(f, delimiter=";")) - 1   # esclusa l'intestazione
+        n = count_discarded(table)
         if n > 0:
             excluded[table] = n
     return excluded
@@ -127,12 +126,13 @@ def get_already_in_sap_exclusions() -> dict[str, int]:
     if not os.path.isdir(REPORT_DIR):
         return excluded
     for name in os.listdir(REPORT_DIR):
-        if not name.endswith("_gia_in_SAP.csv"):
+        if not name.endswith("_gia_in_SAP.xlsx"):
             continue
-        with open(os.path.join(REPORT_DIR, name), encoding="utf-8-sig", newline="") as f:
-            for row in csv.DictReader(f, delimiter=";"):
-                table = CSV_TO_RAW.get(row["TABELLA"], row["TABELLA"])
-                excluded[table] = excluded.get(table, 0) + int(row["RIGHE"])
+        header, rows = read_xlsx(os.path.join(REPORT_DIR, name))
+        for row in rows:
+            row = dict(zip(header, row))
+            table = CSV_TO_RAW.get(row["TABELLA"], row["TABELLA"])
+            excluded[table] = excluded.get(table, 0) + int(row["RIGHE"])
     return excluded
 
 
@@ -175,10 +175,47 @@ def remove_legacy_files():
                                      or name == "reconcile_report.csv"):
             os.remove(path)
             log.info("  Rimosso file della versione precedente: %s", path)
+    for folder in (DISCARDED_DIR, REPORT_DIR):
+        if not os.path.isdir(folder):
+            continue
+        for name in os.listdir(folder):
+            if name.lower().endswith(".csv"):
+                os.remove(os.path.join(folder, name))
+                log.info("  Rimosso file CSV della versione precedente: %s", os.path.join(folder, name))
+
+
+def write_discard_summary():
+    """
+    RIEPILOGO_SCARTI.xlsx: righe scartate del run per file di scarto, controllo e motivo
+    (file <tabella>_discarded.xlsx degli export e ingestione_scarti.xlsx dell'ingestione).
+    """
+    if os.path.exists(SUMMARY_FILE):
+        os.remove(SUMMARY_FILE)
+    if not os.path.isdir(DISCARDED_DIR):
+        return
+    counts = Counter()
+    for name in sorted(os.listdir(DISCARDED_DIR)):
+        path = os.path.join(DISCARDED_DIR, name)
+        if name == INGESTION_DISCARDS:
+            header, rows = read_xlsx(path)
+            i_t, i_m = header.index("TABELLA"), header.index("MOTIVO")
+            for row in rows:
+                counts[(name, row[i_t], "INGESTIONE", row[i_m])] += 1
+        elif name.endswith("_discarded.xlsx") and not name.startswith("CK"):
+            header, rows = read_xlsx(path, "discarded")
+            for row in rows:
+                counts[(name, name[:-len("_discarded.xlsx")], row[0], row[1])] += 1
+    if not counts:
+        log.info("  Nessuno scarto nel run — riepilogo non generato")
+        return
+    write_xlsx(SUMMARY_FILE, [("riepilogo", ["FILE", "TABELLA", "CONTROLLO", "MOTIVO", "RIGHE"],
+                               [[*k, n] for k, n in sorted(counts.items())])])
+    log.info("  Riepilogo scarti: %d righe in %d gruppi — %s", sum(counts.values()), len(counts), SUMMARY_FILE)
 
 
 def main():
     remove_legacy_files()
+    write_discard_summary()
     conn = get_connection()
     try:
         log.info("=== Quadratura record raw <-> ZIP ===")
@@ -293,16 +330,10 @@ def main():
 
         # ── 5. Scrivi CSV di riepilogo ───────────────────────────────────────
         # utf-8-sig (con BOM): Excel riconosce la codifica e mostra correttamente i caratteri
-        os.makedirs(REPORT_DIR, exist_ok=True)
-        with open(REPORT_FILE, "w", encoding="utf-8-sig", newline="") as f:
-            writer = csv.DictWriter(
-                f, fieldnames=["tabella", "raw_count", "zip_count", "esclusi", "stato", "zip_source"],
-                delimiter=";", quoting=csv.QUOTE_MINIMAL
-            )
-            writer.writeheader()
-            writer.writerows(report_rows)
+        fields = ["tabella", "raw_count", "zip_count", "esclusi", "stato", "zip_source"]
+        write_xlsx(REPORT_FILE, [("quadratura", fields, [[r.get(f, "") for f in fields] for r in report_rows])])
 
-        log.info("  Report CSV scritto: %s", REPORT_FILE)
+        log.info("  Report Excel scritto: %s", REPORT_FILE)
 
         if n_diff > 0:
             log.warning(

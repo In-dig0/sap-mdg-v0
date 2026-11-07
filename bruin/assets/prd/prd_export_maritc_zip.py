@@ -6,7 +6,7 @@ description: >
   La tabella viene letta dallo schema raw.
   I record che non superano i controlli con esclusione dall'output attiva nel catalogo
   vengono esclusi dall'output, scritti in
-  S_MARITC_discarded.csv e segnalati in modo evidente nel log:
+  S_MARITC_discarded.xlsx e segnalati in modo evidente nel log:
     - CK034: codice doganale COMCO vuoto o assente in SAP_CommodityCodesEU01;
     - CK506: coppia MATNR(k/*)+PLANT(k/*) assente in S_MARC;
     - CK511: MATNR(k/*) assente in S_MARA;
@@ -33,6 +33,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_output_lib import output_zip_path, remove_previous_zips
+from prd_discard_lib import add_discards, flush_discards, reset_discards
 from prd_merge_lib import exclusion_enabled
 
 logging.basicConfig(
@@ -51,7 +52,6 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR = "/project/datalake/out_source_mdg"
-DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")   # righe scartate
 RAW_TABLE  = "S_MARITC"
 # Controlli le cui righe in errore sono escluse dall'output:
 # check_id -> (espressione SQL uguale all'object_key del check, descrizione del motivo)
@@ -115,8 +115,8 @@ def exclusion_condition(excluded: dict[str, set]) -> tuple[str, list]:
 
 def write_discarded_csv(conn, source_name: str, cols: list, excluded: dict[str, set]):
     """
-    Scrive i record esclusi in DISCARDED_DIR/S_MARITC_discarded.csv (valori come in raw).
-    Se non ci sono esclusioni non scrive nulla.
+    Registra i record esclusi (file discarded/S_MARITC_discarded.xlsx, valori come in raw) con i
+    check che li escludono e il motivo. Se non ci sono esclusioni non fa nulla.
     """
     if not excluded:
         return
@@ -128,27 +128,15 @@ def write_discarded_csv(conn, source_name: str, cols: list, excluded: dict[str, 
             [source_name, *params],
         )
         rows = cur.fetchall()
-    if not rows:
-        return
-    out_path = os.path.join(DISCARDED_DIR, f"{RAW_TABLE}_discarded.csv")
-    os.makedirs(DISCARDED_DIR, exist_ok=True)
-    with open(out_path, "wb") as f:
-        f.write(rows_to_csv(cols, rows))
-    log.warning("  [DISCARDED] %s: %d record esclusi scritti in %s", RAW_TABLE, len(rows), out_path)
-
-
-def remove_discarded_csv(tables: list[str]):
-    """
-    Cancella i file <table>_discarded.csv delle tabelle gestite da questo export:
-    vanno eliminati a ogni run, altrimenti resterebbero gli scarti di run precedenti
-    (write_discarded_csv scrive il file solo se ci sono scarti).
-    """
-    for table in tables:
-        safe_table = table.replace("#", "_").replace("/", "_")
-        out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
-        if os.path.exists(out_path):
-            os.remove(out_path)
-            log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)
+    i_mat, i_plant = cols.index(MATNR_COL), cols.index("PLANT(k/*)")
+    groups = {}
+    for row in rows:
+        keys = {"MATNR": row[i_mat], "MATNR|PLANT": f"{row[i_mat]}|{row[i_plant]}"}
+        checks = [c for c, k in excluded.items()
+                  if keys["MATNR|PLANT" if "PLANT" in EXCLUDE_CHECKS[c][0] else "MATNR"] in k]
+        groups.setdefault((", ".join(checks), "; ".join(EXCLUDE_CHECKS[c][1] for c in checks)), []).append(row)
+    for (check, reason), discarded in groups.items():
+        add_discards(RAW_TABLE, cols, discarded, check, reason)
 
 
 def get_distinct_sources(conn) -> list[str]:
@@ -226,7 +214,7 @@ def fetch_csv(conn, source_name: str, cols: list[str], excluded: dict[str, set])
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    remove_discarded_csv([RAW_TABLE])
+    reset_discards([RAW_TABLE])
     conn = get_connection()
 
     try:
@@ -270,6 +258,7 @@ def main():
             with open(output_path, "wb") as f:
                 f.write(buf.read())
             log.info("  ✓  %s  (%d righe, %.1f KB)", output_path, n_rows, len(csv_bytes) / 1024)
+        flush_discards()
 
     finally:
         conn.close()

@@ -18,7 +18,7 @@ description: >
       REF_KUNNR e KUNNR sono trascodificati con il codice SAP del cliente (PARTNER di
       ref.SAP_EXPORT_BUT000, tramite BU_SORT2); LIFNR resta il codice del vecchio ERP.
       I fornitori il cui cliente non è in BUT000 sono esclusi da tutte le tabelle e
-      scritti in <tabella>_discarded.csv. Negli interlocutori (S_SUPPL_CONT#ZBP-AddInterlocutore)
+      scritti in <tabella>_discarded.xlsx. Negli interlocutori (S_SUPPL_CONT#ZBP-AddInterlocutore)
       email in minuscolo e nome, paese, regione (e CAP per BR) dall'anagrafica del cliente
       di riferimento (prd."S_CUST_GEN#ZBP_DatiGenerali", come negli interlocutori clienti).
   Un ZIP separato viene creato per ogni valore distinto di _source
@@ -26,7 +26,7 @@ description: >
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
   Le banche fornitori (tabelle S_SUPP_BANK#..., nome dato dall'ERP) sono scritte con il nome
   della struttura SAP S_SUPPL_BANK#... (CSV_NAME), mappato in automatico nel caricamento.
-  Le righe escluse dalle regole in ROW_RULES sono scritte in <tabella>_discarded.csv; se non
+  Le righe escluse dalle regole in ROW_RULES sono scritte in <tabella>_discarded.xlsx; se non
   ne resta nessuna il CSV non è scritto:
     - CK051/CK052: settore industriale non in TB038A;
     - CK420: partner con fornitore LIFN2 (diverso da LIFNR) non presente in SAP (BUT000, BU_SORT1);
@@ -43,9 +43,9 @@ description: >
   Fornitori 05a già caricati in SAP: il BP è in BUT000 come cliente, quindi l'esclusione
   automatica non li riconosce; sono esclusi da tutte le tabelle se il cliente di riferimento
   (REF_KUNNR) o il LIFNR è in stg.export_exclude_fornitori_cli (elenco manuale), con
-  riepilogo in <nome ZIP>_gia_in_SAP.csv.
+  riepilogo in <nome ZIP>_gia_in_SAP.xlsx.
   I fornitori/vettori già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT1) sono esclusi
-  da tutte le tabelle: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP
+  da tutte le tabelle: riepilogo in <nome ZIP>_gia_in_SAP.xlsx; se non resta nulla lo ZIP
   non è generato.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
 depends:
@@ -74,8 +74,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 from prd_merge_lib import exclusion_enabled
 from prd_export_clienti_zip import (
     get_but000_map, already_in_sap_rows, write_already_in_sap, write_output_zip,
-    write_discarded_rows, get_export_filter, write_test_zip, fixed_values_row_fn,
+    write_discarded_rows, write_discarded_csv, get_export_filter, write_test_zip, fixed_values_row_fn,
 )
+from prd_discard_lib import flush_discards, reset_discards
 from prd_export_clienti_add_zip import get_customer_data, contact_row_fn as customer_contact_row_fn
 
 logging.basicConfig(
@@ -94,7 +95,6 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR = "/project/datalake/out_source_mdg"
-DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")   # righe scartate dagli export
 
 # Nome del CSV nello ZIP per le tabelle il cui nome differisce dalla struttura SAP: l'ERP
 # chiama le banche fornitori S_SUPP_BANK#..., la struttura SAP è S_SUPPL_BANK (con il nome
@@ -164,7 +164,7 @@ CLI_RAW_TABLES = [
 LIFN2_IN_SAP = ('COALESCE(TRIM("LIFN2(k)"), \'\') IN (\'\', TRIM("LIFNR(k/*)"))'
                 ' OR EXISTS (SELECT 1 FROM ref."SAP_EXPORT_BUT000" b WHERE TRIM(b."BU_SORT1") = TRIM("LIFN2(k)"))')
 
-# Righe escluse dallo ZIP (e scritte in <tabella>_discarded.csv) quando il check e la sua
+# Righe escluse dallo ZIP (e scritte in <tabella>_discarded.xlsx) quando il check e la sua
 # esclusione dall'output sono attivi nel catalogo:
 # tabella -> (check_id, tabella necessaria come "schema.tabella" o None, condizione SQL delle righe valide)
 ROW_RULES = {
@@ -189,6 +189,14 @@ ROW_RULES = {
         "CK418", None,
         'NOT stg.fn_iban_uguale_cliente("LIFNR(k/*)", "IBAN(k)")',
     ),
+}
+
+# Motivo delle righe escluse dalle regole di ROW_RULES (file di scarto)
+ROW_RULE_REASONS = {
+    "CK051": "Settore industriale non presente in SAP (TB038A)",
+    "CK052": "Settore industriale non presente in SAP (TB038A)",
+    "CK420": "Fornitore partner LIFN2 non presente in SAP",
+    "CK418": "IBAN uguale a quello del cliente di riferimento, già caricato con il cliente",
 }
 
 # Interlocutori fornitori: nome, paese e regione dall'anagrafica fornitori in prd
@@ -223,52 +231,6 @@ def get_connection():
 
 def q(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
-
-
-def write_discarded_csv(conn, table: str, source_name: str,
-                        cols: list, orphan_keys: set, fk_col: str):
-    """
-    Scrive i record scartati (orfani) in un file CSV nella cartella OUTPUT_DIR.
-    Nome file: <table>_discarded.csv  (es. S_ROLES#ZBP_RuoliFornitori_discarded.csv)
-    Se non ci sono orfani o la colonna chiave non è presente, non scrive nulla.
-    """
-    if not orphan_keys or fk_col not in cols:
-        return
-    fqt      = "raw." + q(table)
-    col_list = ", ".join(q(c) for c in cols)
-    placeholders = ",".join(["%s"] * len(orphan_keys))
-    with conn.cursor() as cur:
-        cur.execute(
-            f'SELECT {col_list} FROM {fqt}'
-            f' WHERE "_source" = %s'
-            f' AND {q(fk_col)} IN ({placeholders})'
-            f' ORDER BY 1',
-            (source_name, *orphan_keys)
-        )
-        rows = cur.fetchall()
-    if not rows:
-        return
-    def sanitize(val):
-        if val is None: return ""
-        if isinstance(val, float) and math.isnan(val): return ""
-        if isinstance(val, str) and val.strip() == "NaN": return ""
-        return val
-    # In append: più ZIP (es. 01a e 06a) e più regole possono scartare righe della stessa tabella
-    write_discarded_rows(table, cols, [tuple(sanitize(v) for v in row) for row in rows])
-
-
-def remove_discarded_csv(tables: list[str]):
-    """
-    Cancella i file <table>_discarded.csv delle tabelle gestite da questo export:
-    vanno eliminati a ogni run, altrimenti resterebbero gli scarti di run precedenti
-    (write_discarded_csv scrive il file solo se ci sono scarti).
-    """
-    for table in tables:
-        safe_table = table.replace("#", "_").replace("/", "_")
-        out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
-        if os.path.exists(out_path):
-            os.remove(out_path)
-            log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)
 
 
 def get_distinct_sources(conn, flow: dict) -> list[str]:
@@ -585,10 +547,13 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             schema = "prd" if raw_table in flow.get("from_prd", ()) and get_columns(conn, "prd", raw_table) else "raw"
 
             _is_master = raw_table == flow["master"]
-            discard_keys = unmapped if _is_master else orphan_keys | unmapped
-            if discard_keys and write_discards:
-                write_discarded_csv(conn, raw_table, source_name,
-                                   raw_cols, discard_keys, "LIFNR(k/*)")
+            if write_discards:
+                if not _is_master:
+                    write_discarded_csv(conn, raw_table, source_name, raw_cols, orphan_keys, "LIFNR(k/*)",
+                                        flow["orphan_check"] or "",
+                                        "Fornitore assente dall'anagrafica fornitori del flusso")
+                write_discarded_csv(conn, raw_table, source_name, raw_cols, unmapped, "LIFNR(k/*)",
+                                    "CK424", "Cliente di riferimento non presente in SAP")
             excluded += already_in_sap_rows(conn, schema, raw_table, source_name, "LIFNR(k/*)", sap_map)
             excluded_keys = (sap_keys | unmapped if _is_master else orphan_keys | sap_keys | unmapped) or None
             valid_if = get_row_rule(conn, raw_table)
@@ -596,7 +561,8 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
                 invalid = select_rows(conn, schema, raw_table, source_name, raw_cols,
                                       excluded_keys, "LIFNR(k/*)", where=f"NOT ({valid_if})")
                 if invalid and write_discards:
-                    write_discarded_rows(raw_table, raw_cols, invalid)
+                    check_id = ROW_RULES[raw_table][0]
+                    write_discarded_rows(raw_table, raw_cols, invalid, check_id, ROW_RULE_REASONS.get(check_id, ""))
                     log.warning(f"  [{ROW_RULES[raw_table][0]}] {schema}.{raw_table}: {len(invalid)} righe escluse "
                                 f"dallo ZIP '{source_name}'")
             csv_bytes = fetch_table_csv(
@@ -623,7 +589,7 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    remove_discarded_csv(RAW_TABLES + DM_RAW_TABLES + CLI_RAW_TABLES)
+    reset_discards(RAW_TABLES + DM_RAW_TABLES + CLI_RAW_TABLES)
     conn = get_connection()
 
     try:
@@ -648,6 +614,7 @@ def main():
                              if ref in codes or lifnr.strip() in codes}
                     write_test_zip(source_name, lambda: build_zip(conn, source_name, flow, key_filter=keys),
                                    keys, "fornitori")
+        flush_discards()
 
     finally:
         conn.close()

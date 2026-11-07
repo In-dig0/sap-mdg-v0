@@ -9,7 +9,7 @@ description: >
   Il codice materiale SAP è uguale a quello del vecchio ERP (confronto senza spazi iniziali
   e finali). Assente: Warning, in SAP la migrazione andrebbe in errore.
   Con l'esclusione dall'output attiva nel catalogo la riga non è esportata
-  (prd.export_maritc_zip, S_MARITC_discarded.csv). Gli altri flussi materiali sono
+  (prd.export_maritc_zip, S_MARITC_discarded.xlsx). Gli altri flussi materiali sono
   controllati da CK527-CK531. Un esito per riga. Saltato se SAP_EXPORT_MARC non è caricata.
 @bruin """
 

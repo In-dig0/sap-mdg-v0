@@ -16,11 +16,11 @@ description: >
   KUNNR(k/*) (codice del vecchio ERP) è trascodificato con il codice SAP (PARTNER di
   ref.SAP_EXPORT_BUT000, tramite BU_SORT2): questi ZIP si caricano quando clienti e DM
   esistono già in SAP. Le righe senza corrispondenza sono escluse e scritte in
-  <tabella>_discarded.csv.
+  <tabella>_discarded.xlsx.
   I clienti di stg.export_exclude_add (interlocutori e credito già caricati in SAP) sono
-  esclusi: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP non è generato.
+  esclusi: riepilogo in <nome ZIP>_gia_in_SAP.xlsx; se non resta nulla lo ZIP non è generato.
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
-  e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.csv.
+  e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.xlsx.
   ZBP-AddInterlocutoreCli: esclusi (negli scarti) anche i codici presenti solo come
   destinatari merci (ZDM e non ZBP). Negli interlocutori (S_CUST_CONT#ZBP-AddInterlocutore)
   le email E_MAIL_B/E_MAIL sono in minuscolo; COUNTRY e REGION vengono dall'anagrafica
@@ -44,13 +44,14 @@ import logging
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import (
     OUTPUT_DIR, get_connection, q, get_columns, table_exists,
-    fetch_table_csv, write_discarded_csv, remove_discarded_csv, ADD_FLOW, ADD_MOVED_TABLES,
+    fetch_table_csv, write_discarded_csv, ADD_FLOW, ADD_MOVED_TABLES,
     get_export_filter, write_test_zip, get_but000_map,
     get_exclude_add, already_in_sap_rows, write_already_in_sap, write_output_zip,
     TEST_DIR, already_in_sap_path,
 )
 from prd_merge_lib import exclusion_enabled
 from prd_output_lib import zip_stem
+from prd_discard_lib import flush_discards, reset_discards
 
 logging.basicConfig(
     level=logging.INFO,
@@ -184,6 +185,9 @@ def get_orphan_keys(conn, source_name: str, tables: list[str]) -> set:
     return orphans
 
 
+ORPHAN_REASON = "Cliente assente dall'anagrafica clienti e destinatari merci"
+
+
 def orphan_check_id(source_name: str) -> str:
     """Check dei clienti assenti dall'anagrafica: CK518 (03b interlocutori), CK519 (07a credito)."""
     return "CK518" if ADD_FLOW in source_name else "CK519"
@@ -204,8 +208,8 @@ def write_discards(conn, source_name: str, tables: list[str]):
     )
     for raw_table in tables:
         if table_exists(conn, "raw", raw_table):
-            write_discarded_csv(conn, raw_table, source_name,
-                                get_columns(conn, "raw", raw_table), orphan_keys, KEY_COL)
+            write_discarded_csv(conn, raw_table, source_name, get_columns(conn, "raw", raw_table),
+                                orphan_keys, KEY_COL, orphan_check_id(source_name), ORPHAN_REASON)
 
 
 def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None = None,
@@ -239,13 +243,13 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
         log.info("  Tutti i clienti di '%s' sono presenti in anagrafica.", source_name)
 
     contact_fn = None
+    dm_keys = set()
     if ADD_FLOW in source_name:
         # Solo veri clienti: esclusi (negli scarti) i codici che sono solo destinatari merci
         dm_keys = get_dm_only_keys(conn, source_name, tables) if dm_only_on else set()
         if dm_keys:
             log.warning("  *** %d destinatari merci (non clienti) esclusi da '%s': %s",
                         len(dm_keys), source_name, sorted(dm_keys))
-            orphan_keys |= dm_keys
         contact_fn = contact_row_fn(get_customer_data(conn))
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -258,16 +262,20 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
                 log.warning(f"  SKIP raw.{raw_table} — nessuna colonna")
                 continue
 
-            if orphan_keys and not key_filter:
-                write_discarded_csv(conn, raw_table, source_name, raw_cols, orphan_keys, KEY_COL)
+            if not key_filter:
+                write_discarded_csv(conn, raw_table, source_name, raw_cols, orphan_keys, KEY_COL,
+                                    orphan_check_id(source_name), ORPHAN_REASON)
+                write_discarded_csv(conn, raw_table, source_name, raw_cols, dm_keys, KEY_COL,
+                                    "CK426", "Codice presente solo come destinatario merci, non come cliente")
             excluded += already_in_sap_rows(conn, "raw", raw_table, source_name, KEY_COL, done_map)
             csv_bytes = fetch_table_csv(
                 conn, "raw", raw_table, source_name, raw_cols,
-                excluded_keys=(orphan_keys | set(done_map)) or None, fk_col=KEY_COL,
+                excluded_keys=(orphan_keys | dm_keys | set(done_map)) or None, fk_col=KEY_COL,
                 key_filter=(KEY_COL, key_filter) if key_filter else None,
                 write_discards=not key_filter,
                 value_map={KEY_COL: sap_codes},
                 drop_if_unmapped=[KEY_COL] if unmapped_on else None,
+                discard_reasons={"unmapped": ("CK425", "Cliente non ancora presente in SAP")},
                 row_fn=contact_fn if raw_table == CONTACT_TABLE else None,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1
@@ -299,7 +307,7 @@ def remove_stale_outputs(flow: str, sources: list[str]):
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    remove_discarded_csv([t for tables in FLOWS.values() for t in tables])
+    reset_discards([t for tables in FLOWS.values() for t in tables])
     conn = get_connection()
     try:
         for flow, tables in FLOWS.items():
@@ -322,6 +330,7 @@ def main():
                 customers = get_export_filter(conn)
                 write_test_zip(source_name, lambda: build_zip(conn, source_name, zip_tables, key_filter=customers),
                                customers, "clienti")
+        flush_discards()
     finally:
         conn.close()
 

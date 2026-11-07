@@ -9,7 +9,7 @@ description: >
   codice SAP in ref.SAP_EXPORT_BUT000, tramite BU_SORT1 oppure, per i fornitori del flusso 05a
   (BP creato come cliente), tramite REF_KUNNR di S_SUPPL_GEN#AddDatiGenerali e BU_SORT2.
   Assente: Warning, l'info record non è esportato nello ZIP (prd.export_inforecord_zip, file
-  <tabella>_discarded.csv), perché SAP lo rifiuta.
+  <tabella>_discarded.xlsx), perché SAP lo rifiuta.
   Un esito per info record. Saltato se BUT000 non è caricata.
 @bruin """
 

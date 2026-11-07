@@ -26,7 +26,7 @@ description: >
   Estrazione ristretta (test): se stg.export_filter contiene codici cliente, viene
   generato anche lo ZIP con i soli clienti indicati in out_source_mdg/test.
   I clienti già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT2) sono esclusi da tutte le
-  tabelle: riepilogo in <nome ZIP>_gia_in_SAP.csv; se non resta nulla lo ZIP non è generato.
+  tabelle: riepilogo in <nome ZIP>_gia_in_SAP.xlsx; se non resta nulla lo ZIP non è generato.
   Un ZIP separato viene creato per ogni valore distinto di _source
   trovato in prd."S_CUST_GEN#ZBP_DatiGenerali".
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
@@ -50,6 +50,9 @@ import psycopg2
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_merge_lib import exclusion_enabled
 from prd_output_lib import output_zip_path
+from prd_discard_lib import (
+    REPORT_DIR, add_discards, flush_discards, reset_discards, write_xlsx,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,7 +70,6 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR = "/project/datalake/out_source_mdg"
-DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")   # righe scartate dagli export
 
 AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 
@@ -143,8 +145,6 @@ PARTNER_KEY_COLS = ["KUNNR(k/*)", "VKORG(k/*)", "VTWEG(k/*)", "SPART(k/*)", "PAR
 
 # Estrazione ristretta (test): codici cliente in stg.export_filter -> ZIP in out_source_mdg/test
 TEST_DIR = os.path.join(OUTPUT_DIR, "test")
-# Riepiloghi (BP già in SAP, quadratura): sottocartella report
-REPORT_DIR = os.path.join(OUTPUT_DIR, "report")
 
 
 def get_connection():
@@ -210,7 +210,8 @@ def fetch_table_csv(conn, schema: str, table: str,
                     row_fn=None,
                     sort_cols: list[str] | None = None,
                     key_filter: tuple[str, set] | None = None,
-                    write_discards: bool = True) -> bytes:
+                    write_discards: bool = True,
+                    discard_reasons: dict[str, tuple[str, str]] | None = None) -> bytes:
     """
     value_map:         {colonna: {valore_originale: nuovo_valore}} applicato in uscita.
     value_map_skip_if_equal: {colonna: altra_colonna} — non trascodifica se i due valori coincidono.
@@ -225,7 +226,10 @@ def fetch_table_csv(conn, schema: str, table: str,
     sort_cols:         ordinamento dell'output (dopo la trascodifica).
     key_filter:        (colonna, valori) — solo le righe con quei valori (estrazione ristretta).
     write_discards:    False nell'estrazione ristretta (non tocca gli scarti dell'output completo).
+    discard_reasons:   (check, motivo) delle righe escluse da drop_if_all_empty ("all_empty"),
+                       drop_if_not_in ("not_in") e drop_if_unmapped ("unmapped").
     """
+    reasons = discard_reasons or {}
     fqt      = f'{schema}.{q(table)}'
     col_list = ", ".join(q(c) for c in cols)
     where    = ['"_source" = %s']
@@ -265,7 +269,8 @@ def fetch_table_csv(conn, schema: str, table: str,
                         schema, table, len(dropped), f_col, "/".join(sorted(f_values)), col,
                         sorted({str(r[j]) for r in dropped}))
             if write_discards:
-                write_discarded_rows(table, cols, [tuple(sanitize(v) for v in r) for r in dropped])
+                write_discarded_rows(table, cols, dropped,
+                                     *reasons.get("not_in", ("", f"{col} non presente in SAP")))
 
     for col in drop_if_unmapped or []:
         if col not in cols:
@@ -277,7 +282,8 @@ def fetch_table_csv(conn, schema: str, table: str,
             log.warning("  %s.%s: %d righe con %s senza trascodifica escluse: %s",
                         schema, table, len(dropped), col, sorted({str(r[i]) for r in dropped}))
             if write_discards:
-                write_discarded_rows(table, cols, [tuple(sanitize(v) for v in r) for r in dropped])
+                write_discarded_rows(table, cols, dropped,
+                                     *reasons.get("unmapped", ("", f"{col} senza codice SAP")))
 
     if row_fn:
         rows = [list(r) for r in rows]
@@ -306,7 +312,8 @@ def fetch_table_csv(conn, schema: str, table: str,
         keep = [r for r in rows if any(str(sanitize(r[i])).strip() for i in idx)]
         dropped = [r for r in rows if not any(str(sanitize(r[i])).strip() for i in idx)]
         if dropped and write_discards:
-            write_discarded_rows(table, cols, [tuple(sanitize(v) for v in r) for r in dropped])
+            write_discarded_rows(table, cols, dropped,
+                                 *reasons.get("all_empty", ("", f"{'/'.join(drop_if_all_empty)} vuoti")))
             log.warning("  %s.%s: %d righe senza %s escluse", schema, table, len(dropped), "/".join(drop_if_all_empty))
         rows = keep
 
@@ -421,8 +428,8 @@ def already_in_sap_rows(conn, schema: str, table: str, source_name: str,
 
 
 def already_in_sap_path(source_name: str) -> str:
-    """Riepilogo dei BP esclusi da uno ZIP perché già in SAP: <nome ZIP>_gia_in_SAP.csv."""
-    return os.path.join(REPORT_DIR, f"{os.path.splitext(source_name)[0]}_gia_in_SAP.csv")
+    """Riepilogo dei BP esclusi da uno ZIP perché già in SAP: <nome ZIP>_gia_in_SAP.xlsx."""
+    return os.path.join(REPORT_DIR, f"{os.path.splitext(source_name)[0]}_gia_in_SAP.xlsx")
 
 
 def write_already_in_sap(source_name: str, entries: list[tuple], csv_names: dict | None = None):
@@ -431,15 +438,13 @@ def write_already_in_sap(source_name: str, entries: list[tuple], csv_names: dict
     dallo ZIP: TABELLA;CODICE;CODICE_SAP;RIGHE. TABELLA è il nome del CSV nello ZIP.
     """
     path = already_in_sap_path(source_name)
-    if os.path.exists(path):
-        os.remove(path)
+    for p in (path, path[:-len(".xlsx")] + ".csv"):   # anche il CSV delle versioni precedenti
+        if os.path.exists(p):
+            os.remove(p)
     if not entries:
         return
-    os.makedirs(REPORT_DIR, exist_ok=True)
-    with open(path, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
-        writer.writerow(["TABELLA", "CODICE", "CODICE_SAP", "RIGHE"])
-        writer.writerows([((csv_names or {}).get(t, t), c, s, n) for t, c, s, n in entries])
+    write_xlsx(path, [("gia_in_SAP", ["TABELLA", "CODICE", "CODICE_SAP", "RIGHE"],
+                       [((csv_names or {}).get(t, t), c, s, n) for t, c, s, n in entries])])
     codes = sorted({c for _, c, _, _ in entries})
     log.info("  [GIA' IN SAP] %d BP esclusi da '%s' (%d righe): riepilogo in %s",
              len(codes), source_name, sum(n for *_, n in entries), path)
@@ -457,76 +462,31 @@ def write_output_zip(source_name: str, zip_bytes: bytes):
 
 
 def write_discarded_csv(conn, table: str, source_name: str,
-                        cols: list, orphan_keys: set, fk_col: str):
+                        cols: list, keys: set, fk_col: str, check_id: str, reason):
     """
-    Scrive i record scartati (orfani) in un file CSV nella cartella OUTPUT_DIR.
-    Nome file: <table>_discarded.csv  (es. S_ROLES#ZBP_RuoliFornitori_discarded.csv)
-    Se non ci sono orfani o la colonna chiave non è presente, non scrive nulla.
+    Registra come scartate (file discarded/<tabella>_discarded.xlsx) le righe raw della tabella
+    con fk_col tra keys (es. orfani). Se non ci sono chiavi o manca la colonna, non fa nulla.
     """
-    if not orphan_keys or fk_col not in cols:
+    if not keys or fk_col not in cols:
         return
     fqt      = "raw." + q(table)
     col_list = ", ".join(q(c) for c in cols)
-    placeholders = ",".join(["%s"] * len(orphan_keys))
+    placeholders = ",".join(["%s"] * len(keys))
     with conn.cursor() as cur:
         cur.execute(
             f'SELECT {col_list} FROM {fqt}'
             f' WHERE "_source" = %s'
             f' AND {q(fk_col)} IN ({placeholders})'
             f' ORDER BY 1',
-            (source_name, *orphan_keys)
+            (source_name, *keys)
         )
         rows = cur.fetchall()
-    if not rows:
-        return
-    import io as _io, csv as _csv, math as _math
-    def sanitize(val):
-        if val is None: return ""
-        if isinstance(val, float) and _math.isnan(val): return ""
-        if isinstance(val, str) and val.strip() == "NaN": return ""
-        return val
-    buf = _io.StringIO()
-    writer = _csv.writer(buf, delimiter=";", quoting=_csv.QUOTE_MINIMAL,
-                         lineterminator="\r\n")
-    writer.writerow(cols)
-    writer.writerows([tuple(sanitize(v) for v in row) for row in rows])
-    safe_table = table.replace("#", "_").replace("/", "_")
-    out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
-    os.makedirs(DISCARDED_DIR, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(buf.getvalue())
-    log.warning(
-        "  [DISCARDED] %s: %d record orfani scritti in %s",
-        table, len(rows), out_path
-    )
+    add_discards(table, cols, rows, check_id, reason)
 
 
-def write_discarded_rows(table: str, cols: list, rows: list):
-    """Accoda righe escluse a <table>_discarded.csv (intestazione solo se il file è nuovo)."""
-    safe_table = table.replace("#", "_").replace("/", "_")
-    out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
-    os.makedirs(DISCARDED_DIR, exist_ok=True)
-    new_file   = not os.path.exists(out_path)
-    with open(out_path, "a", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
-        if new_file:
-            writer.writerow(cols)
-        writer.writerows(rows)
-    log.warning("  [DISCARDED] %s: %d righe scritte in %s", table, len(rows), out_path)
-
-
-def remove_discarded_csv(tables: list[str]):
-    """
-    Cancella i file <table>_discarded.csv delle tabelle gestite da questo export:
-    vanno eliminati a ogni run, altrimenti resterebbero gli scarti di run precedenti
-    (write_discarded_csv scrive il file solo se ci sono scarti).
-    """
-    for table in tables:
-        safe_table = table.replace("#", "_").replace("/", "_")
-        out_path   = os.path.join(DISCARDED_DIR, f"{safe_table}_discarded.csv")
-        if os.path.exists(out_path):
-            os.remove(out_path)
-            log.info("  [DISCARDED] rimosso file di scarto precedente: %s", out_path)
+def write_discarded_rows(table: str, cols: list, rows: list, check_id: str, reason):
+    """Registra righe escluse dall'output con il check e il motivo (testo o funzione della riga)."""
+    add_discards(table, cols, rows, check_id, reason)
 
 
 def table_exists(conn, schema: str, table: str) -> bool:
@@ -661,6 +621,7 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
                 csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols, key_filter=kf,
                                             excluded_keys=sap_keys or None, fk_col="KUNNR(k/*)",
                                             drop_if_all_empty=taxnum_drop if prd_table == TAXNUM_TABLE else None,
+                                            discard_reasons={"all_empty": ("CK220", "Identificativo fiscale vuoto")},
                                             row_fn=fixed_values_row_fn(BANK_ACCNAME) if prd_table == BANK_TABLE else None,
                                             write_discards=not key_filter)
                 n_rows = csv_bytes.count(b"\r\n") - 1
@@ -690,8 +651,8 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
 
             _is_master = raw_table in {'S_CUST_GEN#ZBP-DatiGenerali'}
             if not _is_master and orphan_keys and not key_filter:
-                write_discarded_csv(conn, raw_table, source_name,
-                                   raw_cols, orphan_keys, "KUNNR(k/*)")
+                write_discarded_csv(conn, raw_table, source_name, raw_cols, orphan_keys, "KUNNR(k/*)",
+                                    "CK404", "Cliente assente dall'anagrafica clienti (ZBP-DatiGenerali)")
             excluded += already_in_sap_rows(conn, src_schema, raw_table, source_name, "KUNNR(k/*)", sap_map)
             csv_bytes = fetch_table_csv(
                 conn, src_schema, raw_table, source_name, raw_cols,
@@ -704,6 +665,10 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
                 drop_if_not_in=(PARVW_COL, VENDOR_PARVW, PARTNER_COL, get_known_vendors(conn))
                                if raw_table == PARTNER_TABLE and partner_vend_on else None,
                 sort_cols=PARTNER_KEY_COLS if raw_table == PARTNER_TABLE else None,
+                discard_reasons={
+                    "all_empty": ("CK422", "Partner senza riferimento (KUNN2, LIFNR, PERNR e PARNR vuoti)"),
+                    "not_in":    ("CK423", "Partner RA/ZA con fornitore non presente in SAP"),
+                },
                 key_filter=kf,
                 write_discards=not key_filter,
             )
@@ -727,7 +692,7 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    remove_discarded_csv(RAW_TABLES)
+    reset_discards(RAW_TABLES + [t for _, t in PRD_TABLES])
     conn = get_connection()
 
     try:
@@ -744,6 +709,7 @@ def main():
             zip_bytes = build_zip(conn, source_name, excluded_out=excluded)
             write_output_zip(source_name, zip_bytes)
             write_already_in_sap(source_name, excluded, PRD_CSV_NAME)
+        flush_discards()
 
         # Estrazione ristretta (test): solo i clienti di stg.export_filter
         customers = get_export_filter(conn)

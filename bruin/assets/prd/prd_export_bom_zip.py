@@ -11,7 +11,7 @@ description: >
   Con l'esclusione dall'output di CK527 attiva nel catalogo (default: disattivata), le
   distinte con materiale padre o un componente non ancora migrati in SAP non sono esportate:
   testata e tutte le posizioni (chiave MATNR, WERKS, STLAN, STLAL) finiscono in
-  <tabella>_discarded.csv.
+  <tabella>_discarded.xlsx.
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source.
   Output: /project/datalake/out_source_mdg/<_source>
@@ -31,7 +31,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_output_lib import output_zip_path
-from prd_export_clienti_zip import write_discarded_rows, remove_discarded_csv
+from prd_discard_lib import add_discards, flush_discards, reset_discards
 from prd_merge_lib import exclusion_enabled, failing_keys
 
 logging.basicConfig(
@@ -111,7 +111,8 @@ def fetch_table_csv(conn, table, source_name, cols, excluded):
         bom_key = lambda row: "|".join(row[i] or "" for i in idx)
         discarded = [row for row in rows if bom_key(row) in excluded]
         if discarded:
-            write_discarded_rows(table, cols, discarded)
+            add_discards(table, cols, discarded, "CK527",
+                         "Distinta con materiale padre o componente non migrato in SAP nella divisione")
             rows = [row for row in rows if bom_key(row) not in excluded]
 
     def sanitize(val):
@@ -148,7 +149,7 @@ def build_zip(conn, source_name, cols_map, excluded):
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    remove_discarded_csv(RAW_TABLES)
+    reset_discards(RAW_TABLES)
     conn = get_connection()
     try:
         if not table_exists(conn, "S_BOM_HEADER"):
@@ -177,6 +178,7 @@ def main():
             with open(output_path, "wb") as f:
                 f.write(zip_bytes)
             log.info("  checkmark  %s  (%.1f KB)", output_path, len(zip_bytes) / 1024)
+        flush_discards()
     finally:
         conn.close()
     log.info("=== export_bom_zip completato ===")

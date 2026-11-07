@@ -15,7 +15,7 @@ description: >
   del flusso 05a (BP creato come cliente), tramite REF_KUNNR e BU_SORT2.
   Gli info record con fornitore senza codice SAP (CK526, se l'esclusione dall'output è attiva
   nel catalogo) non sono esportati, in nessuna delle quattro tabelle: finiscono in
-  <tabella>_discarded.csv. Se BUT000 non è caricata LIFNR(*)
+  <tabella>_discarded.xlsx. Se BUT000 non è caricata LIFNR(*)
   resta invariato e non si esclude nulla per CK526.
   Allo stesso modo, con l'esclusione dall'output di CK528 attiva nel catalogo (default:
   disattivata), non sono esportati gli info record con materiale non ancora migrato in SAP.
@@ -41,7 +41,8 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_output_lib import output_zip_path
-from prd_export_clienti_zip import get_but000_map, write_discarded_rows, remove_discarded_csv
+from prd_export_clienti_zip import get_but000_map
+from prd_discard_lib import add_discards, flush_discards, reset_discards
 from prd_merge_lib import exclusion_enabled, failing_keys
 
 logging.basicConfig(
@@ -133,8 +134,9 @@ def get_excluded_infnr(conn, lifnr_map):
     Info record da escludere, per i check con esclusione dall'output attiva nel catalogo:
     - CK526: fornitore senza codice SAP (solo se BUT000 è caricata);
     - CK528: materiale non ancora migrato in SAP (ultimo run del check).
+    Restituisce {INFNR: (check, motivo)} per i file di scarto.
     """
-    excluded = set()
+    excluded = {}
     with conn.cursor() as cur:
         if lifnr_map and exclusion_enabled(cur, "CK526"):
             cur.execute(f'SELECT {q(INFNR_COL)}, {q(LIFNR_COL)} FROM raw.{q(MASTER_TABLE)}')
@@ -143,13 +145,17 @@ def get_excluded_infnr(conn, lifnr_map):
             if missing:
                 log.warning("  *** [CK526] %d info record ESCLUSI, fornitori senza codice SAP in BUT000: %s",
                             len(missing), ", ".join(sorted(set(missing.values()))))
-            excluded |= set(missing)
+            excluded.update({infnr: ("CK526", f"Fornitore {lifnr or '(vuoto)'} senza codice SAP in BUT000")
+                             for infnr, lifnr in missing.items()})
         if exclusion_enabled(cur, "CK528"):
             keys = failing_keys(cur, "CK528")
             if keys:
                 log.warning("  *** [CK528] %d info record ESCLUSI, materiale non ancora migrato in SAP",
                             len(keys))
-            excluded |= keys
+            for infnr in keys:
+                check, reason = excluded.get(infnr, ("", ""))
+                excluded[infnr] = (", ".join(filter(None, [check, "CK528"])),
+                                   "; ".join(filter(None, [reason, "Materiale non ancora migrato in SAP"])))
     return excluded
 
 
@@ -174,9 +180,13 @@ def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded):
         )
         rows = cur.fetchall()
     idx = cols.index(INFNR_COL)
-    discarded = [row for row in rows if row[idx] in excluded]
-    if discarded:
-        write_discarded_rows(table, cols, discarded)
+    groups = {}
+    for row in rows:
+        if row[idx] in excluded:
+            groups.setdefault(excluded[row[idx]], []).append(row)
+    for (check, reason), discarded in groups.items():
+        add_discards(table, cols, discarded, check, reason)
+    if groups:
         rows = [row for row in rows if row[idx] not in excluded]
     if table == MASTER_TABLE:
         rows = transcode_lifnr(cols, rows, lifnr_map)
@@ -215,7 +225,7 @@ def build_zip(conn, source_name, cols_map, lifnr_map, excluded):
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    remove_discarded_csv(RAW_TABLES)
+    reset_discards(RAW_TABLES)
     conn = get_connection()
     try:
         if not table_exists(conn, MASTER_TABLE):
@@ -245,6 +255,7 @@ def main():
             with open(output_path, "wb") as f:
                 f.write(zip_bytes)
             log.info("  ✓  %s  (%.1f KB)", output_path, len(zip_bytes) / 1024)
+        flush_discards()
     finally:
         conn.close()
     log.info("=== export_inforecord_zip completato ===")

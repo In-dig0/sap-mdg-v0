@@ -28,7 +28,7 @@ Cartelle del datalake (volumi Docker, montate in Bruin sotto `/project/datalake/
 | `in_source_pprod`  | ZIP/CSV estratti dall'ERP attuale (quello sostituito da S/4HANA); include il semaforo `DATASET_READY.txt` | `ingest_zip_to_raw` → `raw` |
 | `in_source_sap`    | Tabelle di controllo SAP in XLSX                                  | `ingest_xlsx_to_ref` → `ref`      |
 | `in_source_others` | Altri file XLSX di supporto                                       | `ingest_others_to_stg` → `stg`    |
-| `out_source_mdg`   | Output di MDG: ZIP per il caricamento in SAP (`<file in ingresso>_MDG-OUT_YYYYMMDD.zip`, solo l'ultimo per flusso, `prd_output_lib.py`) e `GruppoProdotti.xlsx`; sottocartelle `discarded/` (scarti per tabella e per controllo), `report/` (BP già in SAP, quadratura), `test/` (estrazione ristretta), `backup/` (output degli ultimi 10 run, `setup.backup_output`) | scritta da `prd_export_*`, `prd_reconcile_zip` |
+| `out_source_mdg`   | Output di MDG: ZIP per il caricamento in SAP (`<file in ingresso>_MDG-OUT_YYYYMMDD.zip`, solo l'ultimo per flusso, `prd_output_lib.py`) e `GruppoProdotti.xlsx`; sottocartelle `discarded/` (scarti in Excel per tabella con controllo e motivo, per controllo, dell'ingestione e `RIEPILOGO_SCARTI.xlsx`; `prd_discard_lib.py`), `report/` (BP già in SAP, quadratura, in Excel), `test/` (estrazione ristretta), `backup/` (output degli ultimi 10 run, `setup.backup_output`) | scritta da `prd_export_*`, `prd_reconcile_zip` |
 
 In Bruin le cartelle `in_source_*` sono montate in sola lettura.
 

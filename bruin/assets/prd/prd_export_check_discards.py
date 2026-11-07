@@ -3,11 +3,11 @@ name: prd.export_check_discards
 type: python
 description: >
   Per ogni check attivo con l'esclusione dall'output attiva nel catalogo scrive
-  out_source_mdg/discarded/<CHECK>_discarded.csv con i record segnalati dal check
+  out_source_mdg/discarded/<CHECK>_discarded.xlsx con i record segnalati dal check
   nell'ultimo run (esito diverso da Ok), quindi esclusi dai file per SAP, e il motivo:
   TABELLA;CHIAVE;MOTIVO;GRAVITA;ZIP. Se il check non ha segnalazioni il file non è scritto.
   Elenca i record segnalati dal check: le righe effettivamente tolte dagli ZIP sono nei file
-  discarded/<tabella>_discarded.csv (possono essere di più, es. l'intera distinta base per un
+  discarded/<tabella>_discarded.xlsx (possono essere di più, es. l'intera distinta base per un
   componente di CK527, o tutte le righe collegate a un codice orfano).
 depends:
   - stg.ck034_maritc_comco
@@ -44,9 +44,12 @@ depends:
 
 import os
 import re
-import csv
+import sys
 import logging
 import psycopg2
+
+sys.path.insert(0, os.path.dirname(__file__))
+from prd_discard_lib import DISCARDED_DIR, write_xlsx
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,9 +66,7 @@ DB_CONFIG = {
     "password": os.environ.get("POSTGRES_PASSWORD", ""),
 }
 
-OUTPUT_DIR    = "/project/datalake/out_source_mdg"
-DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")
-CHECK_FILE    = re.compile(r"^CK\d{3}_discarded\.csv$")
+CHECK_FILE    = re.compile(r"^CK\d{3}_discarded\.(csv|xlsx)$")   # anche i CSV delle versioni precedenti
 HEADER        = ["TABELLA", "CHIAVE", "MOTIVO", "GRAVITA", "ZIP"]
 
 
@@ -101,12 +102,8 @@ def main():
                 rows = cur.fetchall()
                 if not rows:
                     continue
-                os.makedirs(DISCARDED_DIR, exist_ok=True)
-                path = os.path.join(DISCARDED_DIR, f"{check_id}_discarded.csv")
-                with open(path, "w", encoding="utf-8-sig", newline="") as f:
-                    writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
-                    writer.writerow(HEADER)
-                    writer.writerows(rows)
+                path = os.path.join(DISCARDED_DIR, f"{check_id}_discarded.xlsx")
+                write_xlsx(path, [(check_id, HEADER, rows)])
                 written += 1
                 log.warning("  [%s] %d record esclusi dall'output: %s", check_id, len(rows), path)
         log.info("=== %d check con esclusione attiva, %d file di scarto scritti ===", len(check_ids), written)

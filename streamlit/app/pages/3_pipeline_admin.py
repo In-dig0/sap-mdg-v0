@@ -473,7 +473,7 @@ with tab_ctrl:
     code_list_section(
         "export-exclude-fornitori-cli", "Fornitori da clienti (DM06-05a) già caricati in SAP", ":material/task_alt:",
         "I fornitori dell'elenco sono esclusi da tutti i file dello ZIP **DM06-05a** e riportati nel "
-        "riepilogo DM06-05a-ZBP-FornitoriCli_gia_in_SAP.csv. Indicare il codice cliente di riferimento "
+        "riepilogo DM06-05a-ZBP-FornitoriCli_gia_in_SAP.xlsx. Indicare il codice cliente di riferimento "
         "(REF_KUNNR) oppure il codice fornitore (LIFNR). Serve perché il BP è già in SAP_EXPORT_BUT000 "
         "come cliente: l'esclusione automatica non riconosce l'estensione a fornitore già caricata.",
         "Esclusione **attiva**",

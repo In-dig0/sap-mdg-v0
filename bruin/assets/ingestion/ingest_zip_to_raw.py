@@ -21,7 +21,7 @@ description: >
   doganali S_MARITC, distinte base, info record acquisti. Il numero di valori corretti è loggato.
   Righe con un numero di campi diverso dall'intestazione (in eccesso o mancanti) non sono
   caricate. Righe scartate e duplicati sono anche scritti in
-  out_source_mdg/discarded/ingestione_scarti.csv (ZIP;CSV;TABELLA;RIGA;CHIAVE;MOTIVO;CONTENUTO),
+  out_source_mdg/discarded/ingestione_scarti.xlsx (ZIP, CSV, TABELLA, RIGA, CHIAVE, MOTIVO, CONTENUTO),
   riscritto a ogni run (rimosso se non ci sono scarti).
   Colonne audit: _source TEXT, _loaded_at TIMESTAMPTZ.
   Strategia: DELETE selettivo per _source + INSERT.
@@ -38,6 +38,9 @@ import warnings
 from datetime import datetime, timezone
 
 import pandas as pd
+from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+from openpyxl.utils import get_column_letter
 import psycopg2
 from psycopg2.extras import execute_values
 
@@ -57,7 +60,7 @@ DB_CONFIG = {
 }
 
 INBOUND_PATH = "/project/datalake/in_source_pprod"
-REJECTS_FILE = "/project/datalake/out_source_mdg/discarded/ingestione_scarti.csv"
+REJECTS_FILE = "/project/datalake/out_source_mdg/discarded/ingestione_scarti.xlsx"
 REJECTS_HEADER = ["ZIP", "CSV", "TABELLA", "RIGA", "CHIAVE", "MOTIVO", "CONTENUTO"]
 REJECTS: list[list] = []   # righe scartate in ingestione, scritte in REJECTS_FILE a fine run
 RAW_SCHEMA   = "raw"
@@ -441,15 +444,23 @@ def process_zip(zip_path: str, conn):
 
 def write_rejects():
     """Scrive (o rimuove, se non ci sono scarti) il file delle righe scartate in ingestione."""
-    if os.path.exists(REJECTS_FILE):
-        os.remove(REJECTS_FILE)
+    for path in (REJECTS_FILE, REJECTS_FILE[:-len(".xlsx")] + ".csv"):   # anche il CSV delle versioni precedenti
+        if os.path.exists(path):
+            os.remove(path)
     if not REJECTS:
         return
     os.makedirs(os.path.dirname(REJECTS_FILE), exist_ok=True)
-    with open(REJECTS_FILE, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
-        writer.writerow(REJECTS_HEADER)
-        writer.writerows(REJECTS)
+    # Tutti i valori come testo (i codici mantengono gli zeri iniziali)
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet("ingestione_scarti")
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(REJECTS_HEADER))}{len(REJECTS) + 1}"
+    for i, w in enumerate([28, 36, 32, 8, 40, 60, 80], 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.append(REJECTS_HEADER)
+    for row in REJECTS:
+        ws.append([ILLEGAL_CHARACTERS_RE.sub("", str(v)) for v in row])
+    wb.save(REJECTS_FILE)
     log.error(f"  [SCARTI INGESTIONE] {len(REJECTS)} righe scartate (formato non valido o duplicati): {REJECTS_FILE}")
 
 

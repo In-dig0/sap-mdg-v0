@@ -11,7 +11,7 @@ description: >
   ZDM-Fornitori), quindi esportato senza trascodifica.
     - presente in BUT000: Ok;
     - assente: Warning, la riga non è esportata nello ZIP (prd.export_suppliers_zip, file
-      <tabella>_discarded.csv), perché SAP la rifiuta (fornitore non esistente in LFA1).
+      <tabella>_discarded.xlsx), perché SAP la rifiuta (fornitore non esistente in LFA1).
   Un esito per riga con LIFN2 diverso da LIFNR. Saltato se BUT000 non è caricata.
 @bruin """
 
