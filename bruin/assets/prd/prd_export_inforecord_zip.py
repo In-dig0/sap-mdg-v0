@@ -16,7 +16,9 @@ description: >
   Gli info record con fornitore senza codice SAP (CK526, se l'esclusione dall'output è attiva
   nel catalogo) non sono esportati, in nessuna delle quattro tabelle: finiscono in
   <tabella>_discarded.csv. Se BUT000 non è caricata LIFNR(*)
-  resta invariato e non si esclude nulla.
+  resta invariato e non si esclude nulla per CK526.
+  Allo stesso modo, con l'esclusione dall'output di CK528 attiva nel catalogo (default:
+  disattivata), non sono esportati gli info record con materiale non ancora migrato in SAP.
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source.
   Output: /project/datalake/out_source_mdg/<_source>
@@ -24,6 +26,7 @@ depends:
   - stg.ck407_inforecord_orphans
   - stg.ck512_inforecord_matnr_lifnr
   - stg.ck526_inforecord_lifnr_sap
+  - stg.ck528_inforecord_materiale_in_sap_marc
   - ingestion.ingest_xlsx_to_ref
 @bruin """
 
@@ -38,7 +41,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import get_but000_map, write_discarded_rows, remove_discarded_csv
-from prd_merge_lib import exclusion_enabled
+from prd_merge_lib import exclusion_enabled, failing_keys
 
 logging.basicConfig(
     level=logging.INFO,
@@ -126,21 +129,27 @@ def get_lifnr_map(conn):
 
 def get_excluded_infnr(conn, lifnr_map):
     """
-    Info record con fornitore senza codice SAP (CK526). Vuoto se BUT000 non è caricata o se
-    l'esclusione dall'output di CK526 non è attiva nel catalogo.
+    Info record da escludere, per i check con esclusione dall'output attiva nel catalogo:
+    - CK526: fornitore senza codice SAP (solo se BUT000 è caricata);
+    - CK528: materiale non ancora migrato in SAP (ultimo run del check).
     """
-    if not lifnr_map:
-        return set()
+    excluded = set()
     with conn.cursor() as cur:
-        if not exclusion_enabled(cur, "CK526"):
-            return set()
-        cur.execute(f'SELECT {q(INFNR_COL)}, {q(LIFNR_COL)} FROM raw.{q(MASTER_TABLE)}')
-        missing = {infnr: (lifnr or "").strip() for infnr, lifnr in cur.fetchall()
-                   if (lifnr or "").strip() not in lifnr_map}
-    if missing:
-        log.warning("  *** %d info record ESCLUSI, fornitori senza codice SAP in BUT000: %s",
-                    len(missing), ", ".join(sorted(set(missing.values()))))
-    return set(missing)
+        if lifnr_map and exclusion_enabled(cur, "CK526"):
+            cur.execute(f'SELECT {q(INFNR_COL)}, {q(LIFNR_COL)} FROM raw.{q(MASTER_TABLE)}')
+            missing = {infnr: (lifnr or "").strip() for infnr, lifnr in cur.fetchall()
+                       if (lifnr or "").strip() not in lifnr_map}
+            if missing:
+                log.warning("  *** [CK526] %d info record ESCLUSI, fornitori senza codice SAP in BUT000: %s",
+                            len(missing), ", ".join(sorted(set(missing.values()))))
+            excluded |= set(missing)
+        if exclusion_enabled(cur, "CK528"):
+            keys = failing_keys(cur, "CK528")
+            if keys:
+                log.warning("  *** [CK528] %d info record ESCLUSI, materiale non ancora migrato in SAP",
+                            len(keys))
+            excluded |= keys
+    return excluded
 
 
 def transcode_lifnr(cols, rows, lifnr_map):

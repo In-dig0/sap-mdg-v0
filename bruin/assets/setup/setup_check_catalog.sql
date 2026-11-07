@@ -527,12 +527,27 @@ VALUES
     ('CK524','Ordini di acquisto (S_EKKO): fornitore VERKF presente nell''anagrafica fornitori (ZBP o clienti estesi a fornitori 05a)',
      'PO','S_EKKO','VERKF',
      'S_SUPPL_GEN#ZBP_DatiGenerali / S_SUPPL_GEN#AddDatiGenerali (LIFNR)','Error','CROSS_SOURCE',TRUE,NOW()),
-    ('CK525','Flussi materiali (codici doganali, distinte base, cicli, info record, ordini, info cliente): materiale non ancora migrato in SAP (S_MARITC: riga non esportata)',
-     'MAT','S_MARITC / S_BOM_HEADER / S_BOM_ITEM / S_MAPL / S_EINA / S_EKPO / S_CUSTMAT','MATNR (+ WERKS)',
+    ('CK525','Codici doganali (S_MARITC): materiale non ancora migrato in SAP nella divisione',
+     'MAT','S_MARITC','MATNR(k/*) + PLANT(k/*)',
      'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
     ('CK526','Info record: fornitore LIFNR(*) senza codice SAP in BUT000 (l''info record non è esportato)',
      'PIR','S_EINA#INFORMATFOR','LIFNR(*)',
      'SAP_EXPORT_BUT000 (BU_SORT1 / REF_KUNNR e BU_SORT2)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK527','Distinte base: materiale padre o componente non ancora migrato in SAP nella divisione',
+     'BOM','S_BOM_HEADER / S_BOM_ITEM','MATNR(k/*) / IDNRK + WERKS(k)',
+     'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK528','Info record acquisti: materiale non ancora migrato in SAP',
+     'PIR','S_EINA#INFORMATFOR','MATNR',
+     'SAP_EXPORT_MARC (MATNR)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK529','Ordini di acquisto (S_EKPO): materiale non ancora migrato in SAP nella divisione',
+     'PO','S_EKPO','MATNR + WERKS',
+     'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK530','Cicli di lavoro (S_MAPL): materiale non ancora migrato in SAP nella divisione',
+     'ROUTING','S_MAPL','MATNR(k/*) + WERKS_MAT(k/*)',
+     'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK531','Info record cliente-materiale (S_CUSTMAT): materiale non ancora migrato in SAP',
+     'CMIR','S_CUSTMAT#INFORMATFOR','MATERIAL(k/*) (+ PLANT)',
+     'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: validità P.IVA EU (VIES) e UK (HMRC API v2)',
@@ -579,13 +594,16 @@ DELETE FROM stg.check_catalog WHERE check_id IN ('CK202', 'CK204', 'CK029');
 --   CK220/CK404              clienti                        (prd.export_clienti_zip)
 --   CK403                    destinatari merci              (prd.export_dest_merci_zip)
 --   CK526                    info record acquisti           (prd.export_inforecord_zip)
+--   CK527 distinte base (prd.export_bom_zip) e CK528 info record (prd.export_inforecord_zip):
+--   supportati, default disattivato.
 UPDATE stg.check_catalog
 SET exclude_supported = check_id IN (
         'CK034', 'CK506', 'CK511', 'CK525',
         'CK051', 'CK052', 'CK402', 'CK418', 'CK420',
         'CK047', 'CK055', 'CK214', 'CK804',
         'CK048', 'CK056', 'CK213', 'CK802',
-        'CK220', 'CK404', 'CK403', 'CK526'),
+        'CK220', 'CK404', 'CK403', 'CK526',
+        'CK527', 'CK528'),
     exclude_output = check_id IN (
         'CK034', 'CK506', 'CK511', 'CK525',
         'CK051', 'CK052', 'CK402', 'CK418', 'CK420',

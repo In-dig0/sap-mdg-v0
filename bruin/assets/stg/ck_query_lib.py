@@ -33,6 +33,45 @@ def table_exists(cur, schema: str, table: str) -> bool:
     return cur.fetchone()[0] is not None
 
 
+def material_in_sap_sql(cur, tables: dict) -> str | None:
+    """
+    Query dei controlli "materiale già migrato in SAP" (CK525, CK527-CK531): per ogni tabella
+    caricata di tables = {tabella: (object_key, materiale, divisione o None, filtro o None)}
+    il materiale (con la divisione, se indicata e valorizzata) deve essere in
+    ref.SAP_EXPORT_MARC. Confronto senza spazi iniziali e finali; None se nessuna tabella
+    è caricata. Join sugli insiemi distinti (hash join): una NOT EXISTS correlata per riga
+    diventa lentissima con le distinte base (centinaia di migliaia di righe x tutto MARC).
+    """
+    parts = []
+    for table, (key, mat, plant, where) in tables.items():
+        if not table_exists(cur, "raw", table):
+            continue
+        if plant:
+            found = f"CASE WHEN {plant} IS NULL THEN mm.matnr IS NOT NULL ELSE mp.matnr IS NOT NULL END"
+            joins = (f"LEFT JOIN sap_mat mm ON mm.matnr = TRIM({mat})\n"
+                     f"LEFT JOIN sap_marc mp ON mp.matnr = TRIM({mat}) AND mp.werks = TRIM({plant})")
+            label = f"'Materiale [' || TRIM({mat}) || '] divisione [' || COALESCE(TRIM({plant}), '') || ']'"
+        else:
+            found = "mm.matnr IS NOT NULL"
+            joins = f"LEFT JOIN sap_mat mm ON mm.matnr = TRIM({mat})"
+            label = f"'Materiale [' || TRIM({mat}) || ']'"
+        parts.append(f"""
+SELECT '{table}', {key},
+       CASE WHEN NOT ({found})
+            THEN {label} || ' non presente in SAP (SAP_EXPORT_MARC): la migrazione darebbe errore'
+       END,
+       x."_source",
+       {label} || ' presente in SAP'
+FROM raw."{table}" x
+{joins}
+{"WHERE " + where if where else ""}""")
+    if not parts:
+        return None
+    return ('WITH sap_marc AS (SELECT DISTINCT TRIM("MATNR") AS matnr, TRIM("WERKS") AS werks '
+            'FROM ref."SAP_EXPORT_MARC"),\n'
+            '     sap_mat AS (SELECT DISTINCT matnr FROM sap_marc)' + "\nUNION ALL".join(parts))
+
+
 def run_query_check(check_id: str, sql, required: list, category: str = "PO"):
     """
     required: tabelle necessarie come (schema, tabella); se ne manca una il controllo è saltato.

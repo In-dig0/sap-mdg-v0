@@ -45,6 +45,15 @@ def exclusion_enabled(cur, check_id: str) -> bool:
     return enabled
 
 
+def failing_keys(cur, check_id: str) -> set:
+    """object_key con esito diverso da Ok nell'ultimo run del check (stg.check_results)."""
+    cur.execute("""
+        SELECT DISTINCT object_key FROM stg.check_results
+        WHERE check_id = %s AND status <> 'Ok'
+          AND run_id = (SELECT MAX(run_id) FROM stg.check_results WHERE check_id = %s)
+    """, (check_id, check_id))
+    return {r[0] for r in cur.fetchall()}
+
 
 def get_columns(cur, schema: str, table: str) -> list[str]:
     cur.execute("""

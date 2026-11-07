@@ -43,6 +43,11 @@ depends:
   - stg.ck523_po_materiale_descr_lingua
   - stg.ck524_po_fornitore_anagrafica
   - stg.ck525_materiale_in_sap_marc
+  - stg.ck527_bom_materiale_in_sap_marc
+  - stg.ck528_inforecord_materiale_in_sap_marc
+  - stg.ck529_po_materiale_in_sap_marc
+  - stg.ck530_cicli_materiale_in_sap_marc
+  - stg.ck531_custmat_materiale_in_sap_marc
   - stg.ck526_inforecord_lifnr_sap
   - stg.ck421_inforecord_scales_cond
   - stg.ck401_zbp_vettori_orphans

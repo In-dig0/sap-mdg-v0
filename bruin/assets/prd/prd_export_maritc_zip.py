@@ -172,7 +172,7 @@ def get_columns(conn) -> list[str]:
 def get_excluded_keys(conn) -> dict[str, set]:
     """
     Chiavi in errore (status diverso da Ok) dell'ultimo run di ciascun check attivo di
-    EXCLUDE_CHECKS sulle righe di S_MARITC (CK525 controlla anche altre tabelle):
+    EXCLUDE_CHECKS sulle righe di S_MARITC:
     {check_id: {object_key}}. Ignorati i check disattivati o con l'esclusione dall'output
     disattivata nel catalogo.
     """
