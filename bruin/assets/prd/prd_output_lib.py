@@ -25,7 +25,7 @@ PIPELINE_NAME = "mdg_migration_pipeline"   # righe di stg.pipeline_runs scritte 
 STAMP_FORMAT  = "%Y%m%d_%H%M"
 
 OUT_SUFFIX = "_MDGOUT_"
-OUT_NAME_RE = re.compile(r"^(?P<stem>.+)(_MDGOUT_\d{8}_\d{4}|_MDG-OUT_\d{8})\.zip$", re.IGNORECASE)
+OUT_NAME_RE = re.compile(r"^(?P<stem>.+)(_MDGOUT_\d{8}_\d{4}|_MDG-OUT_\d{8})\.(zip|xlsx)$", re.IGNORECASE)
 
 
 @lru_cache(maxsize=1)
@@ -57,17 +57,22 @@ def zip_stem(name: str) -> str:
 
 
 def output_zip_name(source_name: str) -> str:
-    """Nome dello ZIP di output per il file in ingresso source_name, con data e ora di avvio del run."""
-    return f"{zip_stem(source_name)}{OUT_SUFFIX}{run_stamp()}.zip"
+    """
+    Nome del file di output per source_name, con data e ora di avvio del run; stessa estensione
+    di source_name (ZIP per SAP, oppure ad es. GruppoProdotti.xlsx).
+    """
+    ext = os.path.splitext(source_name)[1].lower() or ".zip"
+    return f"{zip_stem(source_name)}{OUT_SUFFIX}{run_stamp()}{ext}"
 
 
 def remove_previous_zips(directory: str, source_name: str) -> list[str]:
-    """Rimuove dalla cartella gli ZIP di output dello stesso flusso (con qualunque data o senza suffisso)."""
+    """Rimuove dalla cartella i file di output dello stesso flusso e tipo (con qualunque data o senza suffisso)."""
     stem, removed = zip_stem(source_name), []
+    ext = os.path.splitext(source_name)[1].lower() or ".zip"
     if not os.path.isdir(directory):
         return removed
     for name in os.listdir(directory):
-        if name.lower().endswith(".zip") and zip_stem(name) == stem:
+        if name.lower().endswith(ext) and zip_stem(name) == stem:
             os.remove(os.path.join(directory, name))
             removed.append(name)
     return removed
