@@ -22,7 +22,11 @@ import csv
 import zipfile
 import logging
 import math
+import sys
 import psycopg2
+
+sys.path.insert(0, os.path.dirname(__file__))
+from prd_output_lib import output_zip_path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -169,7 +173,7 @@ def main():
         for source_name in sources:
             log.info("=== Generazione ZIP: %s ===", source_name)
             zip_bytes   = build_zip(conn, source_name, cols_map)
-            output_path = os.path.join(OUTPUT_DIR, source_name)
+            output_path = output_zip_path(OUTPUT_DIR, source_name)
             with open(output_path, "wb") as f:
                 f.write(zip_bytes)
             log.info("  ✓  %s  (%.1f KB)", output_path, len(zip_bytes) / 1024)

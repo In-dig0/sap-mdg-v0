@@ -40,6 +40,7 @@ import sys
 import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
+from prd_output_lib import output_zip_path
 from prd_export_clienti_zip import get_but000_map, write_discarded_rows, remove_discarded_csv
 from prd_merge_lib import exclusion_enabled, failing_keys
 
@@ -240,7 +241,7 @@ def main():
         for source_name in sources:
             log.info("=== Generazione ZIP: %s ===", source_name)
             zip_bytes   = build_zip(conn, source_name, cols_map, lifnr_map, excluded)
-            output_path = os.path.join(OUTPUT_DIR, source_name)
+            output_path = output_zip_path(OUTPUT_DIR, source_name)
             with open(output_path, "wb") as f:
                 f.write(zip_bytes)
             log.info("  ✓  %s  (%.1f KB)", output_path, len(zip_bytes) / 1024)

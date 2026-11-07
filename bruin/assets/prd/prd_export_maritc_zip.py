@@ -32,6 +32,7 @@ import sys
 import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
+from prd_output_lib import output_zip_path, remove_previous_zips
 from prd_merge_lib import exclusion_enabled
 
 logging.basicConfig(
@@ -257,6 +258,7 @@ def main():
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
                 log.info("  raw.%s: 0 righe per '%s' — skip", RAW_TABLE, source_name)
+                remove_previous_zips(OUTPUT_DIR, source_name)
                 continue
 
             buf = io.BytesIO()
@@ -264,7 +266,7 @@ def main():
                 zf.writestr(f"{RAW_TABLE}.csv", csv_bytes)
             buf.seek(0)
 
-            output_path = os.path.join(OUTPUT_DIR, source_name)
+            output_path = output_zip_path(OUTPUT_DIR, source_name)
             with open(output_path, "wb") as f:
                 f.write(buf.read())
             log.info("  ✓  %s  (%d righe, %.1f KB)", output_path, n_rows, len(csv_bytes) / 1024)

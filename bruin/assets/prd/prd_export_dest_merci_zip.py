@@ -36,6 +36,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_merge_lib import exclusion_enabled
+from prd_output_lib import remove_previous_zips
 from prd_export_clienti_zip import (
     write_add_tables, TEST_DIR, get_but000_map, already_in_sap_rows,
     write_already_in_sap, write_output_zip,
@@ -389,10 +390,8 @@ def main():
 
         # Estrazione ristretta (test): nessuno ZIP dei DM — rimuove quello di run precedenti
         for source_name in sources:
-            test_path = os.path.join(TEST_DIR, source_name)
-            if os.path.exists(test_path):
-                os.remove(test_path)
-                log.info(f"  [TEST] rimosso {test_path} (i DM non fanno parte dell'estrazione ristretta)")
+            for name in remove_previous_zips(TEST_DIR, source_name):
+                log.info(f"  [TEST] rimosso {name} (i DM non fanno parte dell'estrazione ristretta)")
 
     finally:
         conn.close()

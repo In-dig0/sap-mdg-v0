@@ -49,6 +49,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_merge_lib import exclusion_enabled
+from prd_output_lib import output_zip_path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -389,9 +390,7 @@ def write_test_zip(source_name: str, build, keys: set, what: str):
     Estrazione ristretta: rimuove lo ZIP di test precedente e, se ci sono chiavi,
     scrive in TEST_DIR lo ZIP prodotto da build() (solo se contiene almeno un CSV).
     """
-    test_path = os.path.join(TEST_DIR, source_name)
-    if os.path.exists(test_path):
-        os.remove(test_path)
+    test_path = output_zip_path(TEST_DIR, source_name)
     if not keys:
         return
     zip_bytes = build()
@@ -448,10 +447,8 @@ def write_already_in_sap(source_name: str, entries: list[tuple], csv_names: dict
 
 def write_output_zip(source_name: str, zip_bytes: bytes):
     """Scrive lo ZIP di output; se non contiene CSV (es. tutti i BP già in SAP) rimuove quello precedente."""
-    output_path = os.path.join(OUTPUT_DIR, source_name)
+    output_path = output_zip_path(OUTPUT_DIR, source_name)
     if not zipfile.ZipFile(io.BytesIO(zip_bytes)).namelist():
-        if os.path.exists(output_path):
-            os.remove(output_path)
         log.info(f"  ✗  {source_name}: nessuna riga da esportare (BP già in SAP) — ZIP non generato")
         return
     with open(output_path, "wb") as f:

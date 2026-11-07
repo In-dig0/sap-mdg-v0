@@ -50,6 +50,7 @@ from prd_export_clienti_zip import (
     TEST_DIR, already_in_sap_path,
 )
 from prd_merge_lib import exclusion_enabled
+from prd_output_lib import zip_stem
 
 logging.basicConfig(
     level=logging.INFO,
@@ -288,11 +289,12 @@ def remove_stale_outputs(flow: str, sources: list[str]):
         if not os.path.isdir(out_dir):
             continue
         for name in os.listdir(out_dir):
-            if name.lower().endswith(".zip") and flow.lower() in name.lower() and name not in sources:
+            if (name.lower().endswith(".zip") and flow.lower() in name.lower()
+                    and zip_stem(name) not in {zip_stem(s) for s in sources}):
                 os.remove(os.path.join(out_dir, name))
                 log.info(f"  Rimosso {os.path.join(out_dir, name)}: nessun file del flusso caricato in raw")
-                if out_dir == OUTPUT_DIR and os.path.exists(already_in_sap_path(name)):
-                    os.remove(already_in_sap_path(name))
+                if out_dir == OUTPUT_DIR and os.path.exists(already_in_sap_path(zip_stem(name) + ".zip")):
+                    os.remove(already_in_sap_path(zip_stem(name) + ".zip"))
 
 
 def main():
