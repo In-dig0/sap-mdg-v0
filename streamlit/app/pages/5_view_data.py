@@ -166,26 +166,44 @@ with st.expander("🔎 Filtro per colonna", expanded=False):
     filter_mode = "include"
 
     if filter_col and filter_col != "— nessun filtro —":
+        with fc2:
+            # Le colonne possono avere decine di migliaia di valori distinti (es. codici
+            # materiale): i valori proposti sono cercati nel database, non solo i primi 500
+            value_search = st.text_input(
+                f"Cerca tra i valori di `{filter_col}`",
+                key=f"filter_value_search_{filter_col}",
+                placeholder="Parte del valore, es. 116040 (vuoto = primi valori in ordine)",
+            )
         try:
             df_vals = run_query(
                 f'SELECT DISTINCT "{filter_col}" AS val '
                 f'FROM {selected_schema}."{selected_table}" '
-                f'WHERE "{filter_col}" IS NOT NULL '
+                f'WHERE "{filter_col}" IS NOT NULL AND "{filter_col}"::text ILIKE %s '
                 f'ORDER BY 1 '
-                f'LIMIT 500',
+                f'LIMIT 501',
+                (f"%{value_search.strip()}%",),
             )
             distinct_values = df_vals["val"].astype(str).tolist() if not df_vals.empty else []
         except Exception:
             distinct_values = []
+        more_values = len(distinct_values) > 500
+        distinct_values = distinct_values[:500]
 
         with fc2:
+            # I valori già scelti restano tra le opzioni anche se la ricerca cambia
+            chosen = [v for v in st.session_state.get("filter_values_ms", []) if v != "(tutti)"]
             selected_values = st.multiselect(
                 f"Valori di `{filter_col}`",
-                options=["(tutti)"] + distinct_values,
+                options=["(tutti)"] + sorted(set(chosen) | set(distinct_values)),
                 default=[],
                 key="filter_values_ms",
-                placeholder="Seleziona uno o più valori...",
+                placeholder="Seleziona uno o più valori, oppure incolla un valore esatto...",
+                accept_new_options=True,
             )
+            if more_values:
+                st.caption("Mostrati i primi 500 valori: scrivi parte del valore in **Cerca** per trovarne altri.")
+            elif value_search.strip() and not distinct_values:
+                st.caption(f"Nessun valore contiene «{value_search.strip()}».")
             if "(tutti)" in selected_values or not selected_values:
                 filter_values = []
             else:
