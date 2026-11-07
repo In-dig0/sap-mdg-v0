@@ -17,6 +17,8 @@ description: >
   Codifica: UTF-8; i file non UTF-8 validi sono letti come Windows-1252 (es. 'Ø' nelle
   descrizioni materiali) e loggati. In raw, e quindi negli export, il testo è UTF-8.
   Caratteri non stampabili: rimossi e loggati.
+  Codice materiale senza spazi iniziali e finali (TRIM_COLS): materiali DM03A, codici
+  doganali S_MARITC, distinte base, info record acquisti. Il numero di valori corretti è loggato.
   Colonne audit: _source TEXT, _loaded_at TIMESTAMPTZ.
   Strategia: DELETE selettivo per _source + INSERT.
 @bruin """
@@ -57,6 +59,19 @@ RAW_SCHEMA   = "raw"
 # restano le stesse
 TABLE_PREFIX = {"S_SUPPL_BANK#": "S_SUPP_BANK#"}
 
+# Colonne con il codice materiale da caricare senza spazi iniziali e finali (l'ERP
+# riempie il codice con spazi fino a 20 caratteri): tabella raw -> colonne
+MATERIAL_TABLES = ["S_MARA", "S_MAKT", "S_MARC", "S_MARD", "S_MARM", "S_MBEW", "S_MLAN",
+                   "S_MVKE", "S_QMAT", "S_CLF_MAT_AUSP_CHAR", "S_CLF_MAT_AUSP_NUM",
+                   "S_CLF_MAT_KSSK_HEAD"]                         # DM03A_MATERIALI
+TRIM_COLS = {
+    **{t: ["PRODUCT(k/*)"] for t in MATERIAL_TABLES},
+    "S_MARITC":           ["MATNR(k/*)"],                         # DM03C codici doganali
+    "S_BOM_HEADER":       ["MATNR(k/*)"],                         # distinte base
+    "S_BOM_ITEM":         ["MATNR(k/*)", "IDNRK"],
+    "S_EINA#INFORMATFOR": ["MATNR"],                              # info record acquisti
+}
+
 
 # ---------------------------------------------------------------------------
 # Utility
@@ -72,6 +87,18 @@ def table_name_for(csv_filename: str) -> str:
         if name.startswith(prefix):
             return table_prefix + name[len(prefix):]
     return name
+
+
+def trim_columns(df: pd.DataFrame, table: str) -> None:
+    """Toglie gli spazi iniziali e finali dalle colonne TRIM_COLS della tabella (in place)."""
+    for col in TRIM_COLS.get(table, []):
+        if col not in df.columns:
+            continue
+        trimmed = df[col].str.strip()
+        n = int((trimmed != df[col]).sum())
+        df[col] = trimmed
+        if n:
+            log.info(f"     [TRIM] {col}: tolti spazi iniziali/finali da {n} valori")
 
 
 def identify_keys(raw_cols: list) -> list:
@@ -353,6 +380,7 @@ def process_zip(zip_path: str, conn):
 
             raw_cols = [c.strip() for c in df.columns]
             df.columns = raw_cols
+            trim_columns(df, table_name)
             key_cols = identify_keys(raw_cols)
 
             log.info(f"     Righe valide: {len(df)} | Colonne: {len(df.columns)}")
