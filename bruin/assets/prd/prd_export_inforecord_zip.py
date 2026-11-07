@@ -13,8 +13,9 @@ description: >
   In S_EINA#INFORMATFOR il fornitore LIFNR(*) (codice del vecchio ERP) è trascodificato con
   il codice SAP (PARTNER di ref.SAP_EXPORT_BUT000): tramite BU_SORT1 oppure, per i fornitori
   del flusso 05a (BP creato come cliente), tramite REF_KUNNR e BU_SORT2.
-  Gli info record con fornitore senza codice SAP (CK526) non sono esportati, in nessuna delle
-  quattro tabelle: finiscono in <tabella>_discarded.csv. Se BUT000 non è caricata LIFNR(*)
+  Gli info record con fornitore senza codice SAP (CK526, se l'esclusione dall'output è attiva
+  nel catalogo) non sono esportati, in nessuna delle quattro tabelle: finiscono in
+  <tabella>_discarded.csv. Se BUT000 non è caricata LIFNR(*)
   resta invariato e non si esclude nulla.
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source.
@@ -37,6 +38,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_export_clienti_zip import get_but000_map, write_discarded_rows, remove_discarded_csv
+from prd_merge_lib import exclusion_enabled
 
 logging.basicConfig(
     level=logging.INFO,
@@ -123,10 +125,15 @@ def get_lifnr_map(conn):
 
 
 def get_excluded_infnr(conn, lifnr_map):
-    """Info record con fornitore senza codice SAP (CK526). Vuoto se BUT000 non è caricata."""
+    """
+    Info record con fornitore senza codice SAP (CK526). Vuoto se BUT000 non è caricata o se
+    l'esclusione dall'output di CK526 non è attiva nel catalogo.
+    """
     if not lifnr_map:
         return set()
     with conn.cursor() as cur:
+        if not exclusion_enabled(cur, "CK526"):
+            return set()
         cur.execute(f'SELECT {q(INFNR_COL)}, {q(LIFNR_COL)} FROM raw.{q(MASTER_TABLE)}')
         missing = {infnr: (lifnr or "").strip() for infnr, lifnr in cur.fetchall()
                    if (lifnr or "").strip() not in lifnr_map}

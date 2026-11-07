@@ -43,6 +43,7 @@ def main():
                     stg_schema="stg", stg_table="S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc_STG",
                     prd_table="S_SUPPL_TAXNUMBERS#ZBP_CodiciFisc",
                     vies_filter=True,
+                    vies_check_id="CK804",
                     vies_lifnr_col="LIFNR(k/*)",
                 )
     finally:

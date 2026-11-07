@@ -4,7 +4,8 @@ type: python
 description: >
   Genera l'archivio ZIP di output per i codici doganali (S_MARITC).
   La tabella viene letta dallo schema raw.
-  I record che non superano i controlli attivi vengono esclusi dall'output, scritti in
+  I record che non superano i controlli con esclusione dall'output attiva nel catalogo
+  vengono esclusi dall'output, scritti in
   S_MARITC_discarded.csv e segnalati in modo evidente nel log:
     - CK034: codice doganale COMCO vuoto o assente in SAP_CommodityCodesEU01;
     - CK506: coppia MATNR(k/*)+PLANT(k/*) assente in S_MARC;
@@ -27,7 +28,11 @@ import csv
 import zipfile
 import logging
 import math
+import sys
 import psycopg2
+
+sys.path.insert(0, os.path.dirname(__file__))
+from prd_merge_lib import exclusion_enabled
 
 logging.basicConfig(
     level=logging.INFO,
@@ -168,16 +173,13 @@ def get_excluded_keys(conn) -> dict[str, set]:
     """
     Chiavi in errore (status diverso da Ok) dell'ultimo run di ciascun check attivo di
     EXCLUDE_CHECKS sulle righe di S_MARITC (CK525 controlla anche altre tabelle):
-    {check_id: {object_key}}. I check disattivati sono ignorati.
+    {check_id: {object_key}}. Ignorati i check disattivati o con l'esclusione dall'output
+    disattivata nel catalogo.
     """
     excluded = {}
     with conn.cursor() as cur:
         for check_id in EXCLUDE_CHECKS:
-            cur.execute("SELECT COALESCE(is_active, FALSE) FROM stg.check_catalog WHERE check_id = %s",
-                        (check_id,))
-            row = cur.fetchone()
-            if not row or not row[0]:
-                log.info("  [%s] disattivato nel catalogo — nessuna esclusione", check_id)
+            if not exclusion_enabled(cur, check_id):
                 continue
             cur.execute("""
                 SELECT DISTINCT object_key

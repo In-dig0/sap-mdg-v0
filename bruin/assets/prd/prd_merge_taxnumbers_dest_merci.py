@@ -41,6 +41,7 @@ def main():
                     stg_schema="stg", stg_table="S_CUST_TAXNUMBERS#ZDM-CodiciFisc_STG",
                     prd_table="S_CUST_TAXNUMBERS#ZDM-CodiciFisc",
                     vies_filter=True,
+                    vies_check_id="CK802",
                     vies_lifnr_col="KUNNR(k/*)",
                 )
     finally:

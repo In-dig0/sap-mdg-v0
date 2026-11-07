@@ -44,7 +44,11 @@ import csv
 import zipfile
 import logging
 import math
+import sys
 import psycopg2
+
+sys.path.insert(0, os.path.dirname(__file__))
+from prd_merge_lib import exclusion_enabled
 
 logging.basicConfig(
     level=logging.INFO,
@@ -129,7 +133,7 @@ PARTNER_REF_COLS = ["KUNN2(k)", "LIFNR(k)", "PERNR(k)", "PARNR(k)"]
 # Funzioni partner che rimandano a un fornitore: il fornitore (KUNN2) deve esistere in SAP
 VENDOR_PARVW = {"RA", "ZA"}
 VENDOR_TABLE = "S_SUPPL_GEN#ZBP_DatiGenerali"
-# Codici fiscali: una riga senza identificativo (TAXNUM vuoto) è esclusa dall'output
+# Codici fiscali: una riga senza identificativo (TAXNUM vuoto) è esclusa dall'output (CK220)
 TAXNUM_TABLE = "S_CUST_TAXNUMBERS#ZBP-CodiciFisc"
 TAXNUM_COLS  = ["TAXNUM(*)"]
 # Ordinamento dell'output: chiave del file
@@ -171,15 +175,11 @@ def get_orphan_keys(conn, check_id: str) -> set:
     """
     Recupera le chiavi (LIFNR o KUNNR) orfane dall'ultimo run del check_id
     specificato in stg.check_results (status != 'Ok').
-    Ritorna un set vuoto se il check non è attivo o non ha risultati.
+    Ritorna un set vuoto se il check o la sua esclusione dall'output non sono attivi
+    nel catalogo, o se non ha risultati.
     """
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT COALESCE(is_active, FALSE)
-            FROM stg.check_catalog WHERE check_id = %s
-        """, (check_id,))
-        row = cur.fetchone()
-        if not row or not row[0]:
+        if not exclusion_enabled(cur, check_id):
             return set()
         cur.execute("""
             SELECT DISTINCT object_key
@@ -630,6 +630,10 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
     sap_keys = set(sap_map)
     excluded = []
 
+    # CK220: codici fiscali senza TAXNUM esclusi, se l'esclusione è attiva nel catalogo
+    with conn.cursor() as cur:
+        taxnum_drop = TAXNUM_COLS if exclusion_enabled(cur, "CK220") else None
+
     # Carica le chiavi orfane (CK404) — solo tabelle secondarie raw
     orphan_keys = get_orphan_keys(conn, "CK404")
     if orphan_keys:
@@ -650,7 +654,7 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
                 excluded += already_in_sap_rows(conn, prd_schema, prd_table, source_name, "KUNNR(k/*)", sap_map)
                 csv_bytes = fetch_table_csv(conn, prd_schema, prd_table, source_name, prd_cols, key_filter=kf,
                                             excluded_keys=sap_keys or None, fk_col="KUNNR(k/*)",
-                                            drop_if_all_empty=TAXNUM_COLS if prd_table == TAXNUM_TABLE else None,
+                                            drop_if_all_empty=taxnum_drop if prd_table == TAXNUM_TABLE else None,
                                             row_fn=fixed_values_row_fn(BANK_ACCNAME) if prd_table == BANK_TABLE else None,
                                             write_discards=not key_filter)
                 n_rows = csv_bytes.count(b"\r\n") - 1

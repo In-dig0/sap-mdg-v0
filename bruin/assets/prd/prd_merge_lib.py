@@ -29,6 +29,23 @@ def get_connection():
     return psycopg2.connect(**DB_CONFIG)
 
 
+def exclusion_enabled(cur, check_id: str) -> bool:
+    """
+    True se i record che non superano il check vanno esclusi dall'output: check attivo e
+    flag "esclusione dall'output" attivo nel catalogo (pagina Check Catalog).
+    """
+    cur.execute(
+        "SELECT COALESCE(is_active AND exclude_output, FALSE) FROM stg.check_catalog WHERE check_id = %s",
+        (check_id,),
+    )
+    row = cur.fetchone()
+    enabled = bool(row and row[0])
+    if not enabled:
+        log.info(f"  [{check_id}] esclusione dall'output non attiva (check o flag disattivati nel catalogo)")
+    return enabled
+
+
+
 def get_columns(cur, schema: str, table: str) -> list[str]:
     cur.execute("""
         SELECT column_name FROM information_schema.columns
@@ -315,6 +332,7 @@ def merge_table(cur, raw_schema: str, raw_table: str,
                 prd_table: str,
                 vies_filter: bool = False,
                 vies_lifnr_col: str | None = None,
+                vies_check_id: str | None = None,
                 ck047_filter: bool = False,
                 ck047_lifnr_col: str | None = None,
                 ck048_filter: bool = False,
@@ -335,7 +353,10 @@ def merge_table(cur, raw_schema: str, raw_table: str,
     - _status esclusa da prd
     - Record stg con _status='DELETED' esclusi dal JOIN
     - Se la tabella STG non esiste, usa solo raw (nessun JOIN).
-    - vies_filter=True: esclude TAXTYPE LIKE '%0' con PIVA EU non valida.
+    - vies_filter=True: esclude TAXTYPE LIKE '%0' con PIVA EU non valida (check vies_check_id).
+    Ogni filtro di esclusione si applica solo se il suo check ha l'esclusione dall'output
+    attiva nel catalogo (exclusion_enabled); la chiave banca estera ricavata da
+    bank_ue_filter è scritta in prd anche quando l'esclusione CK055/CK056 non è attiva.
     - ck047_filter=True: esclude record con BANKS=IT e BANKL non in ref.SAP_EXPORT_BNKA_IT (fornitori).
     - ck048_filter=True: esclude record con BANKS=IT e BANKL non in ref.SAP_EXPORT_BNKA_IT (clienti).
     - bank_ue_filter=True: coordinate bancarie estere (BANKS<>IT), regola stg.fn_banca_estera
@@ -352,6 +373,13 @@ def merge_table(cur, raw_schema: str, raw_table: str,
 
     raw_cols = get_columns(cur, raw_schema, raw_table)
     stg_cols = get_columns(cur, stg_schema, stg_table)
+
+    # Filtri di esclusione: solo se attivi nel catalogo per il check corrispondente
+    vies_filter            = vies_filter and exclusion_enabled(cur, vies_check_id)
+    ck047_filter           = ck047_filter and exclusion_enabled(cur, "CK047")
+    ck048_filter           = ck048_filter and exclusion_enabled(cur, "CK048")
+    bank_ue_exclude        = bank_ue_filter and exclusion_enabled(cur, bank_ue_check_id)
+    bank_incomplete_filter = bank_incomplete_filter and exclusion_enabled(cur, bank_incomplete_check_id)
 
     if not raw_cols:
         log.warning(f"  {raw_fqt} non trovata — skip.")
@@ -526,7 +554,7 @@ def merge_table(cur, raw_schema: str, raw_table: str,
         _log_ck048_discards(cur, raw_fqt, ck048_kunnr_col)
 
     # ---- Filtro banche estere (CK055 fornitori / CK056 clienti) ----
-    if bank_ue_filter and bank_ue_key_col and bank_ue_banks_col:
+    if bank_ue_exclude and bank_ue_key_col and bank_ue_banks_col:
         needed = [bank_ue_banks_col, *BANK_UE_COLS]
         if not all(c in raw_cols for c in needed):
             log.warning(f"  Filtro {bank_ue_check_id}: colonne {needed} non tutte presenti in {raw_fqt} — filtro saltato.")

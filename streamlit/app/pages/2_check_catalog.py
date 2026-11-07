@@ -90,6 +90,32 @@ def save_states(check_ids: list[str], new_state: bool):
 def save_state(check_id: str, new_state: bool):
     save_states([check_id], new_state)
 
+def save_exclude(check_id: str, exclude: bool):
+    """
+    Flag "esclusione dall'output" di un check: DB e JSON (sezione exclude_output, riletta
+    a ogni run da setup.apply_check_states). Solo per i check che la supportano.
+    """
+    conn = psycopg2.connect(**get_db_params())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE stg.check_catalog SET exclude_output = %s, updated_at = NOW()
+                WHERE check_id = %s AND exclude_supported
+            """, (exclude, check_id))
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        states = {}
+        if os.path.exists(STATES_PATH):
+            with open(STATES_PATH, "r") as f:
+                states = json.load(f)
+        states.setdefault("exclude_output", {})[check_id] = exclude
+        with open(STATES_PATH, "w") as f:
+            json.dump(states, f, indent=2)
+    except Exception as e:
+        st.warning(f"DB aggiornato ma impossibile scrivere {STATES_PATH}: {e}")
+
 @st.dialog("Conferma modifica massiva")
 def confirm_bulk_dialog(check_ids: list[str], new_state: bool, scope_label: str):
     azione = "attivare" if new_state else "disattivare"
@@ -259,7 +285,8 @@ def render_tab_controllo():
     try:
         df = run_query(f"""
             SELECT check_id, check_desc, check_type, severity,
-                   target_table, target_field, ref_table, is_active, updated_at
+                   target_table, target_field, ref_table, is_active,
+                   exclude_supported, exclude_output, updated_at
             FROM stg.check_catalog
             WHERE {where_clause}
             ORDER BY check_type, check_id
@@ -276,10 +303,14 @@ def render_tab_controllo():
     total    = len(df)
     attivi   = int(df["is_active"].sum())
     inattivi = total - attivi
-    c1, c2, c3 = st.columns(3)
+    esclusi  = int((df["is_active"].astype(bool) & df["exclude_output"].astype(bool)).sum())
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Check totali", total)
     c2.metric("✅ Attivi",    attivi)
     c3.metric("⏸️ Inattivi",  inattivi)
+    c4.metric("🚫 Escludono dall'output", esclusi,
+              help="Check attivi con l'esclusione dall'output attiva: i record in errore "
+                   "non vengono scritti nei file per SAP (finiscono nei file *_discarded.csv).")
 
     # Attivazione / disattivazione massiva dei check visualizzati (categoria filtrata)
     if "catalog_bulk_msg" in st.session_state:
@@ -363,7 +394,7 @@ def render_tab_controllo():
             updated_at = row["updated_at"]
 
             with st.container(border=True):
-                col_info, col_meta, col_toggle = st.columns([4, 3, 1])
+                col_info, col_meta, col_toggle = st.columns([4, 3, 2])
                 with col_info:
                     st.markdown(
                         f'<span style="font-size:18px; font-weight:700; color:#85B7EB;">'
@@ -396,6 +427,30 @@ def render_tab_controllo():
                         action = "attivato ✅" if new_state else "disattivato ⏸️"
                         st.toast(f"{check_id} {action}", icon="💾")
                         st.rerun()
+
+                    supported = bool(row["exclude_supported"])
+                    exclude   = bool(row["exclude_output"]) and supported
+                    new_exclude = st.toggle(
+                        "Escludi dall'output",
+                        value=exclude,
+                        disabled=not supported,
+                        key=f"exclude_{check_id}_v{st.session_state.get('catalog_toggle_ver', 0)}",
+                        help=(
+                            "Se attivo, i record che non superano il controllo non vengono scritti "
+                            "nei file di output per SAP e finiscono nei file *_discarded.csv. "
+                            "Vale solo se il controllo è attivo. Effetto dal prossimo run."
+                            if supported else
+                            "Esclusione non disponibile: l'export di questo flusso non sa "
+                            "escludere i record di questo controllo."
+                        ),
+                    )
+                    if supported and new_exclude != exclude:
+                        save_exclude(check_id, new_exclude)
+                        action = "esclude i record in errore 🚫" if new_exclude else "non esclude più i record in errore"
+                        st.toast(f"{check_id} {action} dall'output (dal prossimo run)", icon="💾")
+                        st.rerun()
+                    if exclude and not is_active:
+                        st.caption("Check disattivato: nessuna esclusione")
 
             updated_str = updated_at.strftime('%d/%m/%Y %H:%M') if hasattr(updated_at, 'strftime') else str(updated_at)[:16]
             st.caption(f"Aggiornato il: {updated_str}")

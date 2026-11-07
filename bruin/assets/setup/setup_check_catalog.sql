@@ -18,6 +18,15 @@ connection: mdg_postgres
 ALTER TABLE stg.check_catalog
     ADD COLUMN IF NOT EXISTS check_type VARCHAR(20) NOT NULL DEFAULT 'EXISTENCE';
 
+-- Esclusione dall'output dei record che non superano il controllo:
+--   exclude_supported: l'export/merge del flusso sa escludere le righe del check (impostato qui);
+--   exclude_output:    esclusione attiva (default qui sotto, scelta dell'utente in
+--                      check_states.json applicata da setup.apply_check_states).
+-- Un record è escluso solo se il check è attivo e exclude_output è attivo.
+ALTER TABLE stg.check_catalog
+    ADD COLUMN IF NOT EXISTS exclude_supported BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS exclude_output    BOOLEAN NOT NULL DEFAULT FALSE;
+
 INSERT INTO stg.check_catalog (
     check_id, check_desc, category, target_table,
     target_field, ref_table, severity, check_type, is_active, updated_at
@@ -559,3 +568,27 @@ ON CONFLICT (check_id) DO UPDATE SET
 --                 sostituiti da CK207 (identità fiscale fornitori + clienti).
 --   CK029: condizione di pagamento fornitori (ZTERM1 in T052), doppione di CK006.
 DELETE FROM stg.check_catalog WHERE check_id IN ('CK202', 'CK204', 'CK029');
+
+-- Check con esclusione dall'output implementata e valore di default del flag (riscritti a
+-- ogni run, poi setup.apply_check_states applica le scelte dell'utente). Per i nuovi check
+-- il default è disattivato; quelli qui sotto escludevano già i record prima del flag.
+--   CK034/CK506/CK511/CK525  codici doganali S_MARITC        (prd.export_maritc_zip)
+--   CK051/CK052/CK402/CK418/CK420  fornitori               (prd.export_suppliers_zip)
+--   CK047/CK055/CK214/CK804  banche e P.IVA fornitori       (prd.merge_banche_fornitori, merge P.IVA)
+--   CK048/CK056/CK213/CK802  banche e P.IVA clienti / DM    (prd.merge_banche_clienti, merge P.IVA)
+--   CK220/CK404              clienti                        (prd.export_clienti_zip)
+--   CK403                    destinatari merci              (prd.export_dest_merci_zip)
+--   CK526                    info record acquisti           (prd.export_inforecord_zip)
+UPDATE stg.check_catalog
+SET exclude_supported = check_id IN (
+        'CK034', 'CK506', 'CK511', 'CK525',
+        'CK051', 'CK052', 'CK402', 'CK418', 'CK420',
+        'CK047', 'CK055', 'CK214', 'CK804',
+        'CK048', 'CK056', 'CK213', 'CK802',
+        'CK220', 'CK404', 'CK403', 'CK526'),
+    exclude_output = check_id IN (
+        'CK034', 'CK506', 'CK511', 'CK525',
+        'CK051', 'CK052', 'CK402', 'CK418', 'CK420',
+        'CK047', 'CK055', 'CK214', 'CK804',
+        'CK048', 'CK056', 'CK213', 'CK802',
+        'CK220', 'CK404', 'CK403', 'CK526');

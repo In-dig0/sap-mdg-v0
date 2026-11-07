@@ -35,6 +35,7 @@ import sys
 import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
+from prd_merge_lib import exclusion_enabled
 from prd_export_clienti_zip import (
     write_add_tables, TEST_DIR, get_but000_map, already_in_sap_rows,
     write_already_in_sap, write_output_zip,
@@ -125,15 +126,11 @@ def get_orphan_keys(conn, check_id: str) -> set:
     """
     Recupera le chiavi (LIFNR o KUNNR) orfane dall'ultimo run del check_id
     specificato in stg.check_results (status != 'Ok').
-    Ritorna un set vuoto se il check non è attivo o non ha risultati.
+    Ritorna un set vuoto se il check o la sua esclusione dall'output non sono attivi
+    nel catalogo, o se non ha risultati.
     """
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT COALESCE(is_active, FALSE)
-            FROM stg.check_catalog WHERE check_id = %s
-        """, (check_id,))
-        row = cur.fetchone()
-        if not row or not row[0]:
+        if not exclusion_enabled(cur, check_id):
             return set()
         cur.execute("""
             SELECT DISTINCT object_key

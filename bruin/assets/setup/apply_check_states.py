@@ -4,8 +4,9 @@ type: python
 depends:
   - setup.check_catalog
 description: >
-  Legge /project/bruin/config/check_states.json e applica
-  lo stato is_active a stg.check_catalog.
+  Legge /project/bruin/config/check_states.json e applica a stg.check_catalog
+  lo stato is_active ({"CK001": true, ...}) e il flag di esclusione dall'output
+  ({"exclude_output": {"CK034": false, ...}}, solo per i check che la supportano).
   Questo asset garantisce che lo stato impostato dall'utente
   via Streamlit Check Catalog sopravviva ai riavvii della pipeline.
 @bruin """
@@ -34,8 +35,9 @@ def main():
     with open(STATES_PATH, "r") as f:
         states = json.load(f)
 
-    # Rimuovi commenti (chiavi che iniziano con _)
-    states = {k: v for k, v in states.items() if not k.startswith("_")}
+    excludes = states.get("exclude_output", {})
+    # Rimuovi commenti (chiavi che iniziano con _) e la sezione del flag di esclusione
+    states = {k: v for k, v in states.items() if not k.startswith("_") and k != "exclude_output"}
 
     conn = psycopg2.connect(**DB_CONFIG)
     try:
@@ -53,8 +55,19 @@ def main():
                     print(f"  [{status:>12}] {check_id}")
                     updated += 1
 
+            for check_id, exclude in excludes.items():
+                cur.execute("""
+                    UPDATE stg.check_catalog
+                    SET exclude_output = %s
+                    WHERE check_id = %s AND exclude_supported
+                """, (bool(exclude), check_id))
+                if cur.rowcount > 0:
+                    status = "esclude" if exclude else "NON esclude"
+                    print(f"  [{status:>12}] {check_id} — record in errore nell'output")
+
         conn.commit()
-        print(f"[OK] Stati applicati: {updated}/{len(states)} check")
+        print(f"[OK] Stati applicati: {updated}/{len(states)} check, "
+              f"flag di esclusione dall'output: {len(excludes)}")
 
     finally:
         conn.close()

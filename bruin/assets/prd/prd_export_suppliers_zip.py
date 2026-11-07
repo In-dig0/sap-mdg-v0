@@ -71,6 +71,7 @@ import sys
 import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
+from prd_merge_lib import exclusion_enabled
 from prd_export_clienti_zip import (
     get_but000_map, already_in_sap_rows, write_already_in_sap, write_output_zip,
     write_discarded_rows, get_export_filter, write_test_zip, fixed_values_row_fn,
@@ -162,7 +163,8 @@ CLI_RAW_TABLES = [
 LIFN2_IN_SAP = ('COALESCE(TRIM("LIFN2(k)"), \'\') IN (\'\', TRIM("LIFNR(k/*)"))'
                 ' OR EXISTS (SELECT 1 FROM ref."SAP_EXPORT_BUT000" b WHERE TRIM(b."BU_SORT1") = TRIM("LIFN2(k)"))')
 
-# Righe escluse dallo ZIP (e scritte in <tabella>_discarded.csv) quando il check è attivo:
+# Righe escluse dallo ZIP (e scritte in <tabella>_discarded.csv) quando il check e la sua
+# esclusione dall'output sono attivi nel catalogo:
 # tabella -> (check_id, tabella necessaria come "schema.tabella" o None, condizione SQL delle righe valide)
 ROW_RULES = {
     # CK051: coppia ISTYPE + IND_SECTOR presente in TB038A
@@ -295,15 +297,11 @@ def get_orphan_keys(conn, check_id: str) -> set:
     """
     Recupera le chiavi (LIFNR o KUNNR) orfane dall'ultimo run del check_id
     specificato in stg.check_results (status != 'Ok').
-    Ritorna un set vuoto se il check non è attivo o non ha risultati.
+    Ritorna un set vuoto se il check o la sua esclusione dall'output non sono attivi
+    nel catalogo, o se non ha risultati.
     """
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT COALESCE(is_active, FALSE)
-            FROM stg.check_catalog WHERE check_id = %s
-        """, (check_id,))
-        row = cur.fetchone()
-        if not row or not row[0]:
+        if not exclusion_enabled(cur, check_id):
             return set()
         cur.execute("""
             SELECT DISTINCT object_key
@@ -387,17 +385,16 @@ def customer_ref_row_fn(customer_codes: dict):
 
 def get_row_rule(conn, table: str) -> str | None:
     """
-    Condizione SQL delle righe valide di una tabella con regola in ROW_RULES, se il check
-    è attivo nel catalogo e la tabella di riferimento è caricata; altrimenti None.
+    Condizione SQL delle righe valide di una tabella con regola in ROW_RULES, se il check e
+    la sua esclusione dall'output sono attivi nel catalogo e la tabella di riferimento è
+    caricata; altrimenti None.
     """
     rule = ROW_RULES.get(table)
     if not rule:
         return None
     check_id, required, valid_if = rule
     with conn.cursor() as cur:
-        cur.execute("SELECT COALESCE(is_active, FALSE) FROM stg.check_catalog WHERE check_id = %s", (check_id,))
-        row = cur.fetchone()
-        if not row or not row[0]:
+        if not exclusion_enabled(cur, check_id):
             return None
         if required:
             schema, req_table = required.split(".", 1)
