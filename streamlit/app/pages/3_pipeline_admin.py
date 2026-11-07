@@ -6,7 +6,6 @@ Pipeline Admin — Controllo pipeline e analisi log
 """
 
 import re
-import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -70,6 +69,14 @@ def api_run_pipeline(force: bool = False, cleanup: bool = False):
 def api_status():
     try:
         r = requests.get(f"{API_BASE}/pipeline/status", timeout=3)
+        r.raise_for_status()
+        return r.json(), None
+    except Exception as e:
+        return None, str(e)
+
+def api_progress():
+    try:
+        r = requests.get(f"{API_BASE}/pipeline/progress", timeout=3)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
@@ -288,6 +295,55 @@ def api_upload_file(file_bytes: bytes, filename: str, endpoint: str = "inbox"):
 # Helpers log
 # ---------------------------------------------------------------------------
 
+PHASES = {"setup": "Preparazione", "ingestion": "Caricamento file", "stg": "Controlli",
+          "prd": "Merge ed export"}
+# Oltre questa durata l'asset in esecuzione è evidenziato (l'ingestione dura di norma 2-3 minuti)
+SLOW_ASSET_S = {"ingestion": 300}
+SLOW_ASSET_DEFAULT_S = 120
+MAX_RUNNING_SHOWN = 5   # Bruin esegue molti check in parallelo: si mostrano i più lunghi
+
+
+def format_duration(seconds: float) -> str:
+    seconds = int(seconds)
+    return f"{seconds // 60} min {seconds % 60:02d} s" if seconds >= 60 else f"{seconds} s"
+
+
+def render_progress(running: bool):
+    """Barra di avanzamento e asset in esecuzione, ricavati dal log del run (API /pipeline/progress)."""
+    progress, err = api_progress()
+    if err or not progress or not progress.get("total"):
+        if running:
+            st.info("⏳ Pipeline in esecuzione: avvio in corso...")
+        return
+    total, finished, failed = progress["total"], progress["finished"], progress["failed"]
+    done = finished + len(failed)
+    if running:
+        st.progress(min(done / total, 1.0), text=f"**{done} di {total} asset** completati ({done * 100 // total}%)")
+    else:
+        note = " (gli asset a valle di uno fallito non vengono eseguiti)" if failed else ""
+        st.caption(f"Asset eseguiti: {finished} completati, {len(failed)} falliti su {total}{note}")
+    if failed:
+        st.error("Asset falliti: " + ", ".join(f"`{a}`" for a in failed))
+    if not running:
+        return
+
+    current = progress["running"]
+    if not current:
+        return
+    phases = sorted({PHASES.get(r["asset"].split(".")[0], r["asset"].split(".")[0]) for r in current})
+    st.markdown(f"**Fase:** {' / '.join(phases)} — **in esecuzione ({len(current)}):**")
+    for r in current[:MAX_RUNNING_SHOWN]:
+        slow_s = SLOW_ASSET_S.get(r["asset"].split(".")[0], SLOW_ASSET_DEFAULT_S)
+        name = f"**{r['check_id']}** — {r['check_desc']}" if r.get("check_desc") else f"`{r['asset']}`"
+        line = f"{name} · da {format_duration(r['elapsed_s'])}"
+        if r["elapsed_s"] >= slow_s:
+            st.warning(f"⏱️ {line} (oltre {slow_s // 60} min: verificare se è bloccato)")
+        else:
+            st.markdown(f"- {line}")
+    if len(current) > MAX_RUNNING_SHOWN:
+        st.caption(f"e altri {len(current) - MAX_RUNNING_SHOWN} asset in esecuzione")
+
+
 def colorize_line(line: str) -> str:
     # Nome file XLSX o ZIP (=== XLSX: ... === o === ZIP: ... ===)
     if re.search(r"===\s*(XLSX|ZIP):.+===", line):
@@ -450,28 +506,35 @@ with tab_ctrl:
     st.subheader("📊 Stato run corrente")
 
     status_data, err = api_status()
+    is_running = not err and status_data.get("status") == "running"
 
-    if err:
-        st.warning(f"Impossibile recuperare lo stato: {err}")
-    else:
+    # Solo questa sezione si aggiorna ogni 5 secondi mentre la pipeline gira
+    @st.fragment(run_every=5 if is_running else None)
+    def render_run_status():
+        status_data, err = api_status()
+        if err:
+            st.warning(f"Impossibile recuperare lo stato: {err}")
+            return
         status = status_data.get("status", "idle")
-        icon   = STATUS_COLORS.get(status, "⚪")
+        if is_running and status != "running":
+            st.rerun()       # run terminato: ricarica la pagina (ferma l'aggiornamento automatico)
+        icon = STATUS_COLORS.get(status, "⚪")
         st.markdown(f"### {icon} `{status.upper()}`")
 
         if status_data.get("run_id"):
             c1, c2, c3 = st.columns(3)
             c1.metric("Run ID",    status_data["run_id"])
             dur = status_data.get("duration_s")
-            c2.metric("Durata",    f"{dur:.0f}s" if dur else "—")
+            c2.metric("Durata",    format_duration(dur) if dur else "—")
             c3.metric("Exit code", status_data.get("exit_code", "—"))
 
         if status_data.get("error_msg"):
             st.error(status_data["error_msg"])
 
-        if status == "running":
-            st.info("⏳ Pipeline in esecuzione... aggiornamento automatico tra 5s")
-            time.sleep(5)
-            st.rerun()
+        if status_data.get("run_id"):
+            render_progress(status == "running")
+
+    render_run_status()
 
 # ===========================================================================
 # TAB 2 — SFTP

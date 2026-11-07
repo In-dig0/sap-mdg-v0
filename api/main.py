@@ -483,6 +483,80 @@ def pipeline_logs(tail: int = 100):
     )
 
 
+RE_TOTAL_ASSETS = re.compile(r"with (\d+) assets")
+RE_ASSET_EVENT  = re.compile(r"^\[(\d{2}:\d{2}:\d{2})\] (Running|Finished|Failed):\s+(\S+)")
+RE_CHECK_ASSET  = re.compile(r"^stg\.ck(\d{3})_")
+
+
+def check_descriptions(check_ids: list[str]) -> dict[str, str]:
+    """Descrizioni dal catalogo controlli; vuoto se il DB non risponde."""
+    if not check_ids:
+        return {}
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT check_id, check_desc FROM stg.check_catalog WHERE check_id = ANY(%s)",
+                        (check_ids,))
+            rows = dict(cur.fetchall())
+        conn.close()
+        return rows
+    except Exception:
+        return {}
+
+
+@app.get("/pipeline/progress", tags=["Pipeline"])
+def pipeline_progress():
+    """
+    Avanzamento del run corrente (o dell'ultimo) ricavato dal log di Bruin:
+    asset totali, completati, falliti e asset in esecuzione (con il check e da quanto girano).
+    Disponibile solo per i run avviati dall'API.
+    """
+    result = {"run_id": state.run_id, "status": state.status, "total": None,
+              "finished": 0, "failed": [], "running": []}
+    if not state.log_file or not state.log_file.exists():
+        return result
+
+    running: dict[str, str] = {}
+    with open(state.log_file, "r", errors="replace") as f:
+        for line in f:
+            if result["total"] is None:
+                m = RE_TOTAL_ASSETS.search(line)
+                if m:
+                    result["total"] = int(m.group(1))
+                    continue
+            m = RE_ASSET_EVENT.match(line)
+            if not m:
+                continue
+            ts, event, asset = m.groups()
+            if event == "Running":
+                running[asset] = ts
+            else:
+                running.pop(asset, None)
+                if event == "Finished":
+                    result["finished"] += 1
+                else:
+                    result["failed"].append(asset)
+
+    # Durata dall'orario del log (stesso fuso orario del container Bruin)
+    now = datetime.now()
+    check_ids = {a: f"CK{m.group(1)}" for a in running if (m := RE_CHECK_ASSET.match(a))}
+    descs = check_descriptions(list(check_ids.values()))
+    for asset, ts in running.items():
+        started = datetime.combine(now.date(), datetime.strptime(ts, "%H:%M:%S").time())
+        elapsed = (now - started).total_seconds()
+        if elapsed < 0:          # run a cavallo della mezzanotte
+            elapsed += 86400
+        check_id = check_ids.get(asset)
+        result["running"].append({
+            "asset":      asset,
+            "check_id":   check_id,
+            "check_desc": descs.get(check_id),
+            "elapsed_s":  round(elapsed),
+        })
+    result["running"].sort(key=lambda r: -r["elapsed_s"])
+    return result
+
+
 @app.get("/pipeline/runs", tags=["Pipeline"])
 def pipeline_runs(limit: int = 20):
     """
