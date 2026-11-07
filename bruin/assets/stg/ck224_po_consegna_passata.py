@@ -24,10 +24,15 @@ SELECT 'S_EKET', e."EBELN(k/*)" || '/' || e."EBELP(k/*)" || '/' || e."ETENR(k/*)
        END,
        e."_source"
 FROM raw."S_EKET" e
+CROSS JOIN LATERAL (SELECT TRIM(e."EINDT(*)") AS v) t
 CROSS JOIN LATERAL (
-    SELECT CASE WHEN TRIM(e."EINDT(*)") ~ '^[0-9]{8}$'
-                 AND TO_CHAR(TO_DATE(TRIM(e."EINDT(*)"), 'YYYYMMDD'), 'YYYYMMDD') = TRIM(e."EINDT(*)")
-                THEN TO_DATE(TRIM(e."EINDT(*)"), 'YYYYMMDD') END AS eindt
+    -- Validazione prima della conversione: TO_DATE va in errore su mese o giorno fuori
+    -- intervallo (es. 07203100), che deve invece diventare una segnalazione
+    SELECT CASE WHEN t.v ~ '^[1-9][0-9]{3}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])$' THEN
+               CASE WHEN SUBSTR(t.v, 7, 2)::int <= EXTRACT(DAY FROM
+                         MAKE_DATE(SUBSTR(t.v, 1, 4)::int, SUBSTR(t.v, 5, 2)::int, 1) + INTERVAL '1 month - 1 day')
+                    THEN TO_DATE(t.v, 'YYYYMMDD') END
+           END AS eindt
 ) d
 """
 

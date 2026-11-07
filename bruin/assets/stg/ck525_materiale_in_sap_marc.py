@@ -46,20 +46,26 @@ TABLES = {
 
 
 def select_for(table: str, key: str, mat: str, plant: str | None, where: str | None) -> str:
+    # Join sugli insiemi distinti (hash join): una NOT EXISTS correlata per riga diventa
+    # lentissima con le distinte base (centinaia di migliaia di righe x tutto MARC)
     if plant:
-        match = f"m.matnr = TRIM({mat}) AND ({plant} IS NULL OR m.werks = TRIM({plant}))"
+        found = f"CASE WHEN {plant} IS NULL THEN mm.matnr IS NOT NULL ELSE mp.matnr IS NOT NULL END"
+        joins = (f"LEFT JOIN sap_mat mm ON mm.matnr = TRIM({mat})\n"
+                 f"LEFT JOIN sap_marc mp ON mp.matnr = TRIM({mat}) AND mp.werks = TRIM({plant})")
         label = (f"'Materiale [' || TRIM({mat}) || '] divisione [' || COALESCE(TRIM({plant}), '') || ']'")
     else:
-        match = f"m.matnr = TRIM({mat})"
+        found = "mm.matnr IS NOT NULL"
+        joins = f"LEFT JOIN sap_mat mm ON mm.matnr = TRIM({mat})"
         label = f"'Materiale [' || TRIM({mat}) || ']'"
     return f"""
 SELECT '{table}', {key},
-       CASE WHEN NOT EXISTS (SELECT 1 FROM sap_marc m WHERE {match})
+       CASE WHEN NOT ({found})
             THEN {label} || ' non presente in SAP (SAP_EXPORT_MARC): la migrazione darebbe errore'
        END,
        x."_source",
        {label} || ' presente in SAP'
 FROM raw."{table}" x
+{joins}
 {"WHERE " + where if where else ""}"""
 
 
@@ -68,7 +74,8 @@ def build_sql(cur):
     if not parts:
         return None
     return ('WITH sap_marc AS (SELECT DISTINCT TRIM("MATNR") AS matnr, TRIM("WERKS") AS werks '
-            'FROM ref."SAP_EXPORT_MARC")' + "\nUNION ALL".join(parts))
+            'FROM ref."SAP_EXPORT_MARC"),\n'
+            '     sap_mat AS (SELECT DISTINCT matnr FROM sap_marc)' + "\nUNION ALL".join(parts))
 
 
 if __name__ == "__main__":
