@@ -310,7 +310,7 @@ def render_tab_controllo():
     c3.metric("⏸️ Inattivi",  inattivi)
     c4.metric("🚫 Escludono dall'output", esclusi,
               help="Check attivi con l'esclusione dall'output attiva: i record in errore "
-                   "non vengono scritti nei file per SAP (finiscono nei file *_discarded.csv).")
+                   "non vengono scritti nei file per SAP (finiscono in out_source_mdg/discarded).")
 
     # Attivazione / disattivazione massiva dei check visualizzati (categoria filtrata)
     if "catalog_bulk_msg" in st.session_state:
@@ -437,7 +437,8 @@ def render_tab_controllo():
                         key=f"exclude_{check_id}_v{st.session_state.get('catalog_toggle_ver', 0)}",
                         help=(
                             "Se attivo, i record che non superano il controllo non vengono scritti "
-                            "nei file di output per SAP e finiscono nei file *_discarded.csv. "
+                            "nei file di output per SAP e finiscono in out_source_mdg/discarded "
+                            "(file <CHECK>_discarded.csv con il motivo). "
                             "Vale solo se il controllo è attivo. Effetto dal prossimo run."
                             if supported else
                             "Esclusione non disponibile: l'export di questo flusso non sa "

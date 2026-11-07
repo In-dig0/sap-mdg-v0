@@ -28,7 +28,7 @@ Cartelle del datalake (volumi Docker, montate in Bruin sotto `/project/datalake/
 | `in_source_pprod`  | ZIP/CSV estratti dall'ERP attuale (quello sostituito da S/4HANA); include il semaforo `DATASET_READY.txt` | `ingest_zip_to_raw` → `raw` |
 | `in_source_sap`    | Tabelle di controllo SAP in XLSX                                  | `ingest_xlsx_to_ref` → `ref`      |
 | `in_source_others` | Altri file XLSX di supporto                                       | `ingest_others_to_stg` → `stg`    |
-| `out_source_mdg`   | Output di MDG: ZIP per il caricamento in SAP, CSV degli scarti, `GruppoProdotti.xlsx` | scritta da `prd_export_*`         |
+| `out_source_mdg`   | Output di MDG: ZIP per il caricamento in SAP e `GruppoProdotti.xlsx`; sottocartelle `discarded/` (scarti per tabella e per controllo), `report/` (BP già in SAP, quadratura), `test/` (estrazione ristretta) | scritta da `prd_export_*`, `prd_reconcile_zip` |
 
 In Bruin le cartelle `in_source_*` sono montate in sola lettura.
 
