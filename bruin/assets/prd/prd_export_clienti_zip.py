@@ -129,9 +129,9 @@ PARTNER_COL   = "KUNN2(k)"
 PARVW_COL = "PARVW(k/*)"
 PARVW_MAP = {"RA": "SP"}
 BUT000_TABLE  = "SAP_EXPORT_BUT000"
-# Riferimenti al partner: una riga senza nessuno di questi valori è esclusa dall'output
+# Riferimenti al partner: una riga senza nessuno di questi valori è esclusa dall'output (CK422)
 PARTNER_REF_COLS = ["KUNN2(k)", "LIFNR(k)", "PERNR(k)", "PARNR(k)"]
-# Funzioni partner che rimandano a un fornitore: il fornitore (KUNN2) deve esistere in SAP
+# Funzioni partner che rimandano a un fornitore: il fornitore (KUNN2) deve esistere in SAP (CK423)
 VENDOR_PARVW = {"RA", "ZA"}
 VENDOR_TABLE = "S_SUPPL_GEN#ZBP_DatiGenerali"
 # Codici fiscali: una riga senza identificativo (TAXNUM vuoto) è esclusa dall'output (CK220)
@@ -636,9 +636,12 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
     sap_keys = set(sap_map)
     excluded = []
 
-    # CK220: codici fiscali senza TAXNUM esclusi, se l'esclusione è attiva nel catalogo
+    # Esclusioni attive nel catalogo: CK220 codici fiscali senza TAXNUM, CK422 partner senza
+    # riferimento, CK423 partner RA/ZA con fornitore non in SAP
     with conn.cursor() as cur:
-        taxnum_drop = TAXNUM_COLS if exclusion_enabled(cur, "CK220") else None
+        taxnum_drop     = TAXNUM_COLS if exclusion_enabled(cur, "CK220") else None
+        partner_ref_on  = exclusion_enabled(cur, "CK422")
+        partner_vend_on = exclusion_enabled(cur, "CK423")
 
     # Carica le chiavi orfane (CK404) — solo tabelle secondarie raw
     orphan_keys = get_orphan_keys(conn, "CK404")
@@ -700,9 +703,9 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
                 value_map={PARTNER_COL: get_but000_map(conn), PARVW_COL: PARVW_MAP}
                           if raw_table == PARTNER_TABLE else None,
                 value_map_skip_if_equal={PARTNER_COL: "KUNNR(k/*)"} if raw_table == PARTNER_TABLE else None,
-                drop_if_all_empty=PARTNER_REF_COLS if raw_table == PARTNER_TABLE else None,
+                drop_if_all_empty=PARTNER_REF_COLS if raw_table == PARTNER_TABLE and partner_ref_on else None,
                 drop_if_not_in=(PARVW_COL, VENDOR_PARVW, PARTNER_COL, get_known_vendors(conn))
-                               if raw_table == PARTNER_TABLE else None,
+                               if raw_table == PARTNER_TABLE and partner_vend_on else None,
                 sort_cols=PARTNER_KEY_COLS if raw_table == PARTNER_TABLE else None,
                 key_filter=kf,
                 write_discards=not key_filter,

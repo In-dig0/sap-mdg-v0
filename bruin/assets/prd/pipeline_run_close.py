@@ -50,6 +50,11 @@ depends:
   - stg.ck531_custmat_materiale_in_sap_marc
   - stg.ck526_inforecord_lifnr_sap
   - stg.ck421_inforecord_scales_cond
+  - stg.ck422_customer_partner_riferimento
+  - stg.ck423_customer_partner_fornitore_sap
+  - stg.ck424_fornitori_cli_cliente_sap
+  - stg.ck425_customer_add_cliente_sap
+  - stg.ck426_customer_add_solo_dm
   - stg.ck401_zbp_vettori_orphans
   - stg.ck402_zbp_fornitori_orphans
   - stg.ck403_zdm_clienti_orphans

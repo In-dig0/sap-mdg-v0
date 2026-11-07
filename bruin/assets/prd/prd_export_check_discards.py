@@ -33,6 +33,13 @@ depends:
   - stg.ck526_inforecord_lifnr_sap
   - stg.ck527_bom_materiale_in_sap_marc
   - stg.ck528_inforecord_materiale_in_sap_marc
+  - stg.ck518_add_interlocutore_cli_customer
+  - stg.ck519_gestione_credito_customer
+  - stg.ck422_customer_partner_riferimento
+  - stg.ck423_customer_partner_fornitore_sap
+  - stg.ck424_fornitori_cli_cliente_sap
+  - stg.ck425_customer_add_cliente_sap
+  - stg.ck426_customer_add_solo_dm
 @bruin """
 
 import os

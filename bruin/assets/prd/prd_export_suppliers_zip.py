@@ -514,7 +514,10 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
     if flow.get("customer_ref"):
         customer_codes = get_but000_map(conn, sort_cols=("BU_SORT2",))
         ref_map  = get_customer_ref_map(conn, source_name)
-        unmapped = {lifnr for lifnr, ref in ref_map.items() if ref not in customer_codes}
+        # CK424: fornitori con cliente di riferimento non in SAP, se l'esclusione è attiva
+        with conn.cursor() as cur:
+            if exclusion_enabled(cur, "CK424"):
+                unmapped = {lifnr for lifnr, ref in ref_map.items() if ref not in customer_codes}
         if unmapped:
             log.warning("  *** %d fornitori con cliente di riferimento non presente in BUT000 (BU_SORT2) "
                         "esclusi da '%s': %s", len(unmapped), source_name, sorted(unmapped))

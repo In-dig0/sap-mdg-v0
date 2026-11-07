@@ -430,6 +430,21 @@ VALUES
     ('CK421','Info record acquisti: ogni scaglione deve avere la condizione di prezzo a cui si riferisce, con la stessa chiave (altrimenti SAP lo rifiuta)',
      'PIR','S_SCALES#INFORSCALES','INFNR, EKORG, ESOKZ, WERKS, KOPOS, COND_TYPE, VALID_FROM, VALID_TO',
      'raw.S_COND#INFORCOND (stessa chiave)','Error','CROSS_TABLE',TRUE,NOW()),
+    ('CK422','Partner dei clienti: ogni partner deve indicare a chi si riferisce (cliente, fornitore, persona o interlocutore)',
+     'BP','S_CUST_SALES_PARTNER#ZBP-Partner','KUNN2(k) / LIFNR(k) / PERNR(k) / PARNR(k)',
+     NULL,'Warning','EXISTENCE',TRUE,NOW()),
+    ('CK423','Partner dei clienti con funzione RA o ZA: il fornitore indicato deve essere già presente in SAP',
+     'BP','S_CUST_SALES_PARTNER#ZBP-Partner','KUNN2(k) (PARVW = RA / ZA)',
+     'SAP_EXPORT_BUT000 (BU_SORT1)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK424','Fornitori estesi da clienti (05a): il cliente di riferimento deve essere già presente in SAP',
+     'BP','S_SUPPL_GEN#AddDatiGenerali','REF_KUNNR',
+     'SAP_EXPORT_BUT000 (BU_SORT2)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK425','Interlocutori, dati aggiuntivi e gestione credito dei clienti (03b, 07a): il cliente deve essere già presente in SAP',
+     'BP','S_CUST_GEN#AddDatiGenerali / S_CUST_CONT#ZBP-AddInterlocutore / S_UKM_PROFILE / S_UKM_SEGMENT','KUNNR(k/*)',
+     'SAP_EXPORT_BUT000 (BU_SORT2)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK426','Interlocutori e dati aggiuntivi dei clienti (03b): il codice deve essere un cliente e non solo un destinatario merci',
+     'BP','S_CUST_GEN#AddDatiGenerali / S_CUST_CONT#ZBP-AddInterlocutore','KUNNR(k/*)',
+     'S_CUST_GEN#ZBP-DatiGenerali / S_CUST_GEN#ZDM-DatiGenerali','Warning','CROSS_TABLE',TRUE,NOW()),
 
     -- CROSS_SOURCE — CK501-CK506
     ('CK501','Materiali prodotti internamente o misti: deve esistere la distinta base (esclusi i materiali in stato 01 e 08)',
@@ -594,6 +609,9 @@ DELETE FROM stg.check_catalog WHERE check_id IN ('CK202', 'CK204', 'CK029');
 --   CK220/CK404              clienti                        (prd.export_clienti_zip)
 --   CK403                    destinatari merci              (prd.export_dest_merci_zip)
 --   CK526                    info record acquisti           (prd.export_inforecord_zip)
+--   CK518/CK519/CK425/CK426      interlocutori e credito clienti (prd.export_clienti_add_zip)
+--   CK422/CK423              partner clienti                (prd.export_clienti_zip)
+--   CK424                    fornitori 05a                  (prd.export_suppliers_zip)
 --   CK527 distinte base (prd.export_bom_zip) e CK528 info record (prd.export_inforecord_zip):
 --   supportati, default disattivato.
 UPDATE stg.check_catalog
@@ -603,10 +621,12 @@ SET exclude_supported = check_id IN (
         'CK047', 'CK055', 'CK214', 'CK804',
         'CK048', 'CK056', 'CK213', 'CK802',
         'CK220', 'CK404', 'CK403', 'CK526',
+        'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426',
         'CK527', 'CK528'),
     exclude_output = check_id IN (
         'CK034', 'CK506', 'CK511', 'CK525',
         'CK051', 'CK052', 'CK402', 'CK418', 'CK420',
         'CK047', 'CK055', 'CK214', 'CK804',
         'CK048', 'CK056', 'CK213', 'CK802',
-        'CK220', 'CK404', 'CK403', 'CK526');
+        'CK220', 'CK404', 'CK403', 'CK526',
+        'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426');

@@ -49,6 +49,7 @@ from prd_export_clienti_zip import (
     get_exclude_add, already_in_sap_rows, write_already_in_sap, write_output_zip,
     TEST_DIR, already_in_sap_path,
 )
+from prd_merge_lib import exclusion_enabled
 
 logging.basicConfig(
     level=logging.INFO,
@@ -182,8 +183,16 @@ def get_orphan_keys(conn, source_name: str, tables: list[str]) -> set:
     return orphans
 
 
+def orphan_check_id(source_name: str) -> str:
+    """Check dei clienti assenti dall'anagrafica: CK518 (03b interlocutori), CK519 (07a credito)."""
+    return "CK518" if ADD_FLOW in source_name else "CK519"
+
+
 def write_discards(conn, source_name: str, tables: list[str]):
     """Solo scarti (righe di clienti assenti dall'anagrafica) per tabelle esportate altrove."""
+    with conn.cursor() as cur:
+        if not exclusion_enabled(cur, orphan_check_id(source_name)):
+            return
     orphan_keys = get_orphan_keys(conn, source_name, tables)
     if not orphan_keys:
         log.info("  Tutti i clienti di '%s' sono presenti in anagrafica.", source_name)
@@ -211,7 +220,14 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
     done_map  = {c: sap_codes.get(c, "") for c in get_exclude_add(conn)}
     excluded  = []
 
-    orphan_keys = get_orphan_keys(conn, source_name, tables)
+    # Esclusioni attive nel catalogo: CK518/CK519 clienti assenti dall'anagrafica, CK426 codici
+    # solo destinatari merci (03b), CK425 clienti non ancora in SAP (codice non trascodificabile)
+    with conn.cursor() as cur:
+        orphan_on   = exclusion_enabled(cur, orphan_check_id(source_name))
+        dm_only_on  = exclusion_enabled(cur, "CK426")
+        unmapped_on = exclusion_enabled(cur, "CK425")
+
+    orphan_keys = get_orphan_keys(conn, source_name, tables) if orphan_on else set()
     if orphan_keys:
         log.warning(
             "  *** %d clienti assenti dall'anagrafica per '%s' "
@@ -224,7 +240,7 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
     contact_fn = None
     if ADD_FLOW in source_name:
         # Solo veri clienti: esclusi (negli scarti) i codici che sono solo destinatari merci
-        dm_keys = get_dm_only_keys(conn, source_name, tables)
+        dm_keys = get_dm_only_keys(conn, source_name, tables) if dm_only_on else set()
         if dm_keys:
             log.warning("  *** %d destinatari merci (non clienti) esclusi da '%s': %s",
                         len(dm_keys), source_name, sorted(dm_keys))
@@ -250,7 +266,7 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
                 key_filter=(KEY_COL, key_filter) if key_filter else None,
                 write_discards=not key_filter,
                 value_map={KEY_COL: sap_codes},
-                drop_if_unmapped=[KEY_COL],
+                drop_if_unmapped=[KEY_COL] if unmapped_on else None,
                 row_fn=contact_fn if raw_table == CONTACT_TABLE else None,
             )
             n_rows = csv_bytes.count(b"\r\n") - 1

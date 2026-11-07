@@ -19,12 +19,18 @@ description: >
   Caratteri non stampabili: rimossi e loggati.
   Codice materiale senza spazi iniziali e finali (TRIM_COLS): materiali DM03A, codici
   doganali S_MARITC, distinte base, info record acquisti. Il numero di valori corretti è loggato.
+  Righe con un numero di campi diverso dall'intestazione (quelle con campi in eccesso sono
+  scartate, quelle con campi mancanti caricate con i valori vuoti in coda) e duplicati sono
+  anche scritti in
+  out_source_mdg/discarded/ingestione_scarti.csv (ZIP;CSV;TABELLA;RIGA;CHIAVE;MOTIVO;CONTENUTO),
+  riscritto a ogni run (rimosso se non ci sono scarti).
   Colonne audit: _source TEXT, _loaded_at TIMESTAMPTZ.
   Strategia: DELETE selettivo per _source + INSERT.
 @bruin """
 
 import os
 import re
+import csv
 import sys
 import zipfile
 import io
@@ -52,6 +58,9 @@ DB_CONFIG = {
 }
 
 INBOUND_PATH = "/project/datalake/in_source_pprod"
+REJECTS_FILE = "/project/datalake/out_source_mdg/discarded/ingestione_scarti.csv"
+REJECTS_HEADER = ["ZIP", "CSV", "TABELLA", "RIGA", "CHIAVE", "MOTIVO", "CONTENUTO"]
+REJECTS: list[list] = []   # righe scartate in ingestione, scritte in REJECTS_FILE a fine run
 RAW_SCHEMA   = "raw"
 
 # Prefissi del nome CSV ricondotti al nome tabella usato da MDG: l'ERP chiama le banche
@@ -210,7 +219,7 @@ def scan_bad_lines(clean_bytes: bytes, csv_filename: str) -> list:
     return bad
 
 
-def read_csv_safe(raw_bytes: bytes, csv_filename: str) -> tuple:
+def read_csv_safe(raw_bytes: bytes, csv_filename: str, zip_name: str = "", table: str = "") -> tuple:
     """
     Legge il CSV intercettando e loggando:
     - Righe malformate (numero campi diverso dall'header) con numero riga e preview
@@ -233,6 +242,16 @@ def read_csv_safe(raw_bytes: bytes, csv_filename: str) -> tuple:
         log.warning(
             f"    [RIEPILOGO] {csv_filename}: {len(bad_lines)} righe skippate "
             f"per formato non valido"
+        )
+        # pandas scarta le righe con campi in eccesso, ma carica quelle con campi mancanti
+        # completandole con valori vuoti: i valori successivi risultano spostati di colonna
+        REJECTS.extend(
+            [zip_name, csv_filename, table, b["line_num"], "",
+             (f"Scartata: attesi {b['expected']} campi, trovati {b['found']}" if b["found"] > b["expected"] else
+              f"Caricata con campi mancanti: attesi {b['expected']}, trovati {b['found']} "
+              f"(i valori possono risultare spostati di colonna)"),
+             b["preview"]]
+            for b in bad_lines
         )
 
     # Step 3: lettura CSV — sopprimo il ParserWarning di pandas
@@ -326,6 +345,9 @@ def ingest_csv(cur, schema: str, table: str,
                 f"    [SCARTATO] Duplicato su chiave {key_values} "
                 f"— tabella {schema}.{q(table)}"
             )
+            REJECTS.append([zip_name, "", table, "",
+                            " | ".join(f"{k}={v}" for k, v in key_values.items()),
+                            "Duplicato sulla chiave: caricata solo la prima riga", ""])
 
     if df_clean.empty:
         log.warning("    Nessun record da inserire dopo deduplicazione.")
@@ -376,7 +398,7 @@ def process_zip(zip_path: str, conn):
                 raw_bytes = f.read()
 
             # Lettura sicura con pulizia e intercettazione righe malformate
-            df, n_bad = read_csv_safe(raw_bytes, csv_filename)
+            df, n_bad = read_csv_safe(raw_bytes, csv_filename, zip_name, table_name)
 
             raw_cols = [c.strip() for c in df.columns]
             df.columns = raw_cols
@@ -418,6 +440,20 @@ def process_zip(zip_path: str, conn):
 # Main
 # ---------------------------------------------------------------------------
 
+def write_rejects():
+    """Scrive (o rimuove, se non ci sono scarti) il file delle righe scartate in ingestione."""
+    if os.path.exists(REJECTS_FILE):
+        os.remove(REJECTS_FILE)
+    if not REJECTS:
+        return
+    os.makedirs(os.path.dirname(REJECTS_FILE), exist_ok=True)
+    with open(REJECTS_FILE, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
+        writer.writerow(REJECTS_HEADER)
+        writer.writerows(REJECTS)
+    log.warning(f"  [SCARTI INGESTIONE] {len(REJECTS)} righe con anomalie (scartate, duplicate o caricate incomplete): {REJECTS_FILE}")
+
+
 def main():
     if not os.path.isdir(INBOUND_PATH):
         raise FileNotFoundError(f"Cartella inbound non trovata: {INBOUND_PATH}")
@@ -430,6 +466,7 @@ def main():
 
     if not zip_files:
         log.warning(f"Nessun file ZIP in {INBOUND_PATH}")
+        write_rejects()
         return
 
     log.info(f"ZIP da processare: {len(zip_files)}")
@@ -439,6 +476,7 @@ def main():
             process_zip(zip_path, conn)
     finally:
         conn.close()
+    write_rejects()
 
     log.info("=== Ingestion completata ===")
 
