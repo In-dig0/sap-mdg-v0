@@ -26,6 +26,9 @@ description: >
   materiale (SAP_EXPORT_MARC o, se la coppia materiale/divisione non è in SAP, S_MARC) è vuoto
   o zero, nel file per SAP APLFZ = 999: SAP crea l'info record e il valore si riconosce per
   la correzione. Vale anche con CK516 disattivato.
+  Divisa CNY: il Migration Cockpit di SAP non la gestisce bene, quindi nel file per SAP
+  S_EINE#INFORDATIACQ.WAERS e S_COND#INFORCOND.KONWA con CNY diventano EUR (segnalato nel log);
+  gli importi restano quelli del file di origine, senza conversione.
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source.
   Output: /project/datalake/out_source_mdg/<_source>
@@ -82,6 +85,9 @@ SCALES_KEY_COLS = ["INFNR(k/*)", "EKORG(k/*)", "ESOKZ(k/*)", "WERKS(k)", "KOPOS(
 INFNR_COL    = "INFNR(k/*)"
 PURCHASING_TABLE = "S_EINE#INFORDATIACQ"
 PURCHASING_KEY_COLS = ["INFNR(k/*)", "EKORG(k/*)", "ESOKZ(k/*)", "WERKS(k)"]
+# Divise non gestite bene dal Migration Cockpit: sostituite nel file per SAP (importi invariati)
+CURRENCY_OVERRIDES = {"CNY": "EUR"}
+CURRENCY_COLS = {PURCHASING_TABLE: "WAERS", "S_COND#INFORCOND": "KONWA"}
 CLI_SUPPLIER_TABLE = "S_SUPPL_GEN#AddDatiGenerali"   # flusso 05a: fornitori estesi da cliente
 SUPPLIER_BU_GROUPS = ("ZBP", "ZIC")   # gruppi BP dei fornitori in BUT000 (esclusi i ZDM)
 
@@ -231,6 +237,25 @@ def force_lead_time(cols, rows, missing, source_name):
     return out
 
 
+def force_currency(table, cols, rows, source_name):
+    """Sostituisce le divise di CURRENCY_OVERRIDES e segnala nel log le righe e gli info record toccati."""
+    col = CURRENCY_COLS[table]
+    idx, infnr_idx = cols.index(col), cols.index(INFNR_COL)
+    out, forced = [], {}
+    for row in rows:
+        old = (row[idx] or "").strip()
+        if old in CURRENCY_OVERRIDES:
+            forced.setdefault(old, []).append(row[infnr_idx])
+            row = list(row)
+            row[idx] = CURRENCY_OVERRIDES[old]
+        out.append(row)
+    for old, infnrs in forced.items():
+        log.warning("  [DIVISA] %s.%s: %s sostituita con %s su %d righe, importi non convertiti ('%s'); info record: %s",
+                    table, col, old, CURRENCY_OVERRIDES[old], len(infnrs), source_name,
+                    ", ".join(sorted(set(infnrs))))
+    return out
+
+
 def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, excluded_scales, missing_lead_times):
     fqt      = "raw." + q(table)
     col_list = ", ".join(q(c) for c in cols)
@@ -259,6 +284,8 @@ def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, exclude
         rows = transcode_lifnr(cols, rows, lifnr_map)
     if table == PURCHASING_TABLE:
         rows = force_lead_time(cols, rows, missing_lead_times, source_name)
+    if table in CURRENCY_COLS:
+        rows = force_currency(table, cols, rows, source_name)
 
     def sanitize(val):
         if val is None: return ""
