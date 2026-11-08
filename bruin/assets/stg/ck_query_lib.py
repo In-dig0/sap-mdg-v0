@@ -72,6 +72,42 @@ FROM raw."{table}" x
             '     sap_mat AS (SELECT DISTINCT matnr FROM sap_marc)' + "\nUNION ALL".join(parts))
 
 
+# Tempo di consegna assente nell'info record e nel materiale (CK516 e prd.export_inforecord_zip):
+# valore riconoscibile scritto in APLFZ nel file per SAP, altrimenti l'info record è respinto
+LEAD_TIME_PLACEHOLDER = "999"
+LEAD_TIME_TABLES = ("S_EINE#INFORDATIACQ", "S_EINA#INFORMATFOR", "S_MARC")
+_NO_LEAD_TIME = r"'^0*([.,]0*)?$'"   # vuoto o zero (000, 0, 0.0)
+
+
+def lead_time_missing_sql(cur) -> str:
+    """
+    Una riga per ogni riga di S_EINE con materiale e divisione noti, colonne
+    (infnr, ekorg, esokz, werks, matnr, src, forza). forza = APLFZ e PLIFZ vuoti o zero; PLIFZ
+    è quello di ref.SAP_EXPORT_MARC o, se la coppia materiale/divisione non c'è, di raw.S_MARC.
+    """
+    if table_exists(cur, "ref", "SAP_EXPORT_MARC"):
+        sap_cte = """SELECT DISTINCT ON (TRIM("MATNR"), TRIM("WERKS"))
+                            TRIM("MATNR") AS matnr, TRIM("WERKS") AS werks, TRIM("PLIFZ") AS plifz
+                     FROM ref."SAP_EXPORT_MARC" ORDER BY 1, 2"""
+    else:
+        sap_cte = "SELECT NULL::text AS matnr, NULL::text AS werks, NULL::text AS plifz WHERE FALSE"
+    return f"""
+WITH sap AS ({sap_cte}),
+     erp AS (SELECT DISTINCT ON (TRIM("PRODUCT(k/*)"), TRIM("WERKS(k/*)"))
+                    TRIM("PRODUCT(k/*)") AS matnr, TRIM("WERKS(k/*)") AS werks, TRIM("PLIFZ") AS plifz
+             FROM raw."S_MARC" ORDER BY 1, 2)
+SELECT e."INFNR(k/*)" AS infnr, e."EKORG(k/*)" AS ekorg, e."ESOKZ(k/*)" AS esokz, e."WERKS(k)" AS werks,
+       TRIM(a."MATNR") AS matnr, e."_source" AS src,
+       COALESCE(TRIM(e."APLFZ"), '') ~ {_NO_LEAD_TIME}
+       AND CASE WHEN s.matnr IS NOT NULL THEN COALESCE(s.plifz, '') ELSE COALESCE(m.plifz, '') END
+           ~ {_NO_LEAD_TIME} AS forza
+FROM raw."S_EINE#INFORDATIACQ" e
+JOIN raw."S_EINA#INFORMATFOR" a ON a."INFNR(k/*)" = e."INFNR(k/*)"
+LEFT JOIN sap s ON s.matnr = TRIM(a."MATNR") AND s.werks = TRIM(e."WERKS(k)")
+LEFT JOIN erp m ON m.matnr = TRIM(a."MATNR") AND m.werks = TRIM(e."WERKS(k)")
+WHERE s.matnr IS NOT NULL OR m.matnr IS NOT NULL"""
+
+
 def run_query_check(check_id: str, sql, required: list, category: str = "PO"):
     """
     required: tabelle necessarie come (schema, tabella); se ne manca una il controllo è saltato.

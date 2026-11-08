@@ -507,9 +507,9 @@ VALUES
      'MAT', 'S_EINA#INFORMATFOR', 'MATNR',
      'raw.S_MARC (PRODUCT(k/*))', 'Error', 'CROSS_SOURCE',TRUE,NOW()),
 
-    ('CK516','Info record acquisti, dati di acquisto: il tempo di consegna può mancare solo se è indicato nell''anagrafica materiali',
+    ('CK516','Info record acquisti, dati di acquisto: tempo di consegna assente sia nell''info record sia nel materiale; nel file per SAP viene impostato 999, da correggere in SAP',
      'PIR','S_EINE#INFORDATIACQ','APLFZ',
-     'raw.S_MARC (PLIFZ) via S_EINA#INFORMATFOR (MATNR)','Error','CROSS_SOURCE',TRUE,NOW()),
+     'ref.SAP_EXPORT_MARC (PLIFZ), se assente raw.S_MARC, via S_EINA#INFORMATFOR (MATNR)','Warning','CROSS_SOURCE',TRUE,NOW()),
 
     ('CK517','Info record acquisti: lo stesso materiale non deve comparire in più info record',
      'PIR','S_EINA#INFORMATFOR','MATNR',

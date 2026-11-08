@@ -22,6 +22,10 @@ description: >
   disattivata), non sono esportati gli info record con materiale non ancora migrato in SAP.
   CK421 (esclusione dall'output attiva nel catalogo): gli scaglioni senza condizione padre con
   la stessa chiave in S_COND non sono esportati (solo lo scaglione, l'info record resta).
+  Tempo di consegna (CK516): se in S_EINE#INFORDATIACQ APLFZ è vuoto o zero e anche PLIFZ del
+  materiale (SAP_EXPORT_MARC o, se la coppia materiale/divisione non è in SAP, S_MARC) è vuoto
+  o zero, nel file per SAP APLFZ = 999: SAP crea l'info record e il valore si riconosce per
+  la correzione. Vale anche con CK516 disattivato.
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source.
   Output: /project/datalake/out_source_mdg/<_source>
@@ -44,10 +48,12 @@ import sys
 import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "stg"))
 from prd_output_lib import output_zip_path
 from prd_export_clienti_zip import get_but000_map
 from prd_discard_lib import add_discards, flush_discards, reset_discards
 from prd_merge_lib import exclusion_enabled, failing_keys
+from ck_query_lib import lead_time_missing_sql, LEAD_TIME_PLACEHOLDER, LEAD_TIME_TABLES
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,6 +80,8 @@ SCALES_TABLE = "S_SCALES#INFORSCALES"
 SCALES_KEY_COLS = ["INFNR(k/*)", "EKORG(k/*)", "ESOKZ(k/*)", "WERKS(k)", "KOPOS(k/*)",
                    "COND_TYPE(k/*)", "VALID_FROM(k/*)", "LINE_NO(k/*)"]
 INFNR_COL    = "INFNR(k/*)"
+PURCHASING_TABLE = "S_EINE#INFORDATIACQ"
+PURCHASING_KEY_COLS = ["INFNR(k/*)", "EKORG(k/*)", "ESOKZ(k/*)", "WERKS(k)"]
 CLI_SUPPLIER_TABLE = "S_SUPPL_GEN#AddDatiGenerali"   # flusso 05a: fornitori estesi da cliente
 SUPPLIER_BU_GROUPS = ("ZBP", "ZIC")   # gruppi BP dei fornitori in BUT000 (esclusi i ZDM)
 
@@ -198,7 +206,32 @@ def transcode_lifnr(cols, rows, lifnr_map):
     return out
 
 
-def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, excluded_scales):
+def get_missing_lead_times(conn) -> set:
+    """Righe di S_EINE senza tempo di consegna né nell'info record né nel materiale (chiave completa)."""
+    if not all(table_exists(conn, t) for t in LEAD_TIME_TABLES):
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT infnr, ekorg, esokz, werks FROM ({lead_time_missing_sql(cur)}) b WHERE forza")
+        return set(cur.fetchall())
+
+
+def force_lead_time(cols, rows, missing, source_name):
+    """Scrive il valore riconoscibile in APLFZ sulle righe senza tempo di consegna."""
+    key_idx, aplfz = [cols.index(c) for c in PURCHASING_KEY_COLS], cols.index("APLFZ")
+    out, forced = [], 0
+    for row in rows:
+        if tuple(row[i] for i in key_idx) in missing:
+            row = list(row)
+            row[aplfz] = LEAD_TIME_PLACEHOLDER
+            forced += 1
+        out.append(row)
+    if forced:
+        log.warning("  [CK516] %s: APLFZ = %s su %d righe senza tempo di consegna ('%s')",
+                    PURCHASING_TABLE, LEAD_TIME_PLACEHOLDER, forced, source_name)
+    return out
+
+
+def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, excluded_scales, missing_lead_times):
     fqt      = "raw." + q(table)
     col_list = ", ".join(q(c) for c in cols)
     with conn.cursor() as cur:
@@ -224,6 +257,8 @@ def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, exclude
         rows = [row for row in rows if scale_key(row) not in excluded_scales]
     if table == MASTER_TABLE:
         rows = transcode_lifnr(cols, rows, lifnr_map)
+    if table == PURCHASING_TABLE:
+        rows = force_lead_time(cols, rows, missing_lead_times, source_name)
 
     def sanitize(val):
         if val is None: return ""
@@ -238,7 +273,7 @@ def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, exclude
     return buf.getvalue().encode("utf-8")
 
 
-def build_zip(conn, source_name, cols_map, lifnr_map, excluded, excluded_scales):
+def build_zip(conn, source_name, cols_map, lifnr_map, excluded, excluded_scales, missing_lead_times):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for table in RAW_TABLES:
@@ -246,7 +281,8 @@ def build_zip(conn, source_name, cols_map, lifnr_map, excluded, excluded_scales)
             if not cols:
                 log.warning("  SKIP raw.%s — tabella non trovata o senza colonne", table)
                 continue
-            csv_bytes = fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, excluded_scales)
+            csv_bytes = fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, excluded_scales,
+                                        missing_lead_times)
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
                 log.info("  raw.%s: 0 righe per '%s' — skip", table, source_name)
@@ -282,10 +318,11 @@ def main():
         lifnr_map = get_lifnr_map(conn)
         excluded  = get_excluded_infnr(conn, lifnr_map)
         excluded_scales = get_excluded_scales(conn)
+        missing_lead_times = get_missing_lead_times(conn)
         log.info("Sorgenti trovate: %s", sources)
         for source_name in sources:
             log.info("=== Generazione ZIP: %s ===", source_name)
-            zip_bytes   = build_zip(conn, source_name, cols_map, lifnr_map, excluded, excluded_scales)
+            zip_bytes   = build_zip(conn, source_name, cols_map, lifnr_map, excluded, excluded_scales, missing_lead_times)
             output_path = output_zip_path(OUTPUT_DIR, source_name)
             with open(output_path, "wb") as f:
                 f.write(zip_bytes)
