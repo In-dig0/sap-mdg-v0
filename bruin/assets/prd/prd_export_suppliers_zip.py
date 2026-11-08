@@ -15,6 +15,8 @@ description: >
       CK047/CK055/CK214 delle banche dei fornitori ZBP).
   Coordinate bancarie di fornitori e vettori (01a, 06a, 05a): EBPP_ACCNAME = "CC_FORNITORE",
   per riconoscere in SAP le coordinate del BP arrivate dai flussi fornitori.
+  Dati contabili di fornitori e vettori (S_SUPPL_COMPANY#..., 01a, 06a, 05a): XVERR vuoto
+  (compensazione partite clienti/fornitori disattiva), qualunque valore arrivi dall'ERP.
       REF_KUNNR e KUNNR sono trascodificati con il codice SAP del cliente (PARTNER di
       ref.SAP_EXPORT_BUT000, tramite BU_SORT2); LIFNR resta il codice del vecchio ERP.
       I fornitori il cui cliente non è in BUT000 sono esclusi da tutte le tabelle e
@@ -150,6 +152,10 @@ CLI_BANK       = "S_SUPP_BANK#ZBP_AddAppoggioBanca"
 # riconoscere in SAP le coordinate del BP arrivate dai flussi fornitori
 BANK_ACCNAME  = {"EBPP_ACCNAME": "CC_FORNITORE"}
 SUPPLIER_BANK = "S_SUPP_BANK#ZBP_AppoggioBanca"
+# Dati contabili di fornitori e vettori (01a, 06a, 05a): compensazione partite (XVERR)
+# disattiva in SAP, qualunque valore arrivi dall'ERP
+COMPANY_VALUES  = {"XVERR": ""}
+COMPANY_TABLES  = ("S_SUPPL_COMPANY#ZBP_DatiSocieta", "S_SUPPL_COMPANY#ZBP_AddDatiSocieta")
 CLI_RAW_TABLES = [
     CLI_MASTER,
     "S_ROLES#ZBP_AddRuoliFornitori",
@@ -500,6 +506,8 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             key_col="LIFNR(k/*)")
 
     row_fns[SUPPLIER_BANK] = fixed_values_row_fn(BANK_ACCNAME)
+    for company_table in COMPANY_TABLES:
+        row_fns[company_table] = fixed_values_row_fn(COMPANY_VALUES)
 
     if CONTACT_TABLE in flow["raw_tables"]:
         row_fns[CONTACT_TABLE] = contact_row_fn(get_supplier_data(conn))
