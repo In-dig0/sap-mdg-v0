@@ -403,35 +403,6 @@ st.markdown(
 st.caption(":yellow[Controllo pipeline e analisi log.]")
 st.divider()
 
-# ── Stato sistema (sempre visibile in cima) ───────────────────────────────
-with st.expander("🩺 Stato sistema", expanded=False):
-    health, err = api_health()
-    if err:
-        st.error(f"API non raggiungibile: {err}")
-    else:
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("API",      health.get("api", "?"))
-        c2.metric("Postgres", health.get("postgres", "?"))
-        c3.metric("Bruin",    health.get("bruin", "?"))
-        sem_ok = health.get("semaphore", False)
-        c4.metric("Semaforo", "✅ Presente" if sem_ok else "❌ Assente")
-
-        # Gestione semaforo inline
-        if not err:
-            s1, s2 = st.columns([1, 1])
-            if not sem_ok:
-                if s1.button("➕ Crea semaforo (test)", use_container_width=True):
-                    _, e = api_create_semaphore()
-                    st.toast("Semaforo creato ✅" if not e else f"Errore: {e}")
-                    st.rerun()
-            else:
-                if s2.button("🗑️ Rimuovi semaforo", use_container_width=True):
-                    _, e = api_delete_semaphore()
-                    st.toast("Semaforo rimosso" if not e else f"Errore: {e}")
-                    st.rerun()
-
-st.divider()
-
 # ---------------------------------------------------------------------------
 # Tab principali
 # ---------------------------------------------------------------------------
@@ -449,39 +420,7 @@ with tab_ctrl:
 
     st.divider()
 
-    # ── 1. Elenchi di codici per gli export ─────────────────────────────
-    st.subheader("📋 Elenchi per gli export")
-    st.caption("Elenchi manuali letti dagli export al prossimo run della pipeline.")
-    code_list_section(
-        "export-filter", "Estrazione ristretta (test)", ":material/science:",
-        "Se l'elenco contiene codici cliente, la pipeline genera **anche** gli ZIP con i soli clienti indicati "
-        "(anagrafica clienti, gestione credito e interlocutori) nella cartella **out_source_mdg/test**. "
-        "I destinatari merci non sono inclusi: devono essere già caricati in SAP e presenti in SAP_EXPORT_BUT000. "
-        "Per i clienti estesi a fornitori (**DM06-05a**) è incluso il fornitore se nell'elenco c'è il suo "
-        "cliente di riferimento oppure il suo codice fornitore (LIFNR). "
-        "Gli ZIP completi in out_source_mdg non cambiano. Elenco vuoto = nessuna estrazione ristretta.",
-        "Estrazione ristretta **attiva**",
-    )
-    code_list_section(
-        "export-exclude-add", "Clienti con interlocutori e credito già caricati in SAP", ":material/task_alt:",
-        "I clienti dell'elenco sono esclusi dagli ZIP **DM06-03b** (interlocutori) e **DM06-07a** "
-        "(gestione credito), che si caricano in SAP con un job di aggiornamento. "
-        "Negli ZIP di creazione (vettori, DM, clienti) i Business Partner già presenti in "
-        "SAP_EXPORT_BUT000 sono invece esclusi in automatico.",
-        "Esclusione **attiva**",
-    )
-    code_list_section(
-        "export-exclude-fornitori-cli", "Fornitori da clienti (DM06-05a) già caricati in SAP", ":material/task_alt:",
-        "I fornitori dell'elenco sono esclusi da tutti i file dello ZIP **DM06-05a** e riportati nel "
-        "riepilogo DM06-05a-ZBP-FornitoriCli_gia_in_SAP.xlsx. Indicare il codice cliente di riferimento "
-        "(REF_KUNNR) oppure il codice fornitore (LIFNR). Serve perché il BP è già in SAP_EXPORT_BUT000 "
-        "come cliente: l'esclusione automatica non riconosce l'estensione a fornitore già caricata.",
-        "Esclusione **attiva**",
-    )
-
-    st.divider()
-
-    # ── 2. Avvia pipeline ────────────────────────────────────────────────
+    # ── 1. Avvia pipeline ────────────────────────────────────────────────
     st.subheader("▶️ Avvia pipeline")
 
     force_mode = st.checkbox("Ignora file semaforo", value=False,
@@ -505,7 +444,7 @@ with tab_ctrl:
 
     st.divider()
 
-    # ── 3. Stato run corrente ─────────────────────────────────────────────
+    # ── 2. Stato run corrente ─────────────────────────────────────────────
     st.subheader("📊 Stato run corrente")
 
     status_data, err = api_status()
@@ -538,6 +477,68 @@ with tab_ctrl:
             render_progress(status == "running")
 
     render_run_status()
+
+    st.divider()
+
+    # ── 3. Elenchi di codici per gli export ─────────────────────────────
+    st.subheader("📋 Elenchi per gli export")
+    st.caption("Elenchi manuali letti dagli export al prossimo run della pipeline.")
+    code_list_section(
+        "export-filter", "Estrazione ristretta (test)", ":material/science:",
+        "Se l'elenco contiene codici cliente, la pipeline genera **anche** gli ZIP con i soli clienti indicati "
+        "(anagrafica clienti, gestione credito e interlocutori) nella cartella **out_source_mdg/test**. "
+        "I destinatari merci non sono inclusi: devono essere già caricati in SAP e presenti in SAP_EXPORT_BUT000. "
+        "Per i clienti estesi a fornitori (**DM06-05a**) è incluso il fornitore se nell'elenco c'è il suo "
+        "cliente di riferimento oppure il suo codice fornitore (LIFNR). "
+        "Gli ZIP completi in out_source_mdg non cambiano. Elenco vuoto = nessuna estrazione ristretta.",
+        "Estrazione ristretta **attiva**",
+    )
+    code_list_section(
+        "export-exclude-add", "Clienti con interlocutori e credito già caricati in SAP", ":material/task_alt:",
+        "I clienti dell'elenco sono esclusi dagli ZIP **DM06-03b** (interlocutori) e **DM06-07a** "
+        "(gestione credito), che si caricano in SAP con un job di aggiornamento. "
+        "Negli ZIP di creazione (vettori, DM, clienti) i Business Partner già presenti in "
+        "SAP_EXPORT_BUT000 sono invece esclusi in automatico.",
+        "Esclusione **attiva**",
+    )
+    code_list_section(
+        "export-exclude-fornitori-cli", "Fornitori da clienti (DM06-05a) già caricati in SAP", ":material/task_alt:",
+        "I fornitori dell'elenco sono esclusi da tutti i file dello ZIP **DM06-05a** e riportati nel "
+        "riepilogo DM06-05a-ZBP-FornitoriCli_gia_in_SAP.xlsx. Indicare il codice cliente di riferimento "
+        "(REF_KUNNR) oppure il codice fornitore (LIFNR). Serve perché il BP è già in SAP_EXPORT_BUT000 "
+        "come cliente: l'esclusione automatica non riconosce l'estensione a fornitore già caricata.",
+        "Esclusione **attiva**",
+    )
+
+    st.divider()
+
+    # ── 4. Stato sistema ─────────────────────────────────────────────────
+    with st.expander("🩺 Stato sistema", expanded=False):
+        health, err = api_health()
+        if err:
+            st.error(f"API non raggiungibile: {err}")
+        else:
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("API",      health.get("api", "?"))
+            c2.metric("Postgres", health.get("postgres", "?"))
+            c3.metric("Bruin",    health.get("bruin", "?"))
+            sem_ok = health.get("semaphore", False)
+            c4.metric("Semaforo", "✅ Presente" if sem_ok else "❌ Assente")
+
+            # Gestione semaforo inline
+            if not err:
+                s1, s2 = st.columns([1, 1])
+                if not sem_ok:
+                    if s1.button("➕ Crea semaforo (test)", use_container_width=True):
+                        _, e = api_create_semaphore()
+                        st.toast("Semaforo creato ✅" if not e else f"Errore: {e}")
+                        st.rerun()
+                else:
+                    if s2.button("🗑️ Rimuovi semaforo", use_container_width=True):
+                        _, e = api_delete_semaphore()
+                        st.toast("Semaforo rimosso" if not e else f"Errore: {e}")
+                        st.rerun()
+
 
 # ===========================================================================
 # TAB 2 — SFTP
