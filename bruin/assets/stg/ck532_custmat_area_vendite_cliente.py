@@ -12,6 +12,8 @@ description: >
   CUSTOMER è già il codice SAP del BP: il vecchio codice ERP (KUNNR dei dati di vendita) si
   ricava da ref.SAP_EXPORT_BUT000 (PARTNER -> BU_SORT2). Un cliente assente da BUT000 o senza
   dati di vendita è segnalato (area di vendita non verificabile).
+  Con l'esclusione dall'output attiva nel catalogo la riga non è esportata
+  (prd.export_custmat_zip, file S_CUSTMAT_INFORMATFOR_discarded.xlsx).
   Confronto senza spazi iniziali e finali. Un esito per riga.
   Saltato se S_CUSTMAT o BUT000 non sono caricate.
 @bruin """

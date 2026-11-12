@@ -8,8 +8,9 @@ description: >
   MATERIAL(k/*) deve essere già migrato in SAP nella divisione PLANT (solo il materiale se
   PLANT è vuota) (ref.SAP_EXPORT_MARC).
   Il codice materiale SAP è uguale a quello del vecchio ERP (confronto senza spazi iniziali
-  e finali). Assente: Warning, in SAP la migrazione andrebbe in errore.
-  Solo segnalazione: MDG non genera lo ZIP degli info record cliente.
+  e finali). Assente: Error, in SAP la migrazione andrebbe in errore.
+  Con l'esclusione dall'output attiva nel catalogo la riga non è esportata
+  (prd.export_custmat_zip, file S_CUSTMAT_INFORMATFOR_discarded.xlsx).
   Un esito per riga. Saltato se SAP_EXPORT_MARC non è caricata.
 @bruin """
 

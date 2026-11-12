@@ -41,6 +41,9 @@ depends:
   - stg.ck425_customer_add_cliente_sap
   - stg.ck426_customer_add_solo_dm
   - stg.ck421_inforecord_scales_cond
+  - stg.ck531_custmat_materiale_in_sap_marc
+  - stg.ck532_custmat_area_vendite_cliente
+  - stg.ck533_custmat_area_vendite_materiale
 @bruin """
 
 import os

@@ -562,10 +562,10 @@ VALUES
      'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
     ('CK531','Info record cliente-materiale: il materiale deve essere già migrato in SAP',
      'CMIR','S_CUSTMAT#INFORMATFOR','MATERIAL(k/*) (+ PLANT)',
-     'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
+     'SAP_EXPORT_MARC (MATNR + WERKS)','Error','CROSS_SOURCE',TRUE,NOW()),
     ('CK532','Info record cliente-materiale: l''organizzazione commerciale e il canale devono essere tra le aree di vendita del cliente',
      'CMIR','S_CUSTMAT#INFORMATFOR','SALESORGANIZATION(k/*) + DISTRIBUTIONCHANNEL(k/*)',
-     'raw.S_CUST_SALES_DATA#ZBP-DatiVendite / #ZDM-DatiVendite (KUNNR + VKORG + VTWEG), cliente tramite SAP_EXPORT_BUT000 (BU_SORT2)','Error','CROSS_SOURCE',TRUE,NOW()),
+     'S_CUST_SALES_DATA ZBP/ZDM (KUNNR+VKORG+VTWEG), cliente da SAP_EXPORT_BUT000 (BU_SORT2)','Error','CROSS_SOURCE',TRUE,NOW()),
     ('CK533','Info record cliente-materiale: l''organizzazione commerciale e il canale devono essere tra i dati di vendita del materiale',
      'CMIR','S_CUSTMAT#INFORMATFOR','SALESORGANIZATION(k/*) + DISTRIBUTIONCHANNEL(k/*)',
      'raw.S_MVKE (PRODUCT + VKORG + VTWEG)','Error','CROSS_SOURCE',TRUE,NOW()),
@@ -619,6 +619,7 @@ DELETE FROM stg.check_catalog WHERE check_id IN ('CK202', 'CK204', 'CK029');
 --   CK422/CK423              partner clienti                (prd.export_clienti_zip)
 --   CK421                    scaglioni info record          (prd.export_inforecord_zip)
 --   CK424                    fornitori 05a                  (prd.export_suppliers_zip)
+--   CK531/CK532/CK533        info record cliente-materiale  (prd.export_custmat_zip)
 --   CK527 distinte base (prd.export_bom_zip) e CK528 info record (prd.export_inforecord_zip):
 --   supportati, default disattivato.
 UPDATE stg.check_catalog
@@ -629,11 +630,12 @@ SET exclude_supported = check_id IN (
         'CK048', 'CK056', 'CK213', 'CK802',
         'CK220', 'CK404', 'CK403', 'CK526',
         'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426', 'CK421',
-        'CK527', 'CK528'),
+        'CK527', 'CK528', 'CK531', 'CK532', 'CK533'),
     exclude_output = check_id IN (
         'CK034', 'CK506', 'CK511', 'CK525',
         'CK051', 'CK052', 'CK402', 'CK418', 'CK420',
         'CK047', 'CK055', 'CK214', 'CK804',
         'CK048', 'CK056', 'CK213', 'CK802',
         'CK220', 'CK404', 'CK403', 'CK526',
-        'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426', 'CK421');
+        'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426', 'CK421',
+        'CK531', 'CK532', 'CK533');

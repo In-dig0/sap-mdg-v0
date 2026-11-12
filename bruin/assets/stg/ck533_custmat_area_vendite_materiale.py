@@ -8,6 +8,8 @@ description: >
   organizzazione commerciale + canale (SALESORGANIZATION, DISTRIBUTIONCHANNEL) deve essere
   tra i dati di vendita del materiale (S_MVKE, PRODUCT + VKORG + VTWEG). Un materiale senza
   dati di vendita in S_MVKE è segnalato.
+  Con l'esclusione dall'output attiva nel catalogo la riga non è esportata
+  (prd.export_custmat_zip, file S_CUSTMAT_INFORMATFOR_discarded.xlsx).
   Confronto senza spazi iniziali e finali. Un esito per riga.
   Saltato se S_CUSTMAT o S_MVKE non sono caricate.
 @bruin """

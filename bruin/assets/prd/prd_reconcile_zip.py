@@ -28,6 +28,7 @@ depends:
   - prd.export_inforecord_zip
   - prd.export_maritc_zip
   - prd.export_cicli_lavoro_zip
+  - prd.export_custmat_zip
 @bruin """
 
 import os
