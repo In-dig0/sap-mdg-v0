@@ -48,6 +48,8 @@ depends:
   - stg.ck529_po_materiale_in_sap_marc
   - stg.ck530_cicli_materiale_in_sap_marc
   - stg.ck531_custmat_materiale_in_sap_marc
+  - stg.ck532_custmat_area_vendite_cliente
+  - stg.ck533_custmat_area_vendite_materiale
   - stg.ck526_inforecord_lifnr_sap
   - stg.ck421_inforecord_scales_cond
   - stg.ck422_customer_partner_riferimento

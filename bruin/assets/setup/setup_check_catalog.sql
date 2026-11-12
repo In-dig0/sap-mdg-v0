@@ -563,6 +563,12 @@ VALUES
     ('CK531','Info record cliente-materiale: il materiale deve essere già migrato in SAP',
      'CMIR','S_CUSTMAT#INFORMATFOR','MATERIAL(k/*) (+ PLANT)',
      'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
+    ('CK532','Info record cliente-materiale: l''organizzazione commerciale e il canale devono essere tra le aree di vendita del cliente',
+     'CMIR','S_CUSTMAT#INFORMATFOR','SALESORGANIZATION(k/*) + DISTRIBUTIONCHANNEL(k/*)',
+     'raw.S_CUST_SALES_DATA#ZBP-DatiVendite / #ZDM-DatiVendite (KUNNR + VKORG + VTWEG), cliente tramite SAP_EXPORT_BUT000 (BU_SORT2)','Error','CROSS_SOURCE',TRUE,NOW()),
+    ('CK533','Info record cliente-materiale: l''organizzazione commerciale e il canale devono essere tra i dati di vendita del materiale',
+     'CMIR','S_CUSTMAT#INFORMATFOR','SALESORGANIZATION(k/*) + DISTRIBUTIONCHANNEL(k/*)',
+     'raw.S_MVKE (PRODUCT + VKORG + VTWEG)','Error','CROSS_SOURCE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: la partita IVA UE o britannica deve risultare valida (verifica online VIES / HMRC)',
