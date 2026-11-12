@@ -9,9 +9,10 @@ description: >
   tra le aree di vendita del cliente nei dati di vendita di clienti
   (S_CUST_SALES_DATA#ZBP-DatiVendite) o destinatari merci (S_CUST_SALES_DATA#ZDM-DatiVendite),
   VKORG + VTWEG.
-  CUSTOMER è già il codice SAP del BP: il vecchio codice ERP (KUNNR dei dati di vendita) si
-  ricava da ref.SAP_EXPORT_BUT000 (PARTNER -> BU_SORT2). Un cliente assente da BUT000 o senza
-  dati di vendita è segnalato (area di vendita non verificabile).
+  Il BP SAP del cliente è quello di CK534 (CUSTOMER come codice BP o chiave di ricerca in
+  ref.SAP_EXPORT_BUT000); il vecchio codice ERP (KUNNR dei dati di vendita) è il suo BU_SORT2.
+  Un cliente senza dati di vendita è segnalato (area di vendita non verificabile). Le righe
+  con cliente non in SAP o ambiguo non hanno esito: le segnala CK534.
   Con l'esclusione dall'output attiva nel catalogo la riga non è esportata
   (prd.export_custmat_zip, file S_CUSTMAT_INFORMATFOR_discarded.xlsx).
   Confronto senza spazi iniziali e finali. Un esito per riga.
@@ -22,7 +23,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from ck_query_lib import run_query_check, table_exists
+from ck_query_lib import run_query_check, table_exists, custmat_customer_sql
 
 CUSTMAT = "S_CUSTMAT#INFORMATFOR"
 SALES   = ("S_CUST_SALES_DATA#ZBP-DatiVendite", "S_CUST_SALES_DATA#ZDM-DatiVendite")
@@ -36,9 +37,10 @@ def check_sql(cur) -> str:
     if not sales:
         sales = ["SELECT NULL::text AS kunnr, NULL::text AS vkorg, NULL::text AS vtweg WHERE FALSE"]
     return f"""
-WITH but000 AS (SELECT DISTINCT ON (TRIM("PARTNER")) TRIM("PARTNER") AS partner,
-                       NULLIF(TRIM("BU_SORT2"), '') AS kunnr
-                FROM ref."SAP_EXPORT_BUT000" ORDER BY TRIM("PARTNER")),
+WITH cust AS ({custmat_customer_sql()}),
+     but000 AS (SELECT c.cust, c.partners AS partner, NULLIF(TRIM(MIN(b."BU_SORT2")), '') AS kunnr
+                FROM cust c JOIN ref."SAP_EXPORT_BUT000" b ON TRIM(b."PARTNER") = c.partners
+                WHERE c.n = 1 GROUP BY c.cust, c.partners),
      sales AS ({" UNION ".join(sales)}),
      areas AS (SELECT kunnr, string_agg(vkorg || '/' || vtweg, ', ' ORDER BY vkorg, vtweg) AS elenco
                FROM sales GROUP BY kunnr),
@@ -47,9 +49,6 @@ WITH but000 AS (SELECT DISTINCT ON (TRIM("PARTNER")) TRIM("PARTNER") AS partner,
            FROM raw."{CUSTMAT}" c)
 SELECT '{CUSTMAT}', {KEY},
        CASE
-         WHEN b.partner IS NULL THEN
-              'Cliente [' || x.cust || '] non presente in SAP (BUT000): area di vendita '
-              || x.vkorg || '/' || x.vtweg || ' non verificabile'
          WHEN a.kunnr IS NULL THEN
               'Cliente [' || x.cust || '] (codice ERP ' || COALESCE(b.kunnr, '-')
               || ') senza dati di vendita in anagrafica clienti o destinatari merci: area di vendita '
@@ -62,7 +61,7 @@ SELECT '{CUSTMAT}', {KEY},
        x."_source",
        'Area di vendita ' || x.vkorg || '/' || x.vtweg || ' presente nei dati di vendita del cliente'
 FROM x
-LEFT JOIN but000 b ON b.partner = x.cust
+JOIN but000 b ON b.cust = x.cust
 LEFT JOIN areas  a ON a.kunnr = b.kunnr"""
 
 

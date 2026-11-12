@@ -44,6 +44,7 @@ depends:
   - stg.ck531_custmat_materiale_in_sap_marc
   - stg.ck532_custmat_area_vendite_cliente
   - stg.ck533_custmat_area_vendite_materiale
+  - stg.ck534_custmat_cliente_in_sap
 @bruin """
 
 import os

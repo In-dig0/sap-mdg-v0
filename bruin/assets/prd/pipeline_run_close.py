@@ -50,6 +50,7 @@ depends:
   - stg.ck531_custmat_materiale_in_sap_marc
   - stg.ck532_custmat_area_vendite_cliente
   - stg.ck533_custmat_area_vendite_materiale
+  - stg.ck534_custmat_cliente_in_sap
   - stg.ck526_inforecord_lifnr_sap
   - stg.ck421_inforecord_scales_cond
   - stg.ck422_customer_partner_riferimento

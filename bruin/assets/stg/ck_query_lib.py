@@ -108,6 +108,35 @@ LEFT JOIN erp m ON m.matnr = TRIM(a."MATNR") AND m.werks = TRIM(e."WERKS(k)")
 WHERE s.matnr IS NOT NULL OR m.matnr IS NOT NULL"""
 
 
+# Info record cliente-materiale: cliente in SAP (CK532, CK534, prd.export_custmat_zip)
+CUSTMAT_TABLE = "S_CUSTMAT#INFORMATFOR"
+CUSTMAT_VIA = {1: "codice BP", 2: "chiave di ricerca BU_SORT2", 3: "chiave di ricerca BU_SORT1"}
+
+
+def custmat_customer_sql() -> str:
+    """
+    Una riga per ogni CUSTOMER distinto di S_CUSTMAT#INFORMATFOR (senza spazi), colonne
+    (cust, partners, n, via): BP di ref.SAP_EXPORT_BUT000 trovati con il criterio più forte,
+    nell'ordine codice BP (PARTNER, via 1), BU_SORT2 (vecchio codice cliente/DM, via 2),
+    BU_SORT1 (via 3). n = numero di BP trovati (0 = non in SAP, >1 = ambiguo).
+    """
+    return f"""
+WITH b AS (SELECT DISTINCT TRIM("PARTNER") AS partner, NULLIF(TRIM("BU_SORT2"), '') AS s2,
+                  NULLIF(TRIM("BU_SORT1"), '') AS s1
+           FROM ref."SAP_EXPORT_BUT000"),
+     c AS (SELECT DISTINCT TRIM("CUSTOMER(k/*)") AS cust FROM raw."{CUSTMAT_TABLE}"),
+     m AS (SELECT c.cust, b.partner, 1 AS via FROM c JOIN b ON b.partner = c.cust
+           UNION ALL SELECT c.cust, b.partner, 2 FROM c JOIN b ON b.s2 = c.cust
+           UNION ALL SELECT c.cust, b.partner, 3 FROM c JOIN b ON b.s1 = c.cust),
+     best AS (SELECT cust, MIN(via) AS via FROM m GROUP BY cust)
+SELECT c.cust, string_agg(DISTINCT m.partner, ', ' ORDER BY m.partner) AS partners,
+       COUNT(DISTINCT m.partner) AS n, best.via
+FROM c
+LEFT JOIN best ON best.cust = c.cust
+LEFT JOIN m ON m.cust = c.cust AND m.via = best.via
+GROUP BY c.cust, best.via"""
+
+
 def run_query_check(check_id: str, sql, required: list, category: str = "PO"):
     """
     required: tabelle necessarie come (schema, tabella); se ne manca una il controllo è saltato.
