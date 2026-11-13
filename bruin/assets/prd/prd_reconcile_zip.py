@@ -29,6 +29,7 @@ depends:
   - prd.export_maritc_zip
   - prd.export_cicli_lavoro_zip
   - prd.export_custmat_zip
+  - prd.export_clienti_zdmo_xlsx
 @bruin """
 
 import os
