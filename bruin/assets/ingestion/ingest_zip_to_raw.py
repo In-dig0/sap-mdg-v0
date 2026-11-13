@@ -10,6 +10,9 @@ description: >
   (virgolette doppie); le banche fornitori
   sono sempre caricate come S_SUPP_BANK#..., anche se l'ERP usa il nome SAP S_SUPPL_BANK#...
   (TABLE_PREFIX; l'export dei fornitori riscrive il nome SAP nello ZIP).
+  I CSV dei contratti (DM14_CONTRATTI*.zip) hanno gli stessi nomi di quelli degli ordini di
+  acquisto (S_EKKO, S_EKPO, ...) ma una struttura diversa: sono caricati in tabelle proprie
+  con il suffisso #CONTRATTI (ZIP_TABLE_SUFFIX), es. raw."S_EKKO#CONTRATTI".
   Nomi colonne = intestazioni originali invariate (virgolette doppie).
   Colonne con (k) nel suffisso → UNIQUE INDEX sulla tabella.
   Duplicati su chiave: scartati e loggati prima dell'insert.
@@ -70,6 +73,11 @@ RAW_SCHEMA   = "raw"
 # restano le stesse
 TABLE_PREFIX = {"S_SUPPL_BANK#": "S_SUPP_BANK#"}
 
+# ZIP i cui CSV hanno gli stessi nomi di quelli di un altro flusso con struttura diversa:
+# inizio del nome ZIP -> suffisso aggiunto al nome tabella (es. S_EKKO -> S_EKKO#CONTRATTI,
+# per non mescolare i contratti con gli ordini di acquisto di DM27_MM-OrdAcq)
+ZIP_TABLE_SUFFIX = {"DM14_CONTRATTI": "#CONTRATTI"}
+
 # Colonne con il codice materiale da caricare senza spazi iniziali e finali (l'ERP
 # riempie il codice con spazi fino a 20 caratteri): tabella raw -> colonne
 MATERIAL_TABLES = ["S_MARA", "S_MAKT", "S_MARC", "S_MARD", "S_MARM", "S_MBEW", "S_MLAN",
@@ -88,15 +96,21 @@ TRIM_COLS = {
 # Utility
 # ---------------------------------------------------------------------------
 
-def table_name_for(csv_filename: str) -> str:
+def table_name_for(csv_filename: str, zip_name: str = "") -> str:
     """
     Nome della tabella raw per un CSV: nome file senza estensione e senza le eventuali
-    sottocartelle dello ZIP (es. DM03A_MATERIALI/S_MARA.csv -> S_MARA), prefissi in TABLE_PREFIX.
+    sottocartelle dello ZIP (es. DM03A_MATERIALI/S_MARA.csv -> S_MARA), prefissi in TABLE_PREFIX,
+    suffisso del flusso in ZIP_TABLE_SUFFIX (es. S_EKKO di DM14_CONTRATTI.zip -> S_EKKO#CONTRATTI).
     """
     name = os.path.splitext(os.path.basename(csv_filename))[0]
     for prefix, table_prefix in TABLE_PREFIX.items():
         if name.startswith(prefix):
-            return table_prefix + name[len(prefix):]
+            name = table_prefix + name[len(prefix):]
+            break
+    for zip_prefix, suffix in ZIP_TABLE_SUFFIX.items():
+        if zip_name.upper().startswith(zip_prefix.upper()) and not name.endswith(suffix):
+            name += suffix
+            break
     return name
 
 
@@ -392,7 +406,7 @@ def process_zip(zip_path: str, conn):
         log.info(f"  CSV trovati: {len(csv_files)}")
 
         for csv_filename in csv_files:
-            table_name = table_name_for(csv_filename)
+            table_name = table_name_for(csv_filename, zip_name)
             log.info(f"  -> {csv_filename}")
             log.info(f"     Tabella: {RAW_SCHEMA}.{q(table_name)}")
 

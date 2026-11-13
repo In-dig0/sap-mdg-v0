@@ -25,7 +25,7 @@ Cartelle del datalake (volumi Docker, montate in Bruin sotto `/project/datalake/
 
 | Cartella           | Contenuto                                                         | Caricata da / in                  |
 |--------------------|-------------------------------------------------------------------|-----------------------------------|
-| `in_source_pprod`  | ZIP/CSV estratti dall'ERP attuale (quello sostituito da S/4HANA); include il semaforo `DATASET_READY.txt` | `ingest_zip_to_raw` → `raw` |
+| `in_source_pprod`  | ZIP/CSV estratti dall'ERP attuale (quello sostituito da S/4HANA); include il semaforo `DATASET_READY.txt` | `ingest_zip_to_raw` → `raw` (i CSV di `DM14_CONTRATTI` in tabelle `<nome>#CONTRATTI`, per non mescolarli con gli ordini DM27) |
 | `in_source_sap`    | Tabelle di controllo SAP in XLSX                                  | `ingest_xlsx_to_ref` → `ref`      |
 | `in_source_others` | Altri file XLSX di supporto                                       | `ingest_others_to_stg` → `stg`    |
 | `out_source_mdg`   | Output di MDG: ZIP per il caricamento in SAP (`<file in ingresso>_MDGOUT_YYYYMMDD_HHMI.zip` con data e ora di avvio del run, solo l'ultimo per flusso, `prd_output_lib.py`) e i file Excel `GruppoProdotti_MDGOUT_YYYYMMDD_HHMI.xlsx` e `Clienti_ZDMO_MDGOUT_YYYYMMDD_HHMI.xlsx`; sottocartelle `discarded/` (scarti in Excel per tabella con controllo e motivo, per controllo, dell'ingestione e `RIEPILOGO_SCARTI.xlsx`; `prd_discard_lib.py`), `report/` (BP già in SAP, quadratura, in Excel), `test/` (estrazione ristretta), `backup/` (output degli ultimi 10 run, `BKP_<cartella>_YYYYMMDD_HHMI.zip` con data e ora del run che li ha prodotti, `setup.backup_output`) | scritta da `prd_export_*`, `prd_reconcile_zip` |
