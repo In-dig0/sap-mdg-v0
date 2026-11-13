@@ -30,6 +30,7 @@ depends:
   - prd.export_cicli_lavoro_zip
   - prd.export_custmat_zip
   - prd.export_clienti_zdmo_xlsx
+  - prd.export_fornitori_conto_lavoro_xlsx
 @bruin """
 
 import os

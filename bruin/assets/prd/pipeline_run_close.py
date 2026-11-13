@@ -76,6 +76,7 @@ depends:
   - prd.reconcile_zip
   - prd.export_gruppo_prodotti_xlsx
   - prd.export_clienti_zdmo_xlsx
+  - prd.export_fornitori_conto_lavoro_xlsx
   - prd.export_check_discards
 description: >
   Chiude il record in stg.pipeline_runs al termine del run.
