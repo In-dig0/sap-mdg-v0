@@ -75,6 +75,7 @@ depends:
   - stg.ck804_supplier_vat_vies_summary
   - prd.reconcile_zip
   - prd.export_gruppo_prodotti_xlsx
+  - prd.export_clienti_zdmo_xlsx
   - prd.export_check_discards
 description: >
   Chiude il record in stg.pipeline_runs al termine del run.

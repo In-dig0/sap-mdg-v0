@@ -19,6 +19,8 @@ description: >
   fornitore creato in SAP (BU_SORT1 di ref.SAP_EXPORT_BUT000; se la tabella non è caricata,
   i vettori di raw S_SUPPL_GEN#ZBP_DatiGenerali) sono escluse e scritte negli scarti:
   in SAP darebbero errore (fornitore non esistente in LFA1).
+  In S_CUST_SALES_DATA#ZBP-DatiVendite il campo INCO3_L è svuotato: il valore 'E' diventa il
+  messaggio fattura ZDMO del file Clienti_ZDMO (prd.export_clienti_zdmo_xlsx).
   In S_CUST_BANK_DATA#ZBP-AppoggioBanca EBPP_ACCNAME = "CC_CLIENTE", per riconoscere in SAP
   le coordinate del BP arrivate dal flusso clienti (CC_FORNITORE nei flussi fornitori).
   In S_CUST_TAXNUMBERS#ZBP-CodiciFisc le righe senza identificativo fiscale (TAXNUM vuoto)
@@ -115,6 +117,10 @@ RAW_REPLACED_BY_PRD = {
 RAW_FROM_PRD = {
     "S_CUST_SALES_DATA#ZBP-DatiVendite",
 }
+# Dati di vendita: INCO3_L svuotato in uscita ('E' = messaggio fattura ZDMO, che va in SAP
+# con il file Clienti_ZDMO di prd.export_clienti_zdmo_xlsx)
+SALES_TABLE  = "S_CUST_SALES_DATA#ZBP-DatiVendite"
+SALES_VALUES = {"INCO3_L": ""}
 
 # Flusso aggiuntivo i cui punti di scarico sono esportati negli ZIP delle anagrafiche:
 # clienti ZBP (questo export) e destinatari merci (export DM). Gli interlocutori
@@ -669,6 +675,7 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
                 drop_if_not_in=(PARVW_COL, VENDOR_PARVW, PARTNER_COL, get_known_vendors(conn))
                                if raw_table == PARTNER_TABLE and partner_vend_on else None,
                 sort_cols=PARTNER_KEY_COLS if raw_table == PARTNER_TABLE else None,
+                row_fn=fixed_values_row_fn(SALES_VALUES) if raw_table == SALES_TABLE else None,
                 discard_reasons={
                     "all_empty": ("CK422", "Partner senza riferimento (KUNN2, LIFNR, PERNR e PARNR vuoti)"),
                     "not_in":    ("CK423", "Partner RA/ZA con fornitore non presente in SAP"),
