@@ -45,6 +45,7 @@ depends:
   - stg.ck532_custmat_area_vendite_cliente
   - stg.ck533_custmat_area_vendite_materiale
   - stg.ck534_custmat_cliente_in_sap
+  - stg.ck535_custmat_chiave_duplicata
 @bruin """
 
 import os

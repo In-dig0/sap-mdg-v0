@@ -10,6 +10,10 @@ viene saltato (il flusso può non essere presente in tutti gli ambienti).
 """
 
 import os
+import csv
+import io
+import zipfile
+from collections import defaultdict
 from datetime import datetime, timezone
 
 import psycopg2
@@ -135,6 +139,92 @@ FROM c
 LEFT JOIN best ON best.cust = c.cust
 LEFT JOIN m ON m.cust = c.cust AND m.via = best.via
 GROUP BY c.cust, best.via"""
+
+
+CUSTMAT_KEY_COLS = ["SALESORGANIZATION(k/*)", "DISTRIBUTIONCHANNEL(k/*)", "CUSTOMER(k/*)", "MATERIAL(k/*)"]
+CUSTMAT_KDMAT = "MATERIALBYCUSTOMER"           # codice materiale del cliente (KDMAT in SAP)
+CUSTMAT_KNMT = "SAP_EXPORT_KNMT"               # info record cliente-materiale già in SAP
+CUSTMAT_DUP_TABLE = "custmat_dup"              # tabella temporanea di custmat_duplicates()
+INBOUND_PATH = "/project/datalake/in_source_pprod"
+# object_key degli info record cliente-materiale (valori come in raw): VKORG|VTWEG|CUSTOMER|MATERIAL
+CUSTMAT_OBJECT_KEY = ('x."SALESORGANIZATION(k/*)" || \'|\' || x."DISTRIBUTIONCHANNEL(k/*)" || \'|\' '
+                      '|| x."CUSTOMER(k/*)" || \'|\' || x."MATERIAL(k/*)"')
+
+
+def _read_zip_csv(zip_path: str, csv_name: str) -> list[list[str]]:
+    """Righe (intestazione compresa) del CSV csv_name dentro lo ZIP, anche in una sottocartella."""
+    with zipfile.ZipFile(zip_path) as zf:
+        names = [n for n in zf.namelist() if os.path.basename(n).lower() == csv_name.lower()]
+        if not names:
+            return []
+        raw = zf.read(names[0])
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1252")          # come l'ingestione: file non UTF-8 letti come Windows-1252
+    return list(csv.reader(io.StringIO(text), delimiter=";"))
+
+
+def custmat_duplicates(cur) -> int:
+    """
+    Chiavi duplicate degli info record cliente-materiale nei file in ingresso: l'ingestione carica
+    in raw solo la prima riga di ogni chiave, le altre si leggono dallo ZIP (_source) in in_source_pprod.
+    Crea la tabella temporanea custmat_dup (src, vkorg, vtweg, cust, matnr, n, variants): n = righe
+    con la chiave, variants = valori distinti di MATERIALBYCUSTOMER nell'ordine del file.
+    Chiavi senza spazi iniziali e finali. Restituisce il numero di chiavi duplicate.
+    """
+    cur.execute(f"""
+        CREATE TEMP TABLE IF NOT EXISTS {CUSTMAT_DUP_TABLE}
+            (src text, vkorg text, vtweg text, cust text, matnr text, n int, variants text)""")
+    cur.execute(f"TRUNCATE {CUSTMAT_DUP_TABLE}")
+    cur.execute(f'SELECT DISTINCT "_source" FROM raw."{CUSTMAT_TABLE}" WHERE "_source" IS NOT NULL')
+    out = []
+    for (src,) in cur.fetchall():
+        path = os.path.join(INBOUND_PATH, src)
+        if not os.path.isfile(path):
+            print(f"[WARN] {path} non trovato: duplicati di {src} non verificabili")
+            continue
+        rows = _read_zip_csv(path, f"{CUSTMAT_TABLE}.csv")
+        if not rows:
+            continue
+        header = [c.strip() for c in rows[0]]
+        if any(c not in header for c in CUSTMAT_KEY_COLS + [CUSTMAT_KDMAT]):
+            print(f"[WARN] {src}: colonne chiave o {CUSTMAT_KDMAT} assenti — duplicati non verificati")
+            continue
+        idx = [header.index(c) for c in CUSTMAT_KEY_COLS]
+        kd = header.index(CUSTMAT_KDMAT)
+        groups = defaultdict(list)
+        for row in rows[1:]:
+            if len(row) != len(header):      # righe malformate: scartate anche dall'ingestione
+                continue
+            groups[tuple(row[i].strip() for i in idx)].append(row[kd].strip())
+        for key, kdmats in groups.items():
+            if len(kdmats) > 1:
+                variants = list(dict.fromkeys(kdmats))
+                out.append((src, *key, len(kdmats), ", ".join(f"[{v}]" for v in variants)))
+    if out:
+        execute_values(cur, f"INSERT INTO {CUSTMAT_DUP_TABLE} VALUES %s", out)
+    return len(out)
+
+
+def custmat_in_sap_sql() -> str:
+    """
+    Info record cliente-materiale già presenti in SAP (ref.SAP_EXPORT_KNMT): stessi VKORG, VTWEG,
+    KUNNR (CUSTOMER trascodificato con il BP SAP come in CK534, un solo BP), MATNR e KDMAT
+    (MATERIALBYCUSTOMER, confronto esatto: maiuscole e minuscole contano). Valori senza spazi
+    iniziali e finali. Colonne: src (_source), object_key, cust, partner, kdmat.
+    """
+    return f"""
+SELECT x."_source" AS src, {CUSTMAT_OBJECT_KEY} AS object_key, c.cust, c.partners AS partner,
+       TRIM(COALESCE(x."{CUSTMAT_KDMAT}", '')) AS kdmat
+FROM raw."{CUSTMAT_TABLE}" x
+JOIN ({custmat_customer_sql()}) c ON c.cust = TRIM(x."CUSTOMER(k/*)") AND c.n = 1
+JOIN ref."{CUSTMAT_KNMT}" k
+  ON TRIM(k."VKORG") = TRIM(x."SALESORGANIZATION(k/*)")
+ AND TRIM(k."VTWEG") = TRIM(x."DISTRIBUTIONCHANNEL(k/*)")
+ AND TRIM(k."KUNNR") = c.partners
+ AND TRIM(k."MATNR") = TRIM(x."MATERIAL(k/*)")
+ AND TRIM(COALESCE(k."KDMAT", '')) = TRIM(COALESCE(x."{CUSTMAT_KDMAT}", ''))"""
 
 
 def run_query_check(check_id: str, sql, required: list, category: str = "PO"):

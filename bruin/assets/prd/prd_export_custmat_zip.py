@@ -5,20 +5,26 @@ description: >
   Genera l'archivio ZIP di output per gli info record cliente-materiale (flusso DM08_SD-InfoVen):
   la tabella raw S_CUSTMAT#INFORMATFOR, unico file dell'archivio, in
   <file in ingresso>_MDGOUT_YYYYMMDD_HHMI.zip (un ZIP per ogni valore distinto di _source).
+  Gli info record già presenti in SAP (ref.SAP_EXPORT_KNMT: stessi VKORG, VTWEG, KUNNR = CUSTOMER
+  trascodificato con il BP SAP, MATNR e KDMAT = MATERIALBYCUSTOMER, confronto esatto) non sono
+  esportati: riepilogo e dettaglio in report/<file in ingresso>_gia_in_SAP.xlsx.
   Le righe segnalate da un controllo sugli info record cliente-materiale attivo e con
   l'esclusione dall'output attiva nel catalogo non sono esportate e finiscono in
   discarded/S_CUSTMAT_INFORMATFOR_discarded.xlsx con controllo e motivo:
     - CK534: cliente non presente in SAP (BUT000) o corrispondente a più BP;
+    - CK535: chiave duplicata nel file in ingresso (codici materiale del cliente diversi);
     - CK531: materiale non ancora migrato in SAP nella divisione;
     - CK532: organizzazione commerciale/canale non tra le aree di vendita del cliente;
     - CK533: organizzazione commerciale/canale non tra i dati di vendita del materiale.
   CUSTOMER(k/*) trovato in BUT000 solo come chiave di ricerca (BU_SORT2, poi BU_SORT1, un solo
   BP) è trascodificato con il codice BP SAP (PARTNER), segnalato nel log.
-  Il CSV usa separatore ";" e non include colonne audit. I duplicati sulla chiave sono già
-  scartati dal caricamento (discarded/ingestione_scarti.xlsx).
+  Il CSV usa separatore ";" e non include colonne audit. Delle righe con chiave duplicata
+  l'ingestione carica solo la prima (le altre in discarded/ingestione_scarti.xlsx); CK535
+  esclude anche quella.
   Output: /project/datalake/out_source_mdg/<_source>_MDGOUT_<YYYYMMDD_HHMI>.zip
 depends:
   - stg.ck534_custmat_cliente_in_sap
+  - stg.ck535_custmat_chiave_duplicata
   - stg.ck531_custmat_materiale_in_sap_marc
   - stg.ck532_custmat_area_vendite_cliente
   - stg.ck533_custmat_area_vendite_materiale
@@ -38,7 +44,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "stg"))
 from prd_output_lib import output_zip_path
 from prd_discard_lib import add_discards, flush_discards, reset_discards
 from prd_merge_lib import exclusion_enabled
-from ck_query_lib import custmat_customer_sql, CUSTMAT_VIA
+from ck_query_lib import custmat_customer_sql, custmat_in_sap_sql, CUSTMAT_VIA, CUSTMAT_KNMT
+from prd_discard_lib import REPORT_DIR, write_xlsx
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,7 +68,7 @@ AUDIT_COLS = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 # object_key dei controlli: SALESORGANIZATION|DISTRIBUTIONCHANNEL|CUSTOMER|MATERIAL
 KEY_COLS   = ["SALESORGANIZATION(k/*)", "DISTRIBUTIONCHANNEL(k/*)", "CUSTOMER(k/*)", "MATERIAL(k/*)"]
 # Controlli con esclusione dall'output, nell'ordine in cui è attribuito il motivo
-CHECKS     = ["CK534", "CK531", "CK532", "CK533"]
+CHECKS     = ["CK534", "CK535", "CK531", "CK532", "CK533"]
 CUSTOMER_COL = "CUSTOMER(k/*)"
 
 
@@ -110,15 +117,57 @@ def get_customer_map(cur) -> dict:
     return {cust: partner for cust, partner, _ in rows}
 
 
-def build_zip(cur, source_name, cols, excluded, customer_map) -> tuple[bytes, int]:
+def get_in_sap(cur) -> dict:
+    """object_key -> (_source, CUSTOMER, BP SAP, KDMAT) degli info record già presenti in SAP (KNMT)."""
+    for table in (CUSTMAT_KNMT, "SAP_EXPORT_BUT000"):
+        cur.execute("SELECT to_regclass(%s)", (f'ref."{table}"',))
+        if cur.fetchone()[0] is None:
+            log.warning("  ref.%s non caricata — info record già in SAP non esclusi", table)
+            return {}
+    cur.execute(f"SELECT object_key, src, cust, partner, kdmat FROM ({custmat_in_sap_sql()}) s")
+    return {key: rest for key, *rest in cur.fetchall()}
+
+
+def already_in_sap_path(source_name: str) -> str:
+    return os.path.join(REPORT_DIR, f"{os.path.splitext(source_name)[0]}_gia_in_SAP.xlsx")
+
+
+def write_already_in_sap(source_name: str, cols: list, rows: list, in_sap: dict, row_key):
+    """
+    report/<ZIP>_gia_in_SAP.xlsx: foglio gia_in_SAP (TABELLA, CODICE, CODICE_SAP, RIGHE per cliente,
+    letto dalla quadratura) e foglio dettaglio con le righe escluse e il BP SAP.
+    """
+    path = already_in_sap_path(source_name)
+    if os.path.exists(path):
+        os.remove(path)
+    if not rows:
+        return
+    summary = {}
+    for row in rows:
+        _, cust, partner, _ = in_sap[row_key(row)]
+        summary[(cust, partner)] = summary.get((cust, partner), 0) + 1
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    write_xlsx(path, [
+        ("gia_in_SAP", ["TABELLA", "CODICE", "CODICE_SAP", "RIGHE"],
+         [(TABLE, c, p, n) for (c, p), n in sorted(summary.items())]),
+        ("dettaglio", ["BP SAP"] + cols, [[in_sap[row_key(r)][2]] + list(r) for r in rows]),
+    ])
+    log.info("  [GIA' IN SAP] %d info record di '%s' già presenti in SAP (KNMT), non esportati: %s",
+             len(rows), source_name, path)
+
+
+def build_zip(cur, source_name, cols, excluded, customer_map, in_sap) -> tuple[bytes, int]:
     cur.execute(f'SELECT {", ".join(q(c) for c in cols)} FROM raw.{q(TABLE)} WHERE "_source" = %s ORDER BY 1, 2, 3, 4',
                 (source_name,))
     rows = cur.fetchall()
     key_idx = [cols.index(c) for c in KEY_COLS]
     row_key = lambda row: "|".join(row[i] or "" for i in key_idx)
 
-    kept, dropped = [], {}
+    kept, dropped, already = [], {}, []
     for row in rows:
+        if row_key(row) in in_sap:
+            already.append(row)
+            continue
         hit = excluded.get(row_key(row))
         if hit:
             dropped.setdefault(hit[0], []).append(row)
@@ -126,6 +175,7 @@ def build_zip(cur, source_name, cols, excluded, customer_map) -> tuple[bytes, in
             kept.append(row)
     for check_id, discarded in dropped.items():
         add_discards(TABLE, cols, discarded, check_id, lambda row: excluded[row_key(row)][1])
+    write_already_in_sap(source_name, cols, already, in_sap, row_key)
     if customer_map:
         idx, n = cols.index(CUSTOMER_COL), 0
         for i, row in enumerate(kept):
@@ -149,7 +199,8 @@ def build_zip(cur, source_name, cols, excluded, customer_map) -> tuple[bytes, in
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(f"{TABLE}.csv", out.getvalue().encode("utf-8"))
-    log.info("  + raw.%s: %d righe esportate, %d escluse", TABLE, len(kept), len(rows) - len(kept))
+    log.info("  + raw.%s: %d righe esportate, %d già in SAP, %d escluse dai controlli",
+             TABLE, len(kept), len(already), len(rows) - len(kept) - len(already))
     return buf.getvalue(), len(kept)
 
 
@@ -168,9 +219,10 @@ def main():
             sources = [r[0] for r in cur.fetchall()]
             excluded = get_excluded(cur)
             customer_map = get_customer_map(cur)
+            in_sap = get_in_sap(cur)
             for source_name in sources:
                 log.info("=== Generazione ZIP: %s ===", source_name)
-                zip_bytes, n_rows = build_zip(cur, source_name, cols, excluded, customer_map)
+                zip_bytes, n_rows = build_zip(cur, source_name, cols, excluded, customer_map, in_sap)
                 output_path = output_zip_path(OUTPUT_DIR, source_name)
                 if n_rows == 0:
                     log.warning("  ✗  %s: nessuna riga da esportare — ZIP non generato", source_name)
