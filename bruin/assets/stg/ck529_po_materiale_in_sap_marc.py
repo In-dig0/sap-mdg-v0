@@ -8,7 +8,8 @@ description: >
   migrato in SAP nella divisione WERKS (ref.SAP_EXPORT_MARC, MATNR + WERKS).
   Il codice materiale SAP è uguale a quello del vecchio ERP (confronto senza spazi iniziali
   e finali). Assente: Warning, in SAP la migrazione andrebbe in errore.
-  Solo segnalazione: MDG non genera lo ZIP degli ordini. Posizioni senza materiale escluse
+  Solo segnalazione: le posizioni sono comunque esportate (prd.export_ordini_acquisto_zip).
+  Posizioni senza materiale escluse
   dal controllo. Un esito per posizione. Saltato se SAP_EXPORT_MARC non è caricata.
 @bruin """
 

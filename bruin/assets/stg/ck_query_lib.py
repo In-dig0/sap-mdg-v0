@@ -227,6 +227,43 @@ JOIN ref."{CUSTMAT_KNMT}" k
  AND TRIM(COALESCE(k."KDMAT", '')) = TRIM(COALESCE(x."{CUSTMAT_KDMAT}", ''))"""
 
 
+# Ordini di acquisto (DM27): trascodifica del centro di costo DBCOGE in S_EKKN.KOSTL
+PO_ACCOUNT_TABLE = "S_EKKN"
+PO_ITEM_TABLE    = "S_EKPO"
+CDC_TRASCO       = "SAP_TRASCO_CDC"     # COD_DBCOGE + DIV -> COD_SAP_DEF
+PO_ACCOUNT_KEY   = ('x."EBELN(k/*)" || \'|\' || x."EBELP(k/*)" || \'|\' || x."ZEKKN(k/*)"')
+
+
+def po_cdc_sql() -> str:
+    """
+    Righe di S_EKKN con KOSTL valorizzato e la trascodifica del centro di costo DBCOGE nel codice SAP:
+    ref.SAP_TRASCO_CDC con COD_DBCOGE = KOSTL e DIV = WERKS della posizione (S_EKPO, stessi EBELN e
+    EBELP), valori senza spazi iniziali e finali. COD_SAP_DEF vuoto o con '?' (es. '??') non è una
+    trascodifica valida. Colonne: src (_source), object_key (EBELN|EBELP|ZEKKN), kostl, werks
+    (NULL se la posizione non esiste), n_rec (record di trascodifica trovati), n_sap (codici SAP
+    validi distinti), sap (il codice SAP se è uno solo), sap_list.
+    """
+    return f"""
+SELECT x."_source" AS src, {PO_ACCOUNT_KEY} AS object_key, TRIM(x."KOSTL") AS kostl, p.werks,
+       COUNT(t.cod) AS n_rec,
+       COUNT(DISTINCT t.cod) FILTER (WHERE t.valid) AS n_sap,
+       CASE WHEN COUNT(DISTINCT t.cod) FILTER (WHERE t.valid) = 1
+            THEN MIN(t.cod) FILTER (WHERE t.valid) END AS sap,
+       STRING_AGG(DISTINCT t.cod, ', ') FILTER (WHERE t.valid) AS sap_list
+FROM raw."{PO_ACCOUNT_TABLE}" x
+LEFT JOIN (SELECT DISTINCT "_source" AS src, TRIM("EBELN(k/*)") AS ebeln, TRIM("EBELP(k/*)") AS ebelp,
+                  TRIM("WERKS") AS werks
+           FROM raw."{PO_ITEM_TABLE}") p
+       ON p.src = x."_source" AND p.ebeln = TRIM(x."EBELN(k/*)") AND p.ebelp = TRIM(x."EBELP(k/*)")
+LEFT JOIN (SELECT TRIM("COD_DBCOGE") AS kostl, TRIM("DIV") AS werks,
+                  TRIM(COALESCE("COD_SAP_DEF", '')) AS cod,
+                  TRIM(COALESCE("COD_SAP_DEF", '')) <> '' AND POSITION('?' IN "COD_SAP_DEF") = 0 AS valid
+           FROM ref."{CDC_TRASCO}") t
+       ON t.kostl = TRIM(x."KOSTL") AND t.werks = p.werks
+WHERE TRIM(COALESCE(x."KOSTL", '')) <> ''
+GROUP BY x."_source", {PO_ACCOUNT_KEY}, TRIM(x."KOSTL"), p.werks"""
+
+
 def run_query_check(check_id: str, sql, required: list, category: str = "PO"):
     """
     required: tabelle necessarie come (schema, tabella); se ne manca una il controllo è saltato.

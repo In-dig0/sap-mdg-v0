@@ -575,6 +575,9 @@ VALUES
     ('CK535','Info record cliente-materiale: la chiave (organizzazione commerciale, canale, cliente, materiale) deve essere univoca nel file',
      'CMIR','S_CUSTMAT#INFORMATFOR','SALESORGANIZATION(k/*) + DISTRIBUTIONCHANNEL(k/*) + CUSTOMER(k/*) + MATERIAL(k/*)',
      'File DM08 in ingresso (righe non caricate); SAP_EXPORT_KNMT','Error','DUPLICATE',TRUE,NOW()),
+    ('CK536','Ordini di acquisto, imputazioni: il centro di costo KOSTL (DBCOGE) deve avere la trascodifica SAP per la divisione della posizione',
+     'PO','S_EKKN','KOSTL + S_EKPO.WERKS',
+     'SAP_TRASCO_CDC (COD_DBCOGE + DIV -> COD_SAP_DEF)','Error','CROSS_SOURCE',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: la partita IVA UE o britannica deve risultare valida (verifica online VIES / HMRC)',

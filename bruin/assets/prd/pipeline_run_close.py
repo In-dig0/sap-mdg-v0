@@ -52,6 +52,7 @@ depends:
   - stg.ck533_custmat_area_vendite_materiale
   - stg.ck534_custmat_cliente_in_sap
   - stg.ck535_custmat_chiave_duplicata
+  - stg.ck536_po_kostl_trasco_cdc
   - stg.ck526_inforecord_lifnr_sap
   - stg.ck421_inforecord_scales_cond
   - stg.ck422_customer_partner_riferimento
