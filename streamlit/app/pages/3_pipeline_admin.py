@@ -184,7 +184,7 @@ def api_delete_raw_source(source: str):
         return None, str(e)
 
 def api_get_code_list(path: str):
-    """GET /db/{path} — elenco di codici (export-filter, export-exclude-add, export-exclude-fornitori-cli)."""
+    """GET /db/{path} — elenco di codici (export-filter, export-filter-ordini, export-exclude-add, ...)."""
     try:
         r = requests.get(f"{API_BASE}/db/{path}", timeout=10)
         r.raise_for_status()
@@ -203,7 +203,14 @@ def api_set_code_list(path: str, codes: list[str]):
     except Exception as e:
         return None, str(e)
 
-def code_list_section(path: str, title: str, icon: str, caption: str, active_label: str):
+CUSTOMER_COLUMN = ("Codice cliente (KUNNR)", "Codice cliente come nel file ERP, con gli zeri iniziali (es. 07010005)",
+                   "clienti")
+ORDER_COLUMN    = ("Numero ordine (EBELN)", "Numero ordine come nel file DM27, con il prefisso della divisione "
+                   "(es. IT11-A0251057)", "ordini")
+
+
+def code_list_section(path: str, title: str, icon: str, caption: str, active_label: str,
+                      column: tuple = CUSTOMER_COLUMN):
     """Elenco di codici in un expander chiuso; il titolo indica se l'elenco è attivo."""
     codes, err = api_get_code_list(path)
     if err:
@@ -215,29 +222,30 @@ def code_list_section(path: str, title: str, icon: str, caption: str, active_lab
     # key: l'expander resta aperto anche quando il titolo cambia dopo un salvataggio
     with st.expander(f"{title} — {stato}", icon=icon, key=f"{path}_expander"):
         st.caption(caption)
-        render_code_list(path, active_label, codes, err)
+        render_code_list(path, active_label, codes, err, column)
 
-def render_code_list(path: str, active_label: str, codes: list[str], err: str | None):
-    """Editor di un elenco di codici cliente salvato tramite API (/db/{path})."""
+def render_code_list(path: str, active_label: str, codes: list[str], err: str | None,
+                     column: tuple = CUSTOMER_COLUMN):
+    """Editor di un elenco di codici (clienti, ordini) salvato tramite API (/db/{path})."""
+    col_name, col_help, noun = column
     if err:
         st.warning(f"Impossibile leggere l'elenco: {err}")
         return
     if codes:
-        st.info(f"{active_label} — {len(codes)} clienti: {', '.join(codes)}")
+        st.info(f"{active_label} — {len(codes)} {noun}: {', '.join(codes)}")
     else:
         st.caption("Elenco vuoto.")
     ver = st.session_state.get(f"{path}_ver", 0)
     edited = st.data_editor(
-        pd.DataFrame({"Codice cliente (KUNNR)": codes}, dtype="string"),
+        pd.DataFrame({col_name: codes}, dtype="string"),
         num_rows="dynamic",
         hide_index=True,
         key=f"{path}_editor_{ver}",
-        column_config={"Codice cliente (KUNNR)": st.column_config.TextColumn(
-            help="Codice cliente come nel file ERP, con gli zeri iniziali (es. 07010005)")},
+        column_config={col_name: st.column_config.TextColumn(help=col_help)},
     )
     col_save, col_clear, _ = st.columns([1, 1, 4])
     if col_save.button("💾 Salva elenco", type="primary", key=f"{path}_save"):
-        new_codes = [str(c).strip() for c in edited["Codice cliente (KUNNR)"].dropna() if str(c).strip()]
+        new_codes = [str(c).strip() for c in edited[col_name].dropna() if str(c).strip()]
         _, err = api_set_code_list(path, new_codes)
         if err:
             st.error(f"Errore salvataggio: {err}")
@@ -492,6 +500,15 @@ with tab_ctrl:
         "cliente di riferimento oppure il suo codice fornitore (LIFNR). "
         "Gli ZIP completi in out_source_mdg non cambiano. Elenco vuoto = nessuna estrazione ristretta.",
         "Estrazione ristretta **attiva**",
+    )
+    code_list_section(
+        "export-filter-ordini", "Estrazione ristretta ordini di acquisto (test)", ":material/science:",
+        "Se l'elenco contiene numeri d'ordine, la pipeline genera **anche** lo ZIP **DM27_MM-OrdAcq** con i soli "
+        "ordini indicati (testate, testi, posizioni, schedulazioni, componenti e imputazioni) nella cartella "
+        "**out_source_mdg/test**. Si possono incollare più numeri da Excel. "
+        "Lo ZIP completo in out_source_mdg non cambia. Elenco vuoto = nessuna estrazione ristretta.",
+        "Estrazione ristretta ordini **attiva**",
+        ORDER_COLUMN,
     )
     code_list_section(
         "export-exclude-add", "Clienti con interlocutori e credito già caricati in SAP", ":material/task_alt:",

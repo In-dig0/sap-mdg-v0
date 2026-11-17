@@ -1173,7 +1173,9 @@ def _raw_tables_with_source(cur) -> list[str]:
 #                            esclusi dagli ZIP DM06-03b e DM06-07a
 #   stg.export_exclude_fornitori_cli — clienti estesi a fornitori (DM06-05a) già caricati in SAP
 #                            (REF_KUNNR o LIFNR): esclusi dallo ZIP DM06-05a
-CODE_LIST_TABLES = {"export_filter", "export_exclude_add", "export_exclude_fornitori_cli"}
+#   stg.export_filter_ordini — estrazione ristretta (test) degli ordini di acquisto: numeri d'ordine
+#                            (EBELN) del DM27 da esportare in out_source_mdg/test
+CODE_LIST_TABLES = {"export_filter", "export_filter_ordini", "export_exclude_add", "export_exclude_fornitori_cli"}
 
 
 class ExportFilterRequest(BaseModel):
@@ -1232,6 +1234,18 @@ def get_export_filter():
 def set_export_filter(req: ExportFilterRequest):
     """Sostituisce l'elenco dei codici cliente dell'estrazione ristretta (lista vuota = filtro disattivato)."""
     return _set_code_list("export_filter", req.kunnr)
+
+
+@app.get("/db/export-filter-ordini", tags=["Database"])
+def get_export_filter_ordini():
+    """Numeri d'ordine (EBELN) dell'estrazione ristretta degli ordini di acquisto (vuoto = nessun filtro)."""
+    return _get_code_list("export_filter_ordini")
+
+
+@app.put("/db/export-filter-ordini", tags=["Database"])
+def set_export_filter_ordini(req: ExportFilterRequest):
+    """Sostituisce l'elenco dei numeri d'ordine dell'estrazione ristretta (lista vuota = filtro disattivato)."""
+    return _set_code_list("export_filter_ordini", req.kunnr)
 
 
 @app.get("/db/export-exclude-add", tags=["Database"])

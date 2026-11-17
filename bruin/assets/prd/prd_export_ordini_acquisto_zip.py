@@ -17,6 +17,9 @@ description: >
   non trovata) sono segnalate da CK536 ed esportate con il KOSTL originale di DBCOGE.
   Nessuna esclusione: i controlli sugli ordini (CK060-062, CK222-225, CK415, CK520-524, CK529,
   CK536) sono solo segnalazioni.
+  Estrazione ristretta (test): se stg.export_filter_ordini contiene numeri d'ordine (EBELN), viene
+  generato anche lo ZIP con i soli ordini indicati, in tutte le tabelle, in out_source_mdg/test
+  (lo ZIP completo non cambia). Gli ordini dell'elenco non trovati sono segnalati nel log.
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source.
   Output: /project/datalake/out_source_mdg/<_source>_MDGOUT_<YYYYMMDD_HHMI>.zip
@@ -55,6 +58,8 @@ DB_CONFIG = {
 }
 
 OUTPUT_DIR   = "/project/datalake/out_source_mdg"
+TEST_DIR     = os.path.join(OUTPUT_DIR, "test")   # estrazione ristretta (stg.export_filter_ordini)
+FILTER_TABLE = "export_filter_ordini"
 AUDIT_COLS   = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 MASTER_TABLE = "S_EKKO"
 RAW_TABLES   = ["S_EKKO", "S_EKKO_TEXT", "S_EKPO", "S_EKET", "S_COMP", "S_EKKN"]
@@ -96,10 +101,26 @@ def sanitize(val):
     return val
 
 
-def fetch_table_csv(cur, table, source_name, cols, cdc_map) -> tuple[bytes, int]:
+def get_order_filter(cur) -> set:
+    """Numeri d'ordine dell'estrazione ristretta (stg.export_filter_ordini); vuoto = nessun filtro."""
+    if not table_exists(cur, "stg", FILTER_TABLE):
+        return set()
+    cur.execute(f"SELECT TRIM(kunnr) FROM stg.{FILTER_TABLE} WHERE COALESCE(TRIM(kunnr), '') <> ''")
+    return {r[0] for r in cur.fetchall()}
+
+
+def ebeln_col(cols):
+    """Colonna del numero ordine: EBELN(k/*) o EBELN(k) a seconda del file."""
+    return next(c for c in cols if c.split("(")[0] == "EBELN")
+
+
+def fetch_table_csv(cur, table, source_name, cols, cdc_map, orders=None) -> tuple[bytes, int]:
     cur.execute(f'SELECT {", ".join(q(c) for c in cols)} FROM raw.{q(table)} WHERE "_source" = %s ORDER BY 1',
                 (source_name,))
     rows = cur.fetchall()
+    if orders is not None:
+        idx = cols.index(ebeln_col(cols))
+        rows = [row for row in rows if (row[idx] or "").strip() in orders]
     if table == PO_ACCOUNT_TABLE and cdc_map:
         key_idx, kostl, n = [cols.index(c) for c in ACCOUNT_KEY_COLS], cols.index(KOSTL_COL), 0
         for i, row in enumerate(rows):
@@ -119,6 +140,40 @@ def fetch_table_csv(cur, table, source_name, cols, cdc_map) -> tuple[bytes, int]
     return buf.getvalue().encode("utf-8"), len(rows)
 
 
+def build_zip(cur, source_name, cols_map, cdc_map, orders=None) -> bytes:
+    """ZIP con le tabelle del flusso (orders: solo questi numeri d'ordine, None = tutti)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for table, cols in cols_map.items():
+            csv_bytes, n_rows = fetch_table_csv(cur, table, source_name, cols, cdc_map, orders)
+            if n_rows:
+                zf.writestr(f"{table}.csv", csv_bytes)
+    return buf.getvalue()
+
+
+def write_test_zip(cur, source_name, cols_map, cdc_map, orders: set):
+    """Estrazione ristretta: rimuove lo ZIP di test precedente e scrive quello con i soli ordini indicati."""
+    test_path = output_zip_path(TEST_DIR, source_name)   # rimuove anche il precedente
+    if not orders:
+        return
+    cur.execute(f'SELECT DISTINCT TRIM({q(ebeln_col(cols_map[MASTER_TABLE]))}) FROM raw.{q(MASTER_TABLE)} '
+                'WHERE "_source" = %s', (source_name,))
+    found = {r[0] for r in cur.fetchall()} & orders
+    missing = sorted(orders - found)
+    if missing:
+        log.warning("  [TEST] %d ordini dell'elenco non presenti in %s di '%s': %s",
+                    len(missing), MASTER_TABLE, source_name, ", ".join(missing))
+    if not found:
+        log.info("  [TEST] %s: nessun ordine dell'elenco — ZIP di test non generato", source_name)
+        return
+    log.info("=== Estrazione ristretta (test): %d ordini ===", len(found))
+    zip_bytes = build_zip(cur, source_name, cols_map, cdc_map, found)
+    os.makedirs(TEST_DIR, exist_ok=True)
+    with open(test_path, "wb") as f:
+        f.write(zip_bytes)
+    log.info("  [TEST] ✓  %s  (%d ordini: %s)", test_path, len(found), ", ".join(sorted(found)))
+
+
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     conn = psycopg2.connect(**DB_CONFIG)
@@ -136,22 +191,18 @@ def main():
             cur.execute(f'SELECT DISTINCT "_source" FROM raw.{q(MASTER_TABLE)} WHERE "_source" IS NOT NULL ORDER BY 1')
             sources = [r[0] for r in cur.fetchall()]
             cdc_map = get_cdc_map(cur) if PO_ACCOUNT_TABLE in cols_map else {}
+            orders = get_order_filter(cur)
             for source_name in sources:
                 log.info("=== Generazione ZIP: %s ===", source_name)
-                buf = io.BytesIO()
-                with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-                    for table, cols in cols_map.items():
-                        csv_bytes, n_rows = fetch_table_csv(cur, table, source_name, cols, cdc_map)
-                        if n_rows:
-                            zf.writestr(f"{table}.csv", csv_bytes)
+                zip_bytes = build_zip(cur, source_name, cols_map, cdc_map)
                 output_path = output_zip_path(OUTPUT_DIR, source_name)
                 with open(output_path, "wb") as f:
-                    f.write(buf.getvalue())
-                log.info("  ✓  %s  (%.1f KB)", output_path, len(buf.getvalue()) / 1024)
+                    f.write(zip_bytes)
+                log.info("  ✓  %s  (%.1f KB)", output_path, len(zip_bytes) / 1024)
+                write_test_zip(cur, source_name, cols_map, cdc_map, orders)
     finally:
         conn.close()
     log.info("=== export_ordini_acquisto_zip completato ===")
-
 
 if __name__ == "__main__":
     main()

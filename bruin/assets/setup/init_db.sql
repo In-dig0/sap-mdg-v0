@@ -101,6 +101,18 @@ CREATE TABLE IF NOT EXISTS stg.export_filter (
 );
 
 -- =============================================================================
+-- stg.export_filter_ordini — estrazione ristretta (test) degli ordini di acquisto: numeri
+-- d'ordine (EBELN, colonna kunnr come gli altri elenchi) del DM27. Se contiene righe,
+-- prd.export_ordini_acquisto_zip genera anche lo ZIP ristretto in out_source_mdg/test.
+-- Gestita dalla pagina Gestione Pipeline (API /db/export-filter-ordini).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS stg.export_filter_ordini (
+    kunnr           VARCHAR(20)  NOT NULL,
+    created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
+    CONSTRAINT pk_export_filter_ordini PRIMARY KEY (kunnr)
+);
+
+-- =============================================================================
 -- stg.export_exclude_add — clienti con dati aggiuntivi (interlocutori, credito) già
 -- caricati in SAP: esclusi dagli ZIP DM06-03b e DM06-07a.
 -- Gestita dalla pagina Gestione Pipeline (API /db/export-exclude-add).
