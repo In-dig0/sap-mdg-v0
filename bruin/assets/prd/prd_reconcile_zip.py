@@ -99,6 +99,7 @@ def get_prd_exclusions(conn, raw_counts: dict[str, int]) -> dict[str, int]:
     """
     Righe raw filtrate nel merge verso prd (le tabelle prd sostituiscono le raw
     nell'export): raw - prd per ogni tabella prd con la corrispondente tabella raw.
+    Un valore negativo indica righe aggiunte nel merge (es. operazioni e cicli da STG).
     """
     excluded = {}
     with conn.cursor() as cur:
@@ -109,7 +110,7 @@ def get_prd_exclusions(conn, raw_counts: dict[str, int]) -> dict[str, int]:
                 continue
             cur.execute(f'SELECT COUNT(*) FROM prd."{prd_table.replace(chr(34), chr(34) * 2)}"')
             n = raw_counts[raw_table] - cur.fetchone()[0]
-            if n > 0:
+            if n:
                 excluded[raw_table] = n
     return excluded
 
@@ -229,7 +230,10 @@ def main():
         log.info("  Tabelle raw trovate: %d", len(raw_counts))
         excluded_counts = get_prd_exclusions(conn, raw_counts)
         for table, n in excluded_counts.items():
-            log.info("  Esclusi di proposito: %s — %d righe filtrate nel merge verso prd", table, n)
+            if n > 0:
+                log.info("  Esclusi di proposito: %s — %d righe filtrate nel merge verso prd", table, n)
+            else:
+                log.info("  Aggiunti nel merge: %s — %d righe in più in prd (da STG)", table, -n)
         for table, n in get_discard_exclusions(raw_counts).items():
             excluded_counts[table] = excluded_counts.get(table, 0) + n
             log.info("  Esclusi di proposito: %s — %d righe nel file di scarto", table, n)
@@ -289,7 +293,7 @@ def main():
                 # Tabella in raw ma non in nessun ZIP — normale per tabelle non esportate
                 status = "NON_ESPORTATA"
             elif raw_n - excl == zip_n:
-                status = f"OK ({excl} esclusi)" if excl else "OK"
+                status = (f"OK ({excl} esclusi)" if excl > 0 else f"OK ({-excl} aggiunti)") if excl else "OK"
                 n_ok += 1
             else:
                 diff = zip_n - (raw_n - excl)

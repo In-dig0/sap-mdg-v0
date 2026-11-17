@@ -11,6 +11,9 @@ description: >
   - Se la tabella esiste ed è popolata → skip (gestita da detect_new_records).
   - Se la tabella esiste ma è vuota (es. dopo TRUNCATE) → ricarica i dati.
   - Colonne audit: _status TEXT, _source TEXT, _loaded_at TIMESTAMPTZ.
+  Tabelle "specchio" del file (FILE_MIRROR_TABLES, es. S_OPERATION_STG dei cicli): ricaricate
+  dal file a ogni run, senza indice UNIQUE (la chiave si completa nel merge); se il file non è
+  più in in_source_others la tabella viene eliminata.
 depends:
   - ingestion.ingest_zip_to_raw
 connections:
@@ -27,6 +30,10 @@ from datetime import datetime, timezone
 SOURCE_DIR = "/project/datalake/in_source_others"
 SCHEMA     = "stg"
 BATCH_SIZE = 500
+# Tabelle ricaricate dal file a ogni run (il file è la fonte, non si modificano da Streamlit):
+# niente indice UNIQUE perché la chiave è incompleta nel file (S_OPERATION_STG: PLNNR vuoto,
+# ricavato dal materiale nel merge prd.merge_cicli, che segnala anche le chiavi duplicate).
+FILE_MIRROR_TABLES = {"S_OPERATION_STG"}
 
 
 def get_connection():
@@ -74,6 +81,12 @@ def load_xlsx(cur, xlsx_path: str, loaded_at: str) -> tuple[int, bool]:
     exists     = table_exists(cur, SCHEMA, table)
     has_rows   = table_has_rows(cur, SCHEMA, table) if exists else False
 
+    mirror     = table in FILE_MIRROR_TABLES
+    if mirror and exists:
+        cur.execute(f"DROP TABLE {fqt}")
+        exists = has_rows = False
+        print(f'  RELOAD stg."{table}" — ricaricata dal file a ogni run.')
+
     if exists and has_rows:
         print(f'  SKIP  stg."{table}" — tabella popolata, gestita da detect_new_records.')
         return 0, True
@@ -101,7 +114,7 @@ def load_xlsx(cur, xlsx_path: str, loaded_at: str) -> tuple[int, bool]:
                 "_loaded_at" TIMESTAMPTZ
             )
         """)
-        if key_cols:
+        if key_cols and not mirror:
             key_def  = ", ".join(f'"{k}"' for k in key_cols)
             idx_name = re.sub(r"[^a-z0-9]", "_", table.lower())[:40]
             cur.execute(f'CREATE UNIQUE INDEX "uidx_{idx_name}" ON {fqt} ({key_def})')
@@ -128,8 +141,26 @@ def load_xlsx(cur, xlsx_path: str, loaded_at: str) -> tuple[int, bool]:
     return inserted, False
 
 
+def drop_missing_mirrors(xlsx_files: list[str]):
+    """Elimina le tabelle specchio il cui file non è più in in_source_others."""
+    present = {os.path.splitext(os.path.basename(f))[0] for f in xlsx_files}
+    missing = FILE_MIRROR_TABLES - present
+    if not missing:
+        return
+    conn = get_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            for table in sorted(missing):
+                if table_exists(cur, SCHEMA, table):
+                    cur.execute(f'DROP TABLE {SCHEMA}."{table}"')
+                    print(f'  DROP  stg."{table}" — file {table}.xlsx non più presente in {SOURCE_DIR}')
+    finally:
+        conn.close()
+
+
 def main():
     xlsx_files = sorted(glob.glob(os.path.join(SOURCE_DIR, "*.xlsx")))
+    drop_missing_mirrors(xlsx_files)
     if not xlsx_files:
         print(f"Nessun file XLSX trovato in {SOURCE_DIR} — nulla da fare.")
         return

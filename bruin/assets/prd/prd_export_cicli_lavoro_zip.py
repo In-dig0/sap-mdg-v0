@@ -2,14 +2,17 @@
 name: prd.export_cicli_lavoro_zip
 type: python
 description: >
-  Genera l'archivio ZIP di output per i cicli di lavoro.
-  Tutte le tabelle vengono lette dallo schema raw e scritte integralmente —
-  nessuna esclusione di record orfani (CK408 segnala le anomalie nel report
+  Genera l'archivio ZIP di output per i cicli di lavoro (DM15_CICLI): S_GROUP, S_PLKO, S_MAPL,
+  S_SEQUENCE, S_OPERATION, nell'ordine del modello SAP.
+  S_OPERATION, S_PLKO e S_MAPL sono lette da prd (prd.merge_cicli: operazioni sostituite o
+  aggiunte da stg.S_OPERATION_STG e cicli alternativi nuovi), le altre da raw; se la tabella prd
+  non c'è si usa raw. Nessuna esclusione di record orfani (CK408 segnala le anomalie nel report
   qualita, ma non blocca la scrittura dell'output).
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source (da S_OPERATION).
   Output: /project/datalake/out_source_mdg/<_source>
 depends:
+  - prd.merge_cicli
   - stg.ck408_cicli_lavoro_orphans
   - stg.ck502_marc_mapl
 @bruin """
@@ -45,13 +48,17 @@ OUTPUT_DIR   = "/project/datalake/out_source_mdg"
 MASTER_TABLE = "S_OPERATION"
 AUDIT_COLS   = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 
-# Ordine tabelle nel ZIP: master prima, poi secondarie
+# Ordine tabelle nel ZIP (come nel modello SAP)
 RAW_TABLES = [
-    "S_OPERATION",   # master
-    "S_MAPL",
     "S_GROUP",
     "S_PLKO",
+    "S_MAPL",
+    "S_SEQUENCE",
+    "S_OPERATION",   # master
 ]
+# Tabelle lette da prd se presenti (prd.merge_cicli), altrimenti da raw
+PRD_TABLES = {"S_OPERATION", "S_PLKO", "S_MAPL"}
+SCHEMA = {}   # tabella -> schema da cui leggerla, impostato in main()
 
 
 def get_connection():
@@ -66,7 +73,7 @@ def get_distinct_sources(conn):
     """Recupera i valori distinti di _source dalla tabella master S_OPERATION."""
     with conn.cursor() as cur:
         cur.execute(
-            'SELECT DISTINCT "_source" FROM raw."S_OPERATION"'
+            f'SELECT DISTINCT "_source" FROM {SCHEMA[MASTER_TABLE]}."S_OPERATION"'
             ' WHERE "_source" IS NOT NULL ORDER BY 1'
         )
         return [r[0] for r in cur.fetchall()]
@@ -76,23 +83,23 @@ def get_columns(conn, table):
     with conn.cursor() as cur:
         cur.execute("""
             SELECT column_name FROM information_schema.columns
-            WHERE table_schema = 'raw' AND table_name = %s
+            WHERE table_schema = %s AND table_name = %s
             ORDER BY ordinal_position
-        """, (table,))
+        """, (SCHEMA.get(table, "raw"), table))
         return [r[0] for r in cur.fetchall() if r[0] not in AUDIT_COLS]
 
 
-def table_exists(conn, table):
+def table_exists(conn, table, schema="raw"):
     with conn.cursor() as cur:
         cur.execute(
             "SELECT 1 FROM information_schema.tables"
-            " WHERE table_schema='raw' AND table_name=%s", (table,)
+            " WHERE table_schema=%s AND table_name=%s", (schema, table)
         )
         return cur.fetchone() is not None
 
 
 def fetch_table_csv(conn, table, source_name, cols):
-    fqt      = "raw." + q(table)
+    fqt      = SCHEMA.get(table, "raw") + "." + q(table)
     col_list = ", ".join(q(c) for c in cols)
     with conn.cursor() as cur:
         cur.execute(
@@ -129,7 +136,7 @@ def build_zip(conn, source_name, cols_map):
                 continue
             zf.writestr(f"{table}.csv", csv_bytes)
             master_label = " [master]" if table == MASTER_TABLE else ""
-            log.info("  + raw.%s%s: %d righe", table, master_label, n_rows)
+            log.info("  + %s.%s%s: %d righe", SCHEMA.get(table, "raw"), table, master_label, n_rows)
     buf.seek(0)
     return buf.read()
 
@@ -139,7 +146,9 @@ def main():
     conn = get_connection()
 
     try:
-        if not table_exists(conn, MASTER_TABLE):
+        for table in RAW_TABLES:
+            SCHEMA[table] = "prd" if table in PRD_TABLES and table_exists(conn, table, "prd") else "raw"
+        if not table_exists(conn, MASTER_TABLE, SCHEMA[MASTER_TABLE]):
             log.warning("raw.%s non trovata — export annullato.", MASTER_TABLE)
             return
 
@@ -151,7 +160,7 @@ def main():
         # Carica colonne una volta sola per tutte le tabelle
         cols_map = {}
         for table in RAW_TABLES:
-            if table_exists(conn, table):
+            if table_exists(conn, table, SCHEMA[table]):
                 cols = get_columns(conn, table)
                 if cols:
                     cols_map[table] = cols
