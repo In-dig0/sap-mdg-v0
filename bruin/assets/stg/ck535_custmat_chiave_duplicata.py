@@ -11,7 +11,7 @@ description: >
   materiale del cliente (MATERIALBYCUSTOMER) trovati, da cui l'ERP deve scegliere quello giusto.
   Errore sulla riga caricata in raw; con l'esclusione dall'output attiva nel catalogo la chiave
   non è esportata (file S_CUSTMAT_INFORMATFOR_discarded.xlsx) finché il file non viene corretto.
-  Ok se la riga caricata è già in SAP (ref.SAP_EXPORT_KNMT con lo stesso MATERIALBYCUSTOMER):
+  Ok se la chiave è già in SAP (ref.SAP_EXPORT_KNMT, il messaggio riporta il MATERIALBYCUSTOMER di SAP):
   non viene comunque esportata (prd.export_custmat_zip, report/<ZIP>_gia_in_SAP.xlsx).
   Confronto senza spazi iniziali e finali. Un esito per riga.
   Saltato se S_CUSTMAT non è caricata.
@@ -43,7 +43,7 @@ SELECT '{CUSTMAT_TABLE}', {CUSTMAT_OBJECT_KEY},
        x."_source",
        CASE WHEN d.src IS NOT NULL THEN
             'Chiave duplicata nel file (' || d.n || ' righe), info record già in SAP con '
-            || 'MATERIALBYCUSTOMER [' || s.kdmat || ']'
+            || 'MATERIALBYCUSTOMER [' || s.kdmat || '] in SAP'
        END
 FROM raw."{CUSTMAT_TABLE}" x
 LEFT JOIN {CUSTMAT_DUP_TABLE} d

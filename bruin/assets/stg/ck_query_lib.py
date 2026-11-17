@@ -209,14 +209,16 @@ def custmat_duplicates(cur) -> int:
 
 def custmat_in_sap_sql() -> str:
     """
-    Info record cliente-materiale già presenti in SAP (ref.SAP_EXPORT_KNMT): stessi VKORG, VTWEG,
-    KUNNR (CUSTOMER trascodificato con il BP SAP come in CK534, un solo BP), MATNR e KDMAT
-    (MATERIALBYCUSTOMER, confronto esatto: maiuscole e minuscole contano). Valori senza spazi
-    iniziali e finali. Colonne: src (_source), object_key, cust, partner, kdmat.
+    Info record cliente-materiale già presenti in SAP (ref.SAP_EXPORT_KNMT) sulla chiave del
+    Migration Cockpit: stessi VKORG, VTWEG, KUNNR (CUSTOMER trascodificato con il BP SAP come in
+    CK534, un solo BP) e MATNR. SAP rifiuta l'inserimento anche se KDMAT è diverso ("instance
+    already exists"), quindi MATERIALBYCUSTOMER non è confrontato: kdmat è quello di SAP.
+    Valori senza spazi iniziali e finali. Colonne: src (_source), object_key, cust, partner, kdmat.
     """
     return f"""
-SELECT x."_source" AS src, {CUSTMAT_OBJECT_KEY} AS object_key, c.cust, c.partners AS partner,
-       TRIM(COALESCE(x."{CUSTMAT_KDMAT}", '')) AS kdmat
+SELECT DISTINCT ON (x."_source", {CUSTMAT_OBJECT_KEY})
+       x."_source" AS src, {CUSTMAT_OBJECT_KEY} AS object_key, c.cust, c.partners AS partner,
+       TRIM(COALESCE(k."KDMAT", '')) AS kdmat
 FROM raw."{CUSTMAT_TABLE}" x
 JOIN ({custmat_customer_sql()}) c ON c.cust = TRIM(x."CUSTOMER(k/*)") AND c.n = 1
 JOIN ref."{CUSTMAT_KNMT}" k
@@ -224,8 +226,7 @@ JOIN ref."{CUSTMAT_KNMT}" k
  AND TRIM(k."VTWEG") = TRIM(x."DISTRIBUTIONCHANNEL(k/*)")
  AND TRIM(k."KUNNR") = c.partners
  AND TRIM(k."MATNR") = TRIM(x."MATERIAL(k/*)")
- AND TRIM(COALESCE(k."KDMAT", '')) = TRIM(COALESCE(x."{CUSTMAT_KDMAT}", ''))"""
-
+ORDER BY x."_source", {CUSTMAT_OBJECT_KEY}, kdmat"""
 
 # Ordini di acquisto (DM27): trascodifica del centro di costo DBCOGE in S_EKKN.KOSTL
 PO_ACCOUNT_TABLE = "S_EKKN"

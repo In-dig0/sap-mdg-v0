@@ -6,8 +6,10 @@ description: >
   la tabella raw S_CUSTMAT#INFORMATFOR, unico file dell'archivio, in
   <file in ingresso>_MDGOUT_YYYYMMDD_HHMI.zip (un ZIP per ogni valore distinto di _source).
   Gli info record già presenti in SAP (ref.SAP_EXPORT_KNMT: stessi VKORG, VTWEG, KUNNR = CUSTOMER
-  trascodificato con il BP SAP, MATNR e KDMAT = MATERIALBYCUSTOMER, confronto esatto) non sono
-  esportati: riepilogo e dettaglio in report/<file in ingresso>_gia_in_SAP.xlsx.
+  trascodificato con il BP SAP e MATNR, la chiave del Migration Cockpit) non sono esportati, anche
+  se MATERIALBYCUSTOMER è diverso (SAP rifiuterebbe l'inserimento: "instance already exists"):
+  riepilogo e dettaglio, con il KDMAT di SAP e l'indicazione se è diverso, in
+  report/<file in ingresso>_gia_in_SAP.xlsx.
   Le righe segnalate da un controllo sugli info record cliente-materiale attivo e con
   l'esclusione dall'output attiva nel catalogo non sono esportate e finiscono in
   discarded/S_CUSTMAT_INFORMATFOR_discarded.xlsx con controllo e motivo:
@@ -71,6 +73,7 @@ KEY_COLS   = ["SALESORGANIZATION(k/*)", "DISTRIBUTIONCHANNEL(k/*)", "CUSTOMER(k/
 # Controlli con esclusione dall'output, nell'ordine in cui è attribuito il motivo
 CHECKS     = ["CK534", "CK535", "CK531", "CK532", "CK533"]
 CUSTOMER_COL = "CUSTOMER(k/*)"
+KDMAT_COL    = "MATERIALBYCUSTOMER"
 
 
 def q(name):
@@ -136,13 +139,16 @@ def already_in_sap_path(source_name: str) -> str:
 def write_already_in_sap(source_name: str, cols: list, rows: list, in_sap: dict, row_key):
     """
     report/<ZIP>_gia_in_SAP.xlsx: foglio gia_in_SAP (TABELLA, CODICE, CODICE_SAP, RIGHE per cliente,
-    letto dalla quadratura) e foglio dettaglio con le righe escluse e il BP SAP.
+    letto dalla quadratura) e foglio dettaglio con le righe escluse, il BP SAP e il
+    MATERIALBYCUSTOMER presente in SAP (KDMAT di KNMT), con l'indicazione se è diverso dal file.
     """
     path = already_in_sap_path(source_name)
     if os.path.exists(path):
         os.remove(path)
     if not rows:
         return
+    kdmat_idx = cols.index(KDMAT_COL)
+    differs = lambda r: (r[kdmat_idx] or "").strip() != in_sap[row_key(r)][3]
     summary = {}
     for row in rows:
         _, cust, partner, _ = in_sap[row_key(row)]
@@ -151,10 +157,15 @@ def write_already_in_sap(source_name: str, cols: list, rows: list, in_sap: dict,
     write_xlsx(path, [
         ("gia_in_SAP", ["TABELLA", "CODICE", "CODICE_SAP", "RIGHE"],
          [(TABLE, c, p, n) for (c, p), n in sorted(summary.items())]),
-        ("dettaglio", ["BP SAP"] + cols, [[in_sap[row_key(r)][2]] + list(r) for r in rows]),
+        ("dettaglio", ["BP SAP", "MATERIALBYCUSTOMER in SAP", "MATERIALBYCUSTOMER diverso"] + cols,
+         [[in_sap[row_key(r)][2], in_sap[row_key(r)][3], "SI" if differs(r) else "NO"] + list(r) for r in rows]),
     ])
+    n_diff = sum(1 for r in rows if differs(r))
     log.info("  [GIA' IN SAP] %d info record di '%s' già presenti in SAP (KNMT), non esportati: %s",
              len(rows), source_name, path)
+    if n_diff:
+        log.warning("  [GIA' IN SAP] di cui %d con MATERIALBYCUSTOMER diverso da SAP (colonna "
+                    "'MATERIALBYCUSTOMER diverso' del dettaglio): da aggiornare in SAP se necessario", n_diff)
 
 
 def build_zip(cur, source_name, cols, excluded, customer_map, in_sap) -> tuple[bytes, int]:
