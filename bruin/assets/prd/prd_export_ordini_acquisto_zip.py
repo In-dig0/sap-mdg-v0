@@ -13,6 +13,10 @@ description: >
   I contratti DM14 sono in tabelle separate (#CONTRATTI) e non sono esportati qui.
   Centro di costo: in S_EKKN il KOSTL (codice DBCOGE) è trascodificato con COD_SAP_DEF di
   ref.SAP_TRASCO_CDC (COD_DBCOGE = KOSTL, DIV = WERKS della posizione in S_EKPO).
+  Fornitore: in S_EKKO LIFNR(*) (codice del vecchio ERP) è trascodificato con il BP SAP come negli
+  info record acquisti (BU_SORT1 dei BP fornitori ZBP/ZIC o, per i fornitori 05a, REF_KUNNR tramite
+  BU_SORT2); un codice che è già un BP SAP resta invariato. I fornitori senza codice SAP sono
+  segnalati da CK062 ed esportati con il codice originale.
   Le imputazioni senza trascodifica valida (record assente, COD_SAP_DEF vuoto o '??', posizione
   non trovata) sono segnalate da CK536 ed esportate con il KOSTL originale di DBCOGE.
   Nessuna esclusione: i controlli sugli ordini (CK060-062, CK222-225, CK415, CK520-524, CK529,
@@ -25,6 +29,7 @@ description: >
   Output: /project/datalake/out_source_mdg/<_source>_MDGOUT_<YYYYMMDD_HHMI>.zip
 depends:
   - stg.ck536_po_kostl_trasco_cdc
+  - stg.ck062_po_lifnr_but000
   - ingestion.ingest_xlsx_to_ref
 @bruin """
 
@@ -41,6 +46,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "stg"))
 from prd_output_lib import output_zip_path
 from ck_query_lib import po_cdc_sql, PO_ACCOUNT_TABLE, CDC_TRASCO
+from prd_export_inforecord_zip import get_lifnr_map
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,6 +71,7 @@ MASTER_TABLE = "S_EKKO"
 RAW_TABLES   = ["S_EKKO", "S_EKKO_TEXT", "S_EKPO", "S_EKET", "S_COMP", "S_EKKN"]
 ACCOUNT_KEY_COLS = ["EBELN(k/*)", "EBELP(k/*)", "ZEKKN(k/*)"]   # object_key di CK536
 KOSTL_COL    = "KOSTL"
+LIFNR_COL    = "LIFNR(*)"   # fornitore in S_EKKO, trascodificato con il BP SAP
 
 
 def q(name):
@@ -83,6 +90,36 @@ def get_columns(cur, table):
         ORDER BY ordinal_position
     """, (table,))
     return [r[0] for r in cur.fetchall() if r[0] not in AUDIT_COLS]
+
+
+def get_supplier_map(cur) -> dict:
+    """Codice fornitore del vecchio ERP -> BP SAP; i codici che sono già BP SAP restano invariati."""
+    if not table_exists(cur, "ref", "SAP_EXPORT_BUT000"):
+        log.warning("  ref.SAP_EXPORT_BUT000 non caricata — LIFNR(*) non trascodificato")
+        return {}
+    supplier_map = get_lifnr_map(cur.connection)
+    cur.execute('SELECT DISTINCT TRIM("PARTNER") FROM ref."SAP_EXPORT_BUT000" WHERE COALESCE(TRIM("PARTNER"), \'\') <> \'\'')
+    supplier_map.update({p: p for (p,) in cur.fetchall()})
+    return supplier_map
+
+
+def transcode_supplier(cols, rows, supplier_map, source_name):
+    """LIFNR(*) di S_EKKO -> BP SAP; i fornitori non trascodificabili restano invariati (CK062)."""
+    idx, out, changed, missing = cols.index(LIFNR_COL), [], 0, set()
+    for row in rows:
+        old = (row[idx] or "").strip()
+        new = supplier_map.get(old)
+        if new and new != row[idx]:
+            row = list(row)
+            row[idx], changed = new, changed + 1
+        elif not new and old:
+            missing.add(old)
+        out.append(row)
+    log.info("  [TRASCODIFICA] S_EKKO: LIFNR(*) sostituito con il BP SAP su %d ordini ('%s')", changed, source_name)
+    if missing:
+        log.warning("  [CK062] %d fornitori senza codice SAP, ordini esportati con il codice originale: %s",
+                    len(missing), ", ".join(sorted(missing)))
+    return out
 
 
 def get_cdc_map(cur) -> dict:
@@ -114,13 +151,15 @@ def ebeln_col(cols):
     return next(c for c in cols if c.split("(")[0] == "EBELN")
 
 
-def fetch_table_csv(cur, table, source_name, cols, cdc_map, orders=None) -> tuple[bytes, int]:
+def fetch_table_csv(cur, table, source_name, cols, cdc_map, orders=None, supplier_map=None) -> tuple[bytes, int]:
     cur.execute(f'SELECT {", ".join(q(c) for c in cols)} FROM raw.{q(table)} WHERE "_source" = %s ORDER BY 1',
                 (source_name,))
     rows = cur.fetchall()
     if orders is not None:
         idx = cols.index(ebeln_col(cols))
         rows = [row for row in rows if (row[idx] or "").strip() in orders]
+    if table == MASTER_TABLE and supplier_map:
+        rows = transcode_supplier(cols, rows, supplier_map, source_name)
     if table == PO_ACCOUNT_TABLE and cdc_map:
         key_idx, kostl, n = [cols.index(c) for c in ACCOUNT_KEY_COLS], cols.index(KOSTL_COL), 0
         for i, row in enumerate(rows):
@@ -140,18 +179,18 @@ def fetch_table_csv(cur, table, source_name, cols, cdc_map, orders=None) -> tupl
     return buf.getvalue().encode("utf-8"), len(rows)
 
 
-def build_zip(cur, source_name, cols_map, cdc_map, orders=None) -> bytes:
+def build_zip(cur, source_name, cols_map, cdc_map, supplier_map, orders=None) -> bytes:
     """ZIP con le tabelle del flusso (orders: solo questi numeri d'ordine, None = tutti)."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for table, cols in cols_map.items():
-            csv_bytes, n_rows = fetch_table_csv(cur, table, source_name, cols, cdc_map, orders)
+            csv_bytes, n_rows = fetch_table_csv(cur, table, source_name, cols, cdc_map, orders, supplier_map)
             if n_rows:
                 zf.writestr(f"{table}.csv", csv_bytes)
     return buf.getvalue()
 
 
-def write_test_zip(cur, source_name, cols_map, cdc_map, orders: set):
+def write_test_zip(cur, source_name, cols_map, cdc_map, supplier_map, orders: set):
     """Estrazione ristretta: rimuove lo ZIP di test precedente e scrive quello con i soli ordini indicati."""
     test_path = output_zip_path(TEST_DIR, source_name)   # rimuove anche il precedente
     if not orders:
@@ -167,7 +206,7 @@ def write_test_zip(cur, source_name, cols_map, cdc_map, orders: set):
         log.info("  [TEST] %s: nessun ordine dell'elenco — ZIP di test non generato", source_name)
         return
     log.info("=== Estrazione ristretta (test): %d ordini ===", len(found))
-    zip_bytes = build_zip(cur, source_name, cols_map, cdc_map, found)
+    zip_bytes = build_zip(cur, source_name, cols_map, cdc_map, supplier_map, found)
     os.makedirs(TEST_DIR, exist_ok=True)
     with open(test_path, "wb") as f:
         f.write(zip_bytes)
@@ -192,14 +231,15 @@ def main():
             sources = [r[0] for r in cur.fetchall()]
             cdc_map = get_cdc_map(cur) if PO_ACCOUNT_TABLE in cols_map else {}
             orders = get_order_filter(cur)
+            supplier_map = get_supplier_map(cur)
             for source_name in sources:
                 log.info("=== Generazione ZIP: %s ===", source_name)
-                zip_bytes = build_zip(cur, source_name, cols_map, cdc_map)
+                zip_bytes = build_zip(cur, source_name, cols_map, cdc_map, supplier_map)
                 output_path = output_zip_path(OUTPUT_DIR, source_name)
                 with open(output_path, "wb") as f:
                     f.write(zip_bytes)
                 log.info("  ✓  %s  (%.1f KB)", output_path, len(zip_bytes) / 1024)
-                write_test_zip(cur, source_name, cols_map, cdc_map, orders)
+                write_test_zip(cur, source_name, cols_map, cdc_map, supplier_map, orders)
     finally:
         conn.close()
     log.info("=== export_ordini_acquisto_zip completato ===")

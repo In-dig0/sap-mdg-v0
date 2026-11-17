@@ -241,9 +241,9 @@ VALUES
      'PO','S_EKKO','ZTERM',
      'ref.SAP_EXPORT_T052 (ZTERM)','Error','SAP_REF',TRUE,NOW()),
 
-    ('CK062','Ordini di acquisto: il fornitore deve esistere in SAP e corrispondere al codice fornitore del vecchio ERP',
-     'PO','S_EKKO','LIFNR(*) + VERKF',
-     'ref.SAP_EXPORT_BUT000 (PARTNER, BU_SORT1)','Error','SAP_REF',TRUE,NOW()),
+    ('CK062','Ordini di acquisto: il fornitore deve avere il codice SAP (trascodifica del codice del vecchio ERP)',
+     'PO','S_EKKO','LIFNR(*)',
+     'ref.SAP_EXPORT_BUT000 (PARTNER, BU_SORT1; fornitori 05a REF_KUNNR + BU_SORT2)','Error','SAP_REF',TRUE,NOW()),
 
     ('CK063','Business Partner (clienti, destinatari merci, fornitori): la società partner intercompany, se indicata, deve esistere in SAP',
      'BP','S_CUST_GEN#ZBP/ZDM-DatiGenerali + S_SUPPL_GEN#ZBP/ZDM_DatiGenerali','VBUND',
