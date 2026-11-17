@@ -15,7 +15,8 @@ description: >
     - CK535: chiave duplicata nel file in ingresso (codici materiale del cliente diversi);
     - CK531: materiale non ancora migrato in SAP nella divisione;
     - CK532: organizzazione commerciale/canale non tra le aree di vendita del cliente;
-    - CK533: organizzazione commerciale/canale non tra i dati di vendita del materiale.
+    - CK533: organizzazione commerciale/canale non tra i dati di vendita del materiale
+      (SAP_EXPORT_MVKE se caricata, altrimenti S_MVKE);
   CUSTOMER(k/*) trovato in BUT000 solo come chiave di ricerca (BU_SORT2, poi BU_SORT1, un solo
   BP) è trascodificato con il codice BP SAP (PARTNER), segnalato nel log.
   Il CSV usa separatore ";" e non include colonne audit. Delle righe con chiave duplicata

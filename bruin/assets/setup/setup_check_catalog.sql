@@ -568,7 +568,7 @@ VALUES
      'S_CUST_SALES_DATA ZBP/ZDM (KUNNR+VKORG+VTWEG), cliente da SAP_EXPORT_BUT000 (BU_SORT2)','Error','CROSS_SOURCE',TRUE,NOW()),
     ('CK533','Info record cliente-materiale: l''organizzazione commerciale e il canale devono essere tra i dati di vendita del materiale',
      'CMIR','S_CUSTMAT#INFORMATFOR','SALESORGANIZATION(k/*) + DISTRIBUTIONCHANNEL(k/*)',
-     'raw.S_MVKE (PRODUCT + VKORG + VTWEG)','Error','CROSS_SOURCE',TRUE,NOW()),
+     'SAP_EXPORT_MVKE (MATNR + VKORG + VTWEG) se caricata, altrimenti raw.S_MVKE','Error','CROSS_SOURCE',TRUE,NOW()),
     ('CK534','Info record cliente-materiale: il cliente deve essere già presente in SAP (codice BP o chiave di ricerca)',
      'CMIR','S_CUSTMAT#INFORMATFOR','CUSTOMER(k/*)',
      'SAP_EXPORT_BUT000 (PARTNER, poi BU_SORT2, poi BU_SORT1)','Error','CROSS_SOURCE',TRUE,NOW()),
