@@ -16,6 +16,11 @@ description: >
       Se HMRC_CLIENT_ID/SECRET mancano: status GB_NO_CREDENTIALS
     - Altri (IL, US, ...):     NOT_EU, nessuna chiamata esterna
   Risultati scritti in stg.check_vat_vies (tabella di dettaglio).
+  Servizio VIES non raggiungibile (all'avvio dopo 3 tentativi, o 5 errori consecutivi durante
+  la verifica): il controllo non va in errore, le P.IVA UE ancora da verificare sono saltate
+  (non scritte, segnalate nel log) e restano validi gli esiti dei run precedenti: il merge
+  verso prd esclude solo le P.IVA con ultimo esito reale "non valida", quindi i dati di
+  clienti e fornitori vengono comunque esportati.
   Il check CK804 legge questa tabella e scrive la sintesi in
   stg.check_results come tutti gli altri check della pipeline.
 @bruin """
@@ -66,6 +71,9 @@ GB_COUNTRIES = {"GB"}
 INTER_CALL_DELAY = 0.5
 VIES_TIMEOUT     = 20    # secondi: limite per ogni chiamata VIES (senza, una chiamata può restare appesa)
 WRITE_BATCH_SIZE = 100   # risultati reali scritti e committati a blocchi durante la verifica
+VIES_INIT_ATTEMPTS   = 3    # tentativi di collegamento al servizio VIES all'avvio
+VIES_INIT_WAIT       = 10   # secondi tra un tentativo e l'altro
+VIES_MAX_CONSECUTIVE_ERRORS = 5   # errori VIES consecutivi oltre i quali il servizio è considerato giù
 
 HMRC_TOKEN_URL  = "https://api.service.hmrc.gov.uk/oauth/token"
 HMRC_LOOKUP_URL = "https://api.service.hmrc.gov.uk/organisations/vat/check-vat-number/lookup/{vat_number}"
@@ -181,6 +189,20 @@ class ViesClient:
             "address":      result.address or None,
             "request_date": result.requestDate,
         }
+
+
+def connect_vies() -> Optional["ViesClient"]:
+    """Client VIES, oppure None se il servizio non è raggiungibile dopo VIES_INIT_ATTEMPTS tentativi."""
+    for attempt in range(1, VIES_INIT_ATTEMPTS + 1):
+        try:
+            return ViesClient()
+        except Exception as e:
+            log.warning(f"VIES non raggiungibile (tentativo {attempt}/{VIES_INIT_ATTEMPTS}): {e}")
+            if attempt < VIES_INIT_ATTEMPTS:
+                time.sleep(VIES_INIT_WAIT)
+    log.warning("Servizio VIES non raggiungibile — verifica delle P.IVA UE saltata in questo run "
+                "(il controllo non va in errore, restano validi gli esiti precedenti).")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -524,9 +546,11 @@ def main():
             log.info(f"Cache VIES vendor: {len(cache)} risultati riusabili.")
         conn.close()    # nessuna connessione aperta durante le chiamate esterne: write_results ne apre una per blocco
 
-        # 4b. Inizializza client esterni
-        vies = ViesClient()
+        # 4b. Inizializza client esterni (VIES non raggiungibile: verifica UE saltata, non errore)
+        vies = connect_vies()
         hmrc = HmrcClient()
+        vies_errors = 0      # errori VIES consecutivi
+        vies_skipped = []    # P.IVA UE non verificate perché il servizio non è raggiungibile
 
         # 5. Esegui check su ogni record
         results = []
@@ -564,6 +588,10 @@ def main():
                 log.debug(f"  [supplier:{entity_id}] {vat_normalized} → CACHED ({cached[2]})")
                 continue
 
+            if vies is None and parse_vat(vat_normalized)[2]:
+                vies_skipped.append((entity_id, vat_normalized))
+                continue
+
             result = check_single(
                 vies=vies,
                 hmrc=hmrc,
@@ -572,6 +600,12 @@ def main():
                 vat_raw=vat_normalized,
                 zip_source=zip_source,
             )
+            if parse_vat(vat_normalized)[2]:
+                vies_errors = vies_errors + 1 if result["check_status"] == "ERROR" else 0
+                if vies_errors >= VIES_MAX_CONSECUTIVE_ERRORS:
+                    log.warning(f"VIES: {vies_errors} errori consecutivi — servizio considerato non "
+                                f"raggiungibile, verifiche UE restanti saltate.")
+                    vies = None
             results.append(result)
             pending.append(result)
             if len(pending) >= WRITE_BATCH_SIZE:
@@ -611,6 +645,12 @@ def main():
         gb_pending = [r for r in results if r["check_status"] == "GB_NO_CREDENTIALS"]
         if gb_pending:
             print(f"[WARN] {CHECK_ID} — {len(gb_pending)} VAT GB non verificate (credenziali HMRC mancanti)")
+
+        if vies_skipped:
+            print(f"[WARN] {CHECK_ID} — servizio VIES non raggiungibile: {len(vies_skipped)} P.IVA UE non "
+                  f"verificate in questo run (valgono gli esiti dei run precedenti; dati comunque esportati): "
+                  + ", ".join(f"{e} {v}" for e, v in vies_skipped[:50])
+                  + (" ..." if len(vies_skipped) > 50 else ""))
 
         cached = [r for r in results if r["check_status"] == "CACHED"]
         if cached:
