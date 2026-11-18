@@ -6,7 +6,7 @@ description: >
   S_SEQUENCE, S_OPERATION, nell'ordine del modello SAP.
   S_OPERATION, S_PLKO e S_MAPL sono lette da prd (prd.merge_cicli: operazioni sostituite o
   aggiunte da stg.S_OPERATION_STG e cicli alternativi nuovi), le altre da raw; se la tabella prd
-  non c'è si usa raw. Nessuna esclusione di record orfani (CK408 segnala le anomalie nel report
+  non c'è si usa raw. Righe ordinate per le colonne chiave (PLNNR, PLNAL, PLNFL, VORNR). Nessuna esclusione di record orfani (CK408 segnala le anomalie nel report
   qualita, ma non blocca la scrittura dell'output).
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source (da S_OPERATION).
@@ -98,12 +98,18 @@ def table_exists(conn, table, schema="raw"):
         return cur.fetchone() is not None
 
 
+def order_by(cols) -> str:
+    """Ordine delle righe: colonne chiave (k) nell'ordine del file (PLNNR, PLNAL, PLNFL, VORNR...)."""
+    keys = [c for c in cols if "(k" in c] or cols[:1]
+    return ", ".join(f"TRIM({q(c)})" for c in keys)
+
+
 def fetch_table_csv(conn, table, source_name, cols):
     fqt      = SCHEMA.get(table, "raw") + "." + q(table)
     col_list = ", ".join(q(c) for c in cols)
     with conn.cursor() as cur:
         cur.execute(
-            f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s ORDER BY 1',
+            f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s ORDER BY {order_by(cols)}',
             (source_name,)
         )
         rows = cur.fetchall()

@@ -16,8 +16,9 @@ description: >
       ciclo 01 del materiale (o dal primo ciclo presente) con il nuovo PLNAL; operazioni aggiunte.
       Se il ciclo esiste già le operazioni sono trattate come UPD. Materiale senza cicli in
       S_MAPL (o in più gruppi): riga scartata.
-  Valori normalizzati nel formato del file SAP: PLNAL e PLNFL a 2 cifre, VORNR a 4 cifre, numeri
-  con la virgola decimale. Le righe STG con chiave duplicata non sono applicate (resta la riga di
+  Valori normalizzati nel formato del file SAP: PLNAL e PLNFL a 2 cifre, VORNR a 4 cifre,
+  ZZSTANDARD_TEXT_KEY a 3 cifre (come nel file ERP; Excel toglie gli zeri iniziali), numeri con
+  la virgola decimale. Le righe STG con chiave duplicata non sono applicate (resta la riga di
   raw, se c'è). Righe scartate e duplicati: discarded/S_OPERATION_STG_discarded.xlsx (con il
   motivo); elenco completo dei duplicati in report/S_OPERATION_STG_chiavi_duplicate.xlsx.
 depends:
@@ -54,7 +55,8 @@ DUP_REPORT  = os.path.join(REPORT_DIR, "S_OPERATION_STG_chiavi_duplicate.xlsx")
 NUMERIC_COLS = {"BMSCH(*)", "UMREN", "UMREZ", "VGW01", "VGW02", "VGW03", "VGW04", "VGW05", "VGW06",
                 "ZLMAX", "ZLPRO", "ZWNOR", "ZWMIN", "ZTNOR", "ZTMIN", "SPLIM", "ZMINB", "ZMINU",
                 "MINWE", "ZZPO_ITEM", "PLIFZ", "PEINH", "PREIS", "QRASTZFAK"}
-PAD = {PLNAL: 2, PLNFL: 2, VORNR: 4}
+PAD = {PLNAL: 2, PLNFL: 2, VORNR: 4,
+       "ZZSTANDARD_TEXT_KEY": 3}   # chiave testo standard: 3 cifre come nel file ERP (Excel toglie gli zeri)
 
 
 def q(name):
