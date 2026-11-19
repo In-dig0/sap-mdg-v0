@@ -19,8 +19,10 @@ description: >
   fornitore creato in SAP (BU_SORT1 di ref.SAP_EXPORT_BUT000; se la tabella non è caricata,
   i vettori di raw S_SUPPL_GEN#ZBP_DatiGenerali) sono escluse e scritte negli scarti:
   in SAP darebbero errore (fornitore non esistente in LFA1).
-  In S_CUST_SALES_DATA#ZBP-DatiVendite il campo INCO3_L è svuotato: il valore 'E' diventa il
-  messaggio fattura ZDMO del file Clienti_ZDMO (prd.export_clienti_zdmo_xlsx).
+  In S_CUST_SALES_DATA#ZBP-DatiVendite i campi usati dall'ERP in "override" sono svuotati: INCO3_L
+  (invio fattura via email), PERRL (addebito spese incasso) e KABSS (maggiorazione spese imballo)
+  vanno in SAP con i file Clienti_fattura_email, Clienti_SpeseIncasso e Clienti_SpeseImballo
+  (prd.export_clienti_vendite_xlsx).
   In S_CUST_BANK_DATA#ZBP-AppoggioBanca EBPP_ACCNAME = "CC_CLIENTE", per riconoscere in SAP
   le coordinate del BP arrivate dal flusso clienti (CC_FORNITORE nei flussi fornitori).
   In S_CUST_TAXNUMBERS#ZBP-CodiciFisc le righe senza identificativo fiscale (TAXNUM vuoto)
@@ -117,10 +119,10 @@ RAW_REPLACED_BY_PRD = {
 RAW_FROM_PRD = {
     "S_CUST_SALES_DATA#ZBP-DatiVendite",
 }
-# Dati di vendita: INCO3_L svuotato in uscita ('E' = messaggio fattura ZDMO, che va in SAP
-# con il file Clienti_ZDMO di prd.export_clienti_zdmo_xlsx)
+# Dati di vendita: campi in "override" svuotati in uscita (vanno in SAP con i file Excel di
+# prd.export_clienti_vendite_xlsx: fattura via email, spese incasso, spese imballo)
 SALES_TABLE  = "S_CUST_SALES_DATA#ZBP-DatiVendite"
-SALES_VALUES = {"INCO3_L": ""}
+SALES_VALUES = {"INCO3_L": "", "PERRL": "", "KABSS": ""}
 
 # Flusso aggiuntivo i cui punti di scarico sono esportati negli ZIP delle anagrafiche:
 # clienti ZBP (questo export) e destinatari merci (export DM). Gli interlocutori
