@@ -7,8 +7,9 @@ description: >
     - Clienti_fattura_email.xlsx: invio fattura via email, clienti con INCO3_L = 'E';
       colonne KUNNR, KSCHL (messaggio fattura = ZDMO);
     - Clienti_SpeseIncasso.xlsx: addebito spese incasso, clienti con PERRL valorizzato, una riga
-      per cliente e area di vendita; colonne come le spese imballo più DIVISA (EUR) dopo
-      l'importo, con KSCHL ZMCD, VALORE_MAGGIORAZIONE 2,00 e TIPO_MAGGIORAZIONE vuoto;
+      per cliente e area di vendita; colonne del modello SAP: KSCHL (ZMCD), VKORG, VTWEG, KUNNR,
+      ZTERM (condizione di pagamento dei dati di vendita), DUMMY_01, VALORE_MAGGIORAZIONE (2,00),
+      DIVISA (EUR), DUMMY_02..DUMMY_05 (vuote), DATA_INIZIO, DATA_FINE;
     - Clienti_SpeseImballo.xlsx: percentuale di maggiorazione per spese imballo, clienti con
       KABSS valorizzato, una riga per cliente e area di vendita (VKORG, VTWEG); colonne del
       modello SAP: progressivo (senza intestazione), KSCHL (condizione ZMPT "Magg. Imballi"),
@@ -65,31 +66,36 @@ OUTPUTS = [
 ]
 # Condizioni per cliente e area di vendita (spese incasso, spese imballo), nel formato delle
 # condizioni SAP: nome file, campo, descrizione, KSCHL, valore (None = valore del campo),
-# divisa (None = nessuna colonna DIVISA), tipo maggiorazione, layout del modello SAP (True =
-# progressivo, NAME e colonne DUMMY_2..DUMMY_5)
+# divisa, tipo maggiorazione, colonne del file (modello SAP). Colonne: "" = progressivo,
+# DUMMY_* = vuote, le altre sono valorizzate da condition_row()
 CONDITIONS = [
-    ("Clienti_SpeseIncasso", "PERRL", "addebito spese incasso",          "ZMCD", "2,00", "EUR", "",  False),
-    ("Clienti_SpeseImballo", "KABSS", "maggiorazione per spese imballo", "ZMPT", None,   None,  "%", True),
+    ("Clienti_SpeseIncasso", "PERRL", "addebito spese incasso",          "ZMCD", "2,00", "EUR", "",
+     ["KSCHL", "VKORG", "VTWEG", "KUNNR", "ZTERM", "DUMMY_01", "VALORE_MAGGIORAZIONE", "DIVISA",
+      "DUMMY_02", "DUMMY_03", "DUMMY_04", "DUMMY_05", "DATA_INIZIO", "DATA_FINE"]),
+    ("Clienti_SpeseImballo", "KABSS", "maggiorazione per spese imballo", "ZMPT", None,   None,  "%",
+     ["", "KSCHL", "VKORG", "VTWEG", "KUNNR", "NAME", "VALORE_MAGGIORAZIONE", "TIPO_MAGGIORAZIONE",
+      "DUMMY_2", "DUMMY_3", "DUMMY_4", "DUMMY_5", "DATA_INIZIO", "DATA_FINE"]),
 ]
-DUMMY_COLUMNS = ["DUMMY_2", "DUMMY_3", "DUMMY_4", "DUMMY_5"]
 CONDITION_VALID  = ("01.01.2026", "31.12.9999")
 
 SQL_CONDITION = """
     WITH cli AS (
         SELECT TRIM("KUNNR(k/*)") AS kunnr, TRIM("VKORG(k/*)") AS vkorg, TRIM("VTWEG(k/*)") AS vtweg,
-               ARRAY_AGG(DISTINCT TRIM({col}) ORDER BY TRIM({col})) AS vals
+               ARRAY_AGG(DISTINCT TRIM({col}) ORDER BY TRIM({col})) AS vals,
+               ARRAY_REMOVE(ARRAY_AGG(DISTINCT NULLIF(TRIM("ZTERM"), '') ORDER BY NULLIF(TRIM("ZTERM"), '')),
+                            NULL) AS zterm
         FROM prd."{sales}"
         WHERE TRIM(COALESCE({col}, '')) <> '' AND TRIM(COALESCE("KUNNR(k/*)", '')) <> ''
         GROUP BY 1, 2, 3
     )
-    SELECT c.kunnr, c.vkorg, c.vtweg, c.vals,
+    SELECT c.kunnr, c.vkorg, c.vtweg, c.vals, c.zterm,
            ARRAY_REMOVE(ARRAY_AGG(DISTINCT TRIM(b."PARTNER") ORDER BY TRIM(b."PARTNER")), NULL),
            MIN(COALESCE(NULLIF(TRIM(b."NAME_ORG1"), ''),
                         NULLIF(TRIM(CONCAT_WS(' ', TRIM(b."NAME_FIRST"), TRIM(b."NAME_LAST"))), '')))
     FROM cli c
     LEFT JOIN ref."{but000}" b ON TRIM(b."BU_SORT2") = c.kunnr
                               AND TRIM(COALESCE(b."PARTNER", '')) <> ''
-    GROUP BY c.kunnr, c.vkorg, c.vtweg, c.vals
+    GROUP BY c.kunnr, c.vkorg, c.vtweg, c.vals, c.zterm
     ORDER BY 1, 2, 3
 """
 
@@ -175,7 +181,7 @@ def export_one(cur, name, field, required, header, fixed, label):
              len(not_in_sap) + len(ambiguous) + len(mixed))
 
 
-def export_condition(cur, name, field, label, condition, fixed_value, currency, cond_type, sap_layout):
+def export_condition(cur, name, field, label, condition, fixed_value, currency, cond_type, columns):
     output_name = f"{name}.xlsx"
     if not column_exists(cur, "prd", SALES_TABLE, field):
         log.warning("Campo %s assente in prd.%s — %s non generato.", field, SALES_TABLE, output_name)
@@ -187,21 +193,23 @@ def export_condition(cur, name, field, label, condition, fixed_value, currency, 
         return
     cols = ["KUNNR (codice ERP)", "BP SAP", "VKORG", "VTWEG", field]
     ok, discards = [], {}
-    for kunnr, vkorg, vtweg, vals, partners, bp_name in rows:
+    for kunnr, vkorg, vtweg, vals, zterm, partners, bp_name in rows:
         if len(vals) > 1 and not fixed_value:
             reason = f"Valori di {field} diversi tra le divisioni (SPART) dell'area di vendita {vkorg}/{vtweg}"
+        elif "ZTERM" in columns and len(zterm) > 1:
+            reason = f"Condizioni di pagamento ZTERM diverse tra le divisioni (SPART) dell'area di vendita {vkorg}/{vtweg}"
         elif not partners:
             reason = (f"Cliente non presente in SAP ({BUT000_TABLE}, BU_SORT2): {label} da assegnare dopo il "
                       "caricamento del cliente")
         elif len(partners) > 1:
             reason = f"Cliente associato a più BP SAP ({BUT000_TABLE}, BU_SORT2)"
         else:
-            amount = [fixed_value or vals[0]] + ([currency] if currency else [])
-            if sap_layout:
-                ok.append([condition, vkorg, vtweg, partners[0], bp_name or "", *amount, cond_type,
-                           *[""] * len(DUMMY_COLUMNS), *CONDITION_VALID])
-            else:
-                ok.append([condition, vkorg, vtweg, partners[0], *amount, cond_type, *CONDITION_VALID])
+            values = {"KSCHL": condition, "VKORG": vkorg, "VTWEG": vtweg, "KUNNR": partners[0],
+                      "NAME": bp_name or "", "ZTERM": zterm[0] if zterm else "",
+                      "VALORE_MAGGIORAZIONE": fixed_value or vals[0], "DIVISA": currency or "",
+                      "TIPO_MAGGIORAZIONE": cond_type, "DATA_INIZIO": CONDITION_VALID[0],
+                      "DATA_FINE": CONDITION_VALID[1]}
+            ok.append(values)
             continue
         discards.setdefault(reason, []).append((kunnr, ", ".join(partners), vkorg, vtweg, " | ".join(vals)))
     for reason, items in discards.items():
@@ -213,18 +221,13 @@ def export_condition(cur, name, field, label, condition, fixed_value, currency, 
         return
     wb = Workbook(write_only=True)
     ws = wb.create_sheet(name)
-    if sap_layout:
-        ws.append(["", "KSCHL", "VKORG", "VTWEG", "KUNNR", "NAME", "VALORE_MAGGIORAZIONE", "TIPO_MAGGIORAZIONE",
-                   *DUMMY_COLUMNS, "DATA_INIZIO", "DATA_FINE"])
-    else:
-        ws.append(["KSCHL", "VKORG", "VTWEG", "KUNNR", "VALORE_MAGGIORAZIONE", *(["DIVISA"] if currency else []),
-                   "TIPO_MAGGIORAZIONE", "DATA_INIZIO", "DATA_FINE"])
-    for n, row in enumerate(sorted(ok, key=lambda r: (r[3], r[1], r[2])), 1):
-        ws.append([n, *row] if sap_layout else row)
+    ws.append(columns)
+    for n, values in enumerate(sorted(ok, key=lambda v: (v["KUNNR"], v["VKORG"], v["VTWEG"])), 1):
+        ws.append([n if col == "" else "" if col.startswith("DUMMY") else values[col] for col in columns])
     output_file = output_zip_path(OUTPUT_DIR, output_name)
     wb.save(output_file)
     log.info("  ✓  %s  (%d righe, %d clienti, %s; %d righe escluse)", output_file, len(ok),
-             len({r[3] for r in ok}), label, sum(len(v) for v in discards.values()))
+             len({v["KUNNR"] for v in ok}), label, sum(len(v) for v in discards.values()))
 
 
 def main():
