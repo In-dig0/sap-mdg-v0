@@ -53,6 +53,7 @@ depends:
   - stg.ck534_custmat_cliente_in_sap
   - stg.ck535_custmat_chiave_duplicata
   - stg.ck536_po_kostl_trasco_cdc
+  - stg.ck537_cicli_centro_lavoro_crhd
   - stg.ck526_inforecord_lifnr_sap
   - stg.ck421_inforecord_scales_cond
   - stg.ck422_customer_partner_riferimento

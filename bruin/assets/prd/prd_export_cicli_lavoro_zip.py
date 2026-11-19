@@ -8,6 +8,11 @@ description: >
   aggiunte da stg.S_OPERATION_STG e cicli alternativi nuovi), le altre da raw; se la tabella prd
   non c'è si usa raw. Righe ordinate per le colonne chiave (PLNNR, PLNAL, PLNFL, VORNR). Nessuna esclusione di record orfani (CK408 segnala le anomalie nel report
   qualita, ma non blocca la scrittura dell'output).
+  CK537: se attivo con il flag "Escludi dall'output" (default disattivato), le operazioni con
+  centro di lavoro WORK_CNTR + WERKS_WORK_CNTR non presente in ref.SAP_EXPORT_CRHD (ARBPL + WERKS)
+  non sono scritte in S_OPERATION.csv e finiscono in discarded/S_OPERATION_discarded.xlsx.
+  La condizione è valutata sulle righe finali (anche quelle da S_OPERATION_STG, con PLNNR già
+  ricavato da S_MAPL), con la stessa regola del controllo.
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source (da S_OPERATION).
   Output: /project/datalake/out_source_mdg/<_source>
@@ -15,6 +20,7 @@ depends:
   - prd.merge_cicli
   - stg.ck408_cicli_lavoro_orphans
   - stg.ck502_marc_mapl
+  - stg.ck537_cicli_centro_lavoro_crhd
 @bruin """
 
 import os
@@ -28,6 +34,8 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_output_lib import output_zip_path
+from prd_merge_lib import exclusion_enabled
+from prd_discard_lib import add_discards, flush_discards, reset_discards
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,6 +67,13 @@ RAW_TABLES = [
 # Tabelle lette da prd se presenti (prd.merge_cicli), altrimenti da raw
 PRD_TABLES = {"S_OPERATION", "S_PLKO", "S_MAPL"}
 SCHEMA = {}   # tabella -> schema da cui leggerla, impostato in main()
+
+# CK537: operazione con centro di lavoro indicato ma assente nell'anagrafica SAP dei centri di lavoro
+CRHD = "SAP_EXPORT_CRHD"
+CK537_MISSING = f"""(COALESCE(TRIM("WORK_CNTR"), '') <> '' AND NOT EXISTS (
+    SELECT 1 FROM ref."{CRHD}" c
+    WHERE TRIM(c."ARBPL") = TRIM("WORK_CNTR") AND TRIM(c."WERKS") = TRIM("WERKS_WORK_CNTR")))"""
+EXCLUDE_CK537 = False   # impostato in main()
 
 
 def get_connection():
@@ -107,9 +122,21 @@ def order_by(cols) -> str:
 def fetch_table_csv(conn, table, source_name, cols):
     fqt      = SCHEMA.get(table, "raw") + "." + q(table)
     col_list = ", ".join(q(c) for c in cols)
+    exclude  = EXCLUDE_CK537 and table == MASTER_TABLE
     with conn.cursor() as cur:
+        if exclude:
+            cur.execute(
+                f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s AND {CK537_MISSING} ORDER BY {order_by(cols)}',
+                (source_name,)
+            )
+            add_discards(table, cols, cur.fetchall(), "CK537",
+                         lambda r: f"Centro di lavoro [{(r[cols.index('WORK_CNTR')] or '').strip()}] nella divisione "
+                                   f"[{(r[cols.index('WERKS_WORK_CNTR')] or '').strip()}] non presente in SAP "
+                                   f"({CRHD}: ARBPL + WERKS)")
         cur.execute(
-            f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s ORDER BY {order_by(cols)}',
+            f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s'
+            + (f" AND NOT {CK537_MISSING}" if exclude else "")
+            + f" ORDER BY {order_by(cols)}",
             (source_name,)
         )
         rows = cur.fetchall()
@@ -148,10 +175,16 @@ def build_zip(conn, source_name, cols_map):
 
 
 def main():
+    global EXCLUDE_CK537
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    reset_discards([MASTER_TABLE])
     conn = get_connection()
 
     try:
+        with conn.cursor() as cur:
+            EXCLUDE_CK537 = table_exists(conn, CRHD, "ref") and exclusion_enabled(cur, "CK537")
+        log.info("CK537 esclusione operazioni con centro di lavoro non in SAP: %s",
+                 "attiva" if EXCLUDE_CK537 else "non attiva")
         for table in RAW_TABLES:
             SCHEMA[table] = "prd" if table in PRD_TABLES and table_exists(conn, table, "prd") else "raw"
         if not table_exists(conn, MASTER_TABLE, SCHEMA[MASTER_TABLE]):
@@ -187,6 +220,7 @@ def main():
 
     finally:
         conn.close()
+        flush_discards()
 
     log.info("=== export_cicli_lavoro_zip completato ===")
 

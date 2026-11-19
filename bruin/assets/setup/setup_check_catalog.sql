@@ -578,6 +578,9 @@ VALUES
     ('CK536','Ordini di acquisto, imputazioni: il centro di costo KOSTL (DBCOGE) deve avere la trascodifica SAP per la divisione della posizione',
      'PO','S_EKKN','KOSTL + S_EKPO.WERKS',
      'SAP_TRASCO_CDC (COD_DBCOGE + DIV -> COD_SAP_DEF)','Error','CROSS_SOURCE',TRUE,NOW()),
+    ('CK537','Cicli di lavoro, operazioni: il centro di lavoro deve esistere in SAP nella divisione indicata',
+     'ROUTING','S_OPERATION / S_OPERATION_STG','WORK_CNTR + WERKS_WORK_CNTR',
+     'SAP_EXPORT_CRHD (ARBPL + WERKS)','Error','SAP_REF',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: la partita IVA UE o britannica deve risultare valida (verifica online VIES / HMRC)',
@@ -629,8 +632,8 @@ DELETE FROM stg.check_catalog WHERE check_id IN ('CK202', 'CK204', 'CK029');
 --   CK421                    scaglioni info record          (prd.export_inforecord_zip)
 --   CK424                    fornitori 05a                  (prd.export_suppliers_zip)
 --   CK531-CK535              info record cliente-materiale  (prd.export_custmat_zip)
---   CK527 distinte base (prd.export_bom_zip) e CK528 info record (prd.export_inforecord_zip):
---   supportati, default disattivato.
+--   CK527 distinte base (prd.export_bom_zip), CK528 info record (prd.export_inforecord_zip) e
+--   CK537 operazioni dei cicli (prd.export_cicli_lavoro_zip): supportati, default disattivato.
 UPDATE stg.check_catalog
 SET exclude_supported = check_id IN (
         'CK034', 'CK506', 'CK511', 'CK525',
@@ -639,7 +642,7 @@ SET exclude_supported = check_id IN (
         'CK048', 'CK056', 'CK213', 'CK802',
         'CK220', 'CK404', 'CK403', 'CK526',
         'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426', 'CK421',
-        'CK527', 'CK528', 'CK531', 'CK532', 'CK533', 'CK534', 'CK535'),
+        'CK527', 'CK528', 'CK531', 'CK532', 'CK533', 'CK534', 'CK535', 'CK537'),
     exclude_output = check_id IN (
         'CK034', 'CK506', 'CK511', 'CK525',
         'CK051', 'CK052', 'CK402', 'CK418', 'CK420',
