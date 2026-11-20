@@ -8,7 +8,7 @@ description: >
       colonne KUNNR, KSCHL (messaggio fattura = ZDMO);
     - Clienti_SpeseIncasso.xlsx: addebito spese incasso, clienti con PERRL valorizzato, una riga
       per cliente e area di vendita; colonne del modello SAP: KSCHL (ZMCD), VKORG, VTWEG, KUNNR,
-      ZTERM (condizione di pagamento dei dati di vendita), DUMMY_01, VALORE_MAGGIORAZIONE (2,00),
+      DESC_KUNNR (descrizione del BP in BUT000), CODCLI_OLD (codice cliente del vecchio ERP), ZTERM (condizione di pagamento dei dati di vendita), DUMMY_01, VALORE_MAGGIORAZIONE (1,55),
       DIVISA (EUR), DUMMY_02..DUMMY_05 (vuote), DATA_INIZIO, DATA_FINE;
     - Clienti_SpeseImballo.xlsx: percentuale di maggiorazione per spese imballo, clienti con
       KABSS valorizzato, una riga per cliente e area di vendita (VKORG, VTWEG); colonne del
@@ -69,8 +69,8 @@ OUTPUTS = [
 # divisa, tipo maggiorazione, colonne del file (modello SAP). Colonne: "" = progressivo,
 # DUMMY_* = vuote, le altre sono valorizzate da condition_row()
 CONDITIONS = [
-    ("Clienti_SpeseIncasso", "PERRL", "addebito spese incasso",          "ZMCD", "2,00", "EUR", "",
-     ["KSCHL", "VKORG", "VTWEG", "KUNNR", "ZTERM", "DUMMY_01", "VALORE_MAGGIORAZIONE", "DIVISA",
+    ("Clienti_SpeseIncasso", "PERRL", "addebito spese incasso",          "ZMCD", "1,55", "EUR", "",
+     ["KSCHL", "VKORG", "VTWEG", "KUNNR", "DESC_KUNNR", "CODCLI_OLD", "ZTERM", "DUMMY_01", "VALORE_MAGGIORAZIONE", "DIVISA",
       "DUMMY_02", "DUMMY_03", "DUMMY_04", "DUMMY_05", "DATA_INIZIO", "DATA_FINE"]),
     ("Clienti_SpeseImballo", "KABSS", "maggiorazione per spese imballo", "ZMPT", None,   None,  "%",
      ["", "KSCHL", "VKORG", "VTWEG", "KUNNR", "NAME", "VALORE_MAGGIORAZIONE", "TIPO_MAGGIORAZIONE",
@@ -205,7 +205,7 @@ def export_condition(cur, name, field, label, condition, fixed_value, currency, 
             reason = f"Cliente associato a più BP SAP ({BUT000_TABLE}, BU_SORT2)"
         else:
             values = {"KSCHL": condition, "VKORG": vkorg, "VTWEG": vtweg, "KUNNR": partners[0],
-                      "NAME": bp_name or "", "ZTERM": zterm[0] if zterm else "",
+                      "NAME": bp_name or "", "DESC_KUNNR": bp_name or "", "CODCLI_OLD": kunnr, "ZTERM": zterm[0] if zterm else "",
                       "VALORE_MAGGIORAZIONE": fixed_value or vals[0], "DIVISA": currency or "",
                       "TIPO_MAGGIORAZIONE": cond_type, "DATA_INIZIO": CONDITION_VALID[0],
                       "DATA_FINE": CONDITION_VALID[1]}
