@@ -12,19 +12,15 @@ description: >
 @bruin """
 
 import os
+import sys
 import json
 import psycopg2
 from datetime import datetime, timezone
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG, CHECK_STATES_FILE  # noqa: E402
 
-STATES_PATH = "/project/bruin/config/check_states.json"
+STATES_PATH = CHECK_STATES_FILE
 
 
 def main():

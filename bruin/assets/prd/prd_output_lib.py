@@ -16,19 +16,15 @@ principale vengono rimossi.
 Non è un asset Bruin — viene importata dagli export.
 """
 import os
+import sys
 import re
 from datetime import datetime
 from functools import lru_cache
 
 import psycopg2
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG, OUT_MDG  # noqa: E402
 PIPELINE_NAME = "mdg_migration_pipeline"   # righe di stg.pipeline_runs scritte dalla pipeline
 STAMP_FORMAT  = "%Y%m%d_%H%M"
 
@@ -127,7 +123,7 @@ def remove_previous_zips(directory: str, source_name: str) -> list[str]:
     return removed
 
 
-OUTPUT_ROOT = "/project/datalake/out_source_mdg"
+OUTPUT_ROOT = OUT_MDG
 EXCEL_DIR   = os.path.join(OUTPUT_ROOT, "excel")   # file Excel per SAP, separati dagli ZIP
 
 

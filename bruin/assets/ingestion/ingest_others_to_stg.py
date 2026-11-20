@@ -21,13 +21,16 @@ connections:
 @bruin """
 
 import os
+import sys
 import re
 import glob
 import psycopg2
 import pandas as pd
 from datetime import datetime, timezone
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG, IN_OTHERS  # noqa: E402
 
-SOURCE_DIR = "/project/datalake/in_source_others"
+SOURCE_DIR = IN_OTHERS
 SCHEMA     = "stg"
 BATCH_SIZE = 500
 # Tabelle ricaricate dal file a ogni run (il file è la fonte, non si modificano da Streamlit):
@@ -37,13 +40,7 @@ FILE_MIRROR_TABLES = {"S_OPERATION_STG"}
 
 
 def get_connection():
-    return psycopg2.connect(
-        host=os.environ["POSTGRES_HOST"],
-        port=os.environ.get("POSTGRES_PORT", 5432),
-        dbname=os.environ["POSTGRES_DB"],
-        user=os.environ["POSTGRES_USER"],
-        password=os.environ["POSTGRES_PASSWORD"],
-    )
+    return psycopg2.connect(**DB_CONFIG)
 
 
 def ensure_schema(cur):

@@ -10,6 +10,7 @@ viene saltato (il flusso può non essere presente in tutti gli ambienti).
 """
 
 import os
+import sys
 import csv
 import io
 import zipfile
@@ -19,13 +20,8 @@ from datetime import datetime, timezone
 import psycopg2
 from psycopg2.extras import execute_values
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG, IN_PPROD  # noqa: E402
 
 
 def q(name: str) -> str:
@@ -145,7 +141,7 @@ CUSTMAT_KEY_COLS = ["SALESORGANIZATION(k/*)", "DISTRIBUTIONCHANNEL(k/*)", "CUSTO
 CUSTMAT_KDMAT = "MATERIALBYCUSTOMER"           # codice materiale del cliente (KDMAT in SAP)
 CUSTMAT_KNMT = "SAP_EXPORT_KNMT"               # info record cliente-materiale già in SAP
 CUSTMAT_DUP_TABLE = "custmat_dup"              # tabella temporanea di custmat_duplicates()
-INBOUND_PATH = "/project/datalake/in_source_pprod"
+INBOUND_PATH = IN_PPROD
 # object_key degli info record cliente-materiale (valori come in raw): VKORG|VTWEG|CUSTOMER|MATERIAL
 CUSTMAT_OBJECT_KEY = ('x."SALESORGANIZATION(k/*)" || \'|\' || x."DISTRIBUTIONCHANNEL(k/*)" || \'|\' '
                       '|| x."CUSTOMER(k/*)" || \'|\' || x."MATERIAL(k/*)"')

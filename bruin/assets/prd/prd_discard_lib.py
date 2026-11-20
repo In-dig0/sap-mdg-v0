@@ -10,6 +10,7 @@ Tutti i valori sono scritti come testo (i codici mantengono gli zeri iniziali).
 Non è un asset Bruin — viene importata dagli export.
 """
 import os
+import sys
 import logging
 
 from openpyxl import Workbook, load_workbook
@@ -17,10 +18,12 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import OUT_MDG  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-OUTPUT_DIR    = "/project/datalake/out_source_mdg"
+OUTPUT_DIR    = OUT_MDG
 DISCARDED_DIR = os.path.join(OUTPUT_DIR, "discarded")
 REPORT_DIR    = os.path.join(OUTPUT_DIR, "report")
 DISCARD_PREFIX = ["CONTROLLO", "MOTIVO"]

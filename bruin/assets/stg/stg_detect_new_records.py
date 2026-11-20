@@ -13,6 +13,7 @@ depends:
 @bruin """
 
 import os
+import sys
 import re
 import logging
 import psycopg2
@@ -24,13 +25,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG  # noqa: E402
 
 # Coppie (raw_table, stg_table) da confrontare
 # Nota: i nomi sono case-sensitive e vanno tra virgolette doppie in PG

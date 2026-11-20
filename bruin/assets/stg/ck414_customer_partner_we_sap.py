@@ -16,17 +16,13 @@ description: >
 @bruin """
 
 import os
+import sys
 import psycopg2
 from psycopg2.extras import execute_values
 from datetime import datetime, timezone
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG  # noqa: E402
 
 CHECK_ID      = "CK414"
 PARTNER_TABLE = "S_CUST_SALES_PARTNER#ZBP-Partner"

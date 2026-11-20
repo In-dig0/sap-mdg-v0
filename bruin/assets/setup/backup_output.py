@@ -14,22 +14,18 @@ description: >
 @bruin """
 
 import os
+import sys
 import re
 import zipfile
 from datetime import datetime
 
 import psycopg2
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG, OUT_MDG  # noqa: E402
 PIPELINE_NAME = "mdg_migration_pipeline"
 
-OUTPUT_DIR = "/project/datalake/out_source_mdg"
+OUTPUT_DIR = OUT_MDG
 BACKUP_DIR = os.path.join(OUTPUT_DIR, "backup")
 # cartella -> nome nel file di backup
 FOLDERS = {

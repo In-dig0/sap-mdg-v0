@@ -14,6 +14,7 @@ description: >
 @bruin """
 
 import os
+import sys
 import re
 import io
 import logging
@@ -30,15 +31,10 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG, IN_SAP  # noqa: E402
 
-INBOUND_PATH = "/project/datalake/in_source_sap"
+INBOUND_PATH = IN_SAP
 REF_SCHEMA   = "ref"
 
 

@@ -54,16 +54,11 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG, IN_PPROD, OUT_MDG  # noqa: E402
 
-INBOUND_PATH = "/project/datalake/in_source_pprod"
-REJECTS_FILE = "/project/datalake/out_source_mdg/discarded/ingestione_scarti.xlsx"
+INBOUND_PATH = IN_PPROD
+REJECTS_FILE = os.path.join(OUT_MDG, "discarded", "ingestione_scarti.xlsx")
 REJECTS_HEADER = ["ZIP", "CSV", "TABELLA", "RIGA", "CHIAVE", "MOTIVO", "CONTENUTO"]
 REJECTS: list[list] = []   # righe scartate in ingestione, scritte in REJECTS_FILE a fine run
 RAW_SCHEMA   = "raw"

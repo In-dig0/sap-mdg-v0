@@ -5,6 +5,9 @@ depends:
   - setup.init_db
   - setup.check_catalog
   - setup.apply_check_states
+secrets:
+  - key: mdg_postgres        # connessione degli asset SQL: per il controllo di coerenza
+    inject_as: MDG_BRUIN_PG
 description: >
   Apre un nuovo record in stg.pipeline_runs usando la sequence
   stg.pipeline_run_seq come run_id progressivo (1, 2, 3...).
@@ -13,19 +16,18 @@ description: >
   container è attivo un altro processo 'bruin run'. Se non ce ne sono, i run
   rimasti 'running' sono stati interrotti (errore prima della chiusura,
   container riavviato): vengono chiusi come 'failed' e il nuovo run parte.
+  Ambiente SAP (mdg_env, variabile MDG_ENV): il run si ferma se il database degli asset
+  Python è diverso da quello della connessione Bruin degli asset SQL (mdg_postgres).
 @bruin """
 
 import os
+import sys
+import json
 import psycopg2
 from datetime import datetime, timezone
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG, MDG_ENV, OUT_MDG  # noqa: E402
 
 SEMAPHORE_PATH = "/tmp/mdg_run_id.txt"
 
@@ -64,8 +66,23 @@ def altri_run_bruin() -> list[int]:
     return altri
 
 
+def check_env():
+    """
+    Stesso database per asset SQL (connessione Bruin mdg_postgres) e asset Python (mdg_env):
+    altrimenti i dati di un ambiente finirebbero in un altro.
+    """
+    bruin_db = json.loads(os.environ.get("MDG_BRUIN_PG") or "{}").get("database")
+    print(f"[OK] Ambiente: {MDG_ENV} — database {DB_CONFIG['dbname']} — output {OUT_MDG}")
+    if bruin_db and bruin_db != DB_CONFIG["dbname"]:
+        raise RuntimeError(
+            f"Ambiente {MDG_ENV}: database degli asset Python ({DB_CONFIG['dbname']}) diverso da quello "
+            f"della connessione Bruin degli asset SQL ({bruin_db}). Run interrotto."
+        )
+
+
 def main():
     now = datetime.now(timezone.utc)
+    check_env()
 
     conn = psycopg2.connect(**DB_CONFIG)
     try:

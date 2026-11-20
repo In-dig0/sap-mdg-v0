@@ -65,13 +65,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG  # noqa: E402
 
 CHECK_FILE    = re.compile(r"^CK\d{3}_discarded\.(csv|xlsx)$")   # anche i CSV delle versioni precedenti
 HEADER        = ["TABELLA", "CHIAVE", "MOTIVO", "GRAVITA", "ZIP"]

@@ -40,15 +40,10 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG, OUT_MDG  # noqa: E402
 
-OUTPUT_DIR    = "/project/datalake/out_source_mdg"
+OUTPUT_DIR    = OUT_MDG
 OUTPUT_NAME   = "Fornitori_ContoLavoro.xlsx"   # nome base: in uscita con il suffisso _MDGOUT_ del run
 HEADER        = ["LIFNR", "DESCRIZIONE", "Conto lavoro pieno", "Conto lavoro di fase"]
 BUT000_TABLE  = "SAP_EXPORT_BUT000"

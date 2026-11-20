@@ -48,15 +48,10 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-DB_CONFIG = {
-    "host":     os.environ.get("POSTGRES_HOST", "postgres"),
-    "port":     int(os.environ.get("POSTGRES_PORT", 5432)),
-    "dbname":   os.environ.get("POSTGRES_DB", "mdg"),
-    "user":     os.environ.get("POSTGRES_USER", "mdg_user"),
-    "password": os.environ.get("POSTGRES_PASSWORD", ""),
-}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from mdg_env import DB_CONFIG, OUT_MDG  # noqa: E402
 
-OUTPUT_DIR   = "/project/datalake/out_source_mdg"
+OUTPUT_DIR   = OUT_MDG
 SALES_TABLE  = "S_CUST_SALES_DATA#ZBP-DatiVendite"
 BUT000_TABLE = "SAP_EXPORT_BUT000"
 LEGACY_NAMES = ["Clienti_ZDMO"]   # nomi dei file delle versioni precedenti, rimossi a ogni run

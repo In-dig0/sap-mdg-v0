@@ -138,6 +138,9 @@ Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `ch
   per rinominare usare `git mv`.
 - Modifiche a `docker-compose.yml` impattano anche la produzione: verificare sempre
   la compatibilità con `docker-compose.prod.yml`.
+- Negli asset Python connessione al DB e cartelle del datalake si leggono da `bruin/assets/mdg_env.py`
+  (`DB_CONFIG`, `IN_PPROD`, `IN_SAP`, `IN_OTHERS`, `OUT_MDG`, `CHECK_STATES_FILE`), mai scritti nel codice:
+  preparano il multi-ambiente SAP (variabile `MDG_ENV`; senza, ambiente di default = DB `mdg` e cartelle attuali).
 - I check Bruin devono restare **idempotenti** (rilanciabili senza duplicare risultati).
 - Interfaccia utente e messaggi dei check in **italiano**.
 - Prima di dichiarare conclusa una modifica: ricostruire il servizio interessato
