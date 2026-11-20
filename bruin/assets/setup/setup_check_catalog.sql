@@ -580,7 +580,7 @@ VALUES
      'SAP_TRASCO_CDC (COD_DBCOGE + DIV -> COD_SAP_DEF)','Error','CROSS_SOURCE',TRUE,NOW()),
     ('CK537','Cicli di lavoro, operazioni: il centro di lavoro deve esistere in SAP nella divisione indicata',
      'ROUTING','S_OPERATION / S_OPERATION_STG','WORK_CNTR + WERKS_WORK_CNTR',
-     'SAP_EXPORT_CRHD (ARBPL + WERKS)','Error','SAP_REF',TRUE,NOW()),
+     'SAP_EXPORT_CRHD (ARBPL + WERKS); file ERP dopo la trascodifica SAP_TRASCO_CDLAV','Error','SAP_REF',TRUE,NOW()),
 
     -- EXT_REF — CK801-CK804 (mancanti nella versione precedente)
     ('CK801','Clienti: la partita IVA UE o britannica deve risultare valida (verifica online VIES / HMRC)',

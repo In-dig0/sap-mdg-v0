@@ -5,6 +5,12 @@ description: >
   Merge dei cicli di lavoro (DM15_CICLI) raw + stg."S_OPERATION_STG" → prd."S_OPERATION",
   prd."S_PLKO", prd."S_MAPL" (full refresh a ogni run; senza la tabella STG le tre tabelle prd
   sono la copia di raw).
+  Centri di lavoro: PRIMA del merge con la tabella STG, nelle operazioni copiate da raw
+  WORK_CNTR viene trascodificato con ref.SAP_TRASCO_CDLAV (file SAP_TRASCO_CDLAV.xlsx in
+  in_source_sap): WERKS = WERKS_WORK_CNTR e WORK_CNTR_OLD = WORK_CNTR → WORK_CNTR_NEW. Le
+  operazioni da S_OPERATION_STG restano con il loro centro di lavoro. Centri non in tabella:
+  invariati; coppie WERKS + WORK_CNTR_OLD con più WORK_CNTR_NEW diversi: non trascodificate.
+  Riepilogo in report/S_OPERATION_trascodifica_centri_lavoro.xlsx.
   La tabella STG (file S_OPERATION_STG.xlsx in in_source_others) ha le colonne di S_OPERATION
   più LEGENDA (UPD/ADD) e PN_2 (codice materiale); PLNNR è vuoto e si ricava da raw.S_MAPL
   (MATNR = PN_2, WERKS_MAT = WERKS_WORK_CNTR, PLNAL):
@@ -24,6 +30,7 @@ description: >
 depends:
   - ingestion.ingest_zip_to_raw
   - ingestion.ingest_others_to_stg
+  - ingestion.ingest_xlsx_to_ref
 @bruin """
 
 import os
@@ -51,6 +58,9 @@ AUDIT_COLS  = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"
 LEGEND_COL, MATERIAL_COL, PLANT_COL = "LEGENDA", "PN_2", "WERKS_WORK_CNTR"
 PLNNR, PLNAL, PLNFL, VORNR = "PLNNR(k/*)", "PLNAL(k/*)", "PLNFL(k)", "VORNR(k/*)"
 DUP_REPORT  = os.path.join(REPORT_DIR, "S_OPERATION_STG_chiavi_duplicate.xlsx")
+WC_TRASCO   = "SAP_TRASCO_CDLAV"   # WERKS, WORK_CNTR_OLD, WORK_CNTR_NEW
+WC_REPORT   = os.path.join(REPORT_DIR, "S_OPERATION_trascodifica_centri_lavoro.xlsx")
+WC_COL      = "WORK_CNTR"
 # Campi numerici del modello S_OPERATION (guida SAP): virgola decimale nel file per SAP
 NUMERIC_COLS = {"BMSCH(*)", "UMREN", "UMREZ", "VGW01", "VGW02", "VGW03", "VGW04", "VGW05", "VGW06",
                 "ZLMAX", "ZLPRO", "ZWNOR", "ZWMIN", "ZTNOR", "ZTMIN", "SPLIM", "ZMINB", "ZMINU",
@@ -97,8 +107,9 @@ def copy_raw(cur, table):
 
 def main():
     reset_discards([STG_TABLE])
-    if os.path.exists(DUP_REPORT):
-        os.remove(DUP_REPORT)
+    for path in (DUP_REPORT, WC_REPORT):
+        if os.path.exists(path):
+            os.remove(path)
     conn = get_connection()
     try:
         with conn, conn.cursor() as cur:
@@ -109,6 +120,7 @@ def main():
                     return
                 copy_raw(cur, table)
             log.info("prd.S_OPERATION, prd.S_PLKO, prd.S_MAPL copiate da raw")
+            transcode_work_centers(cur)   # prima del merge STG: solo le operazioni del file ERP
             if not table_exists(cur, "stg", STG_TABLE):
                 log.info("stg.%s non presente — nessuna integrazione delle operazioni", STG_TABLE)
                 return
@@ -117,6 +129,54 @@ def main():
         flush_discards()
         conn.close()
     log.info("=== merge_cicli completato ===")
+
+
+def wc_norm(expr):
+    """Codice come testo senza spazi e senza il ".0" che Excel aggiunge alle celle numeriche."""
+    return f"regexp_replace(TRIM({expr}), '\\.0+$', '')"
+
+
+def transcode_work_centers(cur):
+    """WORK_CNTR di prd.S_OPERATION (copia di raw) → WORK_CNTR_NEW di ref.SAP_TRASCO_CDLAV."""
+    if not table_exists(cur, "ref", WC_TRASCO):
+        log.info("ref.%s non presente — centri di lavoro non trascodificati", WC_TRASCO)
+        return
+    needed = {"WERKS", "WORK_CNTR_OLD", "WORK_CNTR_NEW"}
+    missing = needed - set(columns(cur, "ref", WC_TRASCO))
+    if missing:
+        log.warning("ref.%s senza le colonne %s — centri di lavoro non trascodificati",
+                    WC_TRASCO, ", ".join(sorted(missing)))
+        return
+    cur.execute(f"""
+        CREATE TEMP TABLE wc_map ON COMMIT DROP AS
+        SELECT {wc_norm('"WERKS"')} AS werks, {wc_norm('"WORK_CNTR_OLD"')} AS old,
+               ARRAY_AGG(DISTINCT {wc_norm('"WORK_CNTR_NEW"')}) AS news
+        FROM ref.{q(WC_TRASCO)}
+        WHERE COALESCE(TRIM("WORK_CNTR_OLD"), '') <> '' AND COALESCE(TRIM("WORK_CNTR_NEW"), '') <> ''
+        GROUP BY 1, 2""")
+    cur.execute(f"""
+        SELECT m.werks, m.old, ARRAY_TO_STRING(m.news, ' | '), CARDINALITY(m.news) > 1, COUNT(o.*)
+        FROM wc_map m
+        LEFT JOIN prd.{q(OPS)} o ON TRIM(o.{q(PLANT_COL)}) = m.werks AND TRIM(o.{q(WC_COL)}) = m.old
+        GROUP BY m.werks, m.old, m.news ORDER BY 1, 2""")
+    rows = cur.fetchall()
+    cur.execute(f"""
+        UPDATE prd.{q(OPS)} o SET {q(WC_COL)} = m.news[1]
+        FROM wc_map m
+        WHERE CARDINALITY(m.news) = 1 AND TRIM(o.{q(PLANT_COL)}) = m.werks AND TRIM(o.{q(WC_COL)}) = m.old""")
+    n_upd = cur.rowcount
+    ambiguous = [r for r in rows if r[3]]
+    for werks, old, news, _, n in ambiguous:
+        log.warning("  *** Centro di lavoro %s/%s con più trascodifiche (%s): non trascodificato (%d operazioni)",
+                    werks, old, news, n)
+    report = [[werks, old, news, n, "NON trascodificato: più WORK_CNTR_NEW" if amb
+               else ("Trascodificato" if n else "Nessuna operazione nel file")]
+              for werks, old, news, amb, n in rows]
+    write_xlsx(WC_REPORT, [("trascodifica", ["WERKS", "WORK_CNTR_OLD", "WORK_CNTR_NEW", "Operazioni", "Esito"],
+                            report)])
+    log.info("Centri di lavoro trascodificati (%s): %d operazioni, %d coppie in tabella (%d con operazioni, "
+             "%d con più trascodifiche) — %s", WC_TRASCO, n_upd, len(rows), sum(1 for r in rows if r[4] and not r[3]),
+             len(ambiguous), WC_REPORT)
 
 
 def apply_stg(cur):
