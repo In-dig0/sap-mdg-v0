@@ -138,6 +138,10 @@ Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `ch
   per rinominare usare `git mv`.
 - Modifiche a `docker-compose.yml` impattano anche la produzione: verificare sempre
   la compatibilità con `docker-compose.prod.yml`.
+- Ambienti SAP (branch `multi-ambiente`, in corso): registro in `cfg.environments` del DB comune
+  (API `/environments`), un DB per ambiente (`mdg_<sistema>_<mandante>`) e sottocartelle `<AMBIENTE>`
+  nel datalake. Il run per ambiente parte con `docker exec mdg_bruin sh /project/bruin/run_env.sh <AMBIENTE>`
+  (connessione temporanea al DB dell'ambiente + `MDG_ENV`); senza ambiente vale `DEFAULT`.
 - Negli asset Python connessione al DB e cartelle del datalake si leggono da `bruin/assets/mdg_env.py`
   (`DB_CONFIG`, `IN_PPROD`, `IN_SAP`, `IN_OTHERS`, `OUT_MDG`, `CHECK_STATES_FILE`), mai scritti nel codice:
   preparano il multi-ambiente SAP (variabile `MDG_ENV`; senza, ambiente di default = DB `mdg` e cartelle attuali).

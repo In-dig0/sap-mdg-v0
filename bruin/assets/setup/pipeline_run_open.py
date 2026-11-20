@@ -138,8 +138,8 @@ def main():
             request = cur.fetchone()
             cur.execute("DELETE FROM stg.pipeline_run_request")
             opt_full, opt_original = request if request else (False, False)
-            cur.execute("UPDATE stg.pipeline_runs SET opt_full = %s, opt_original_codes = %s WHERE run_id = %s",
-                        (opt_full, opt_original, run_id))
+            cur.execute("UPDATE stg.pipeline_runs SET opt_full = %s, opt_original_codes = %s, mdg_env = %s "
+                        "WHERE run_id = %s", (opt_full, opt_original, MDG_ENV, run_id))
 
         conn.commit()
 

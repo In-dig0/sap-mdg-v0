@@ -26,6 +26,15 @@ from pydantic import BaseModel
 
 BRUIN_CONTAINER   = os.getenv("BRUIN_CONTAINER", "mdg_bruin")
 BRUIN_PIPELINE    = os.getenv("BRUIN_PIPELINE", "/project/bruin")
+# Avvio della pipeline per ambiente SAP nel container Bruin (connessione al DB dell'ambiente)
+BRUIN_RUN_SCRIPT  = os.getenv("BRUIN_RUN_SCRIPT", "/project/bruin/run_env.sh")
+# Ambienti SAP (sistema + mandante, es. DS4-200): registro in cfg.environments del database comune;
+# ogni ambiente ha il suo database (<POSTGRES_DB>_<ambiente>) e le sue sottocartelle nel datalake.
+# DEFAULT = database e cartelle di sempre (stessa regola di bruin/assets/mdg_env.py).
+DEFAULT_ENV       = "DEFAULT"
+ENV_SYSTEM_RE     = re.compile(r"^[A-Z0-9]{2,10}$")
+ENV_CLIENT_RE     = re.compile(r"^\d{1,4}$")
+ENV_ID_RE         = re.compile(r"^[A-Z0-9]{2,10}-\d{1,4}$")
 SEMAPHORE_PATH    = os.getenv("SEMAPHORE_PATH", "/data/inbound/DATASET_READY.txt")
 SAP_PATH          = Path(os.getenv("SAP_PATH", "/data/in_source_sap"))
 OTHERS_PATH       = Path(os.getenv("OTHERS_PATH", "/data/in_source_others"))
@@ -81,6 +90,7 @@ class PipelineState:
         self.log_file:   Optional[Path]     = None
         self.exit_code:  Optional[int]      = None
         self.error_msg:  Optional[str]      = None
+        self.env:        str                = DEFAULT_ENV
 
 state = PipelineState()
 
@@ -119,6 +129,7 @@ class StatusResponse(BaseModel):
     exit_code:  Optional[int]
     duration_s: Optional[float]
     error_msg:  Optional[str]
+    env:        Optional[str] = None
 
 class LogResponse(BaseModel):
     run_id:   Optional[str]
@@ -139,11 +150,12 @@ def check_semaphore() -> bool:
     """Verifica se il file semaforo DATASET_READY.txt esiste."""
     return Path(SEMAPHORE_PATH).exists()
 
-def get_db_connection():
+def get_db_connection(dbname: Optional[str] = None):
+    """Connessione al database comune (POSTGRES_DB) o, con dbname, a quello di un ambiente SAP."""
     return psycopg2.connect(
         host=POSTGRES_HOST,
         port=POSTGRES_PORT,
-        dbname=POSTGRES_DB,
+        dbname=dbname or POSTGRES_DB,
         user=POSTGRES_USER,
         password=POSTGRES_PASSWORD,
         connect_timeout=3,
@@ -185,7 +197,8 @@ def check_bruin_container() -> str:
         return f"error: {e}"
 
 def save_run_to_db(pipeline_name: str, status: str, started_at: datetime,
-                   finished_at: Optional[datetime], notes: Optional[str] = None):
+                   finished_at: Optional[datetime], notes: Optional[str] = None,
+                   dbname: Optional[str] = None):
     """
     Inserisce o aggiorna il record del run in stg.pipeline_runs.
 
@@ -202,7 +215,7 @@ def save_run_to_db(pipeline_name: str, status: str, started_at: datetime,
         notes           text
     """
     try:
-        conn = get_db_connection()
+        conn = get_db_connection(dbname)   # database dell'ambiente del run
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO stg.pipeline_runs
@@ -242,14 +255,15 @@ def cleanup_inbox(log_file: Path) -> tuple[int, int]:
     return eliminated, errors
 
 
-def save_run_request(full: bool, original_codes: bool):
+def save_run_request(full: bool, original_codes: bool, dbname: Optional[str] = None):
     """
     Opzioni del prossimo run in stg.pipeline_run_request (una riga): setup.pipeline_run_open le
     copia nel run in stg.pipeline_runs e cancella la richiesta.
     """
-    conn = get_db_connection()
+    conn = get_db_connection(dbname)
     try:
         with conn, conn.cursor() as cur:
+            cur.execute("CREATE SCHEMA IF NOT EXISTS stg")   # database di un ambiente nuovo
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS stg.pipeline_run_request (
                     id                 INTEGER   NOT NULL DEFAULT 1 PRIMARY KEY CHECK (id = 1),
@@ -268,7 +282,8 @@ def save_run_request(full: bool, original_codes: bool):
 
 
 async def execute_bruin_pipeline(run_id: str, log_file: Path, cleanup: bool = False,
-                                 full: bool = False, original_codes: bool = False):
+                                 full: bool = False, original_codes: bool = False,
+                                 env: str = DEFAULT_ENV):
     """
     Esegue 'bruin run' nel container mdg_bruin tramite 'docker exec'.
     Usa asyncio.create_subprocess_exec — genuinamente non bloccante,
@@ -278,12 +293,14 @@ async def execute_bruin_pipeline(run_id: str, log_file: Path, cleanup: bool = Fa
     """
     global state
 
-    cmd = ["docker", "exec", BRUIN_CONTAINER, "bruin", "run", BRUIN_PIPELINE]
+    # run_env.sh: connessione al database dell'ambiente e MDG_ENV per gli asset (DEFAULT = run di sempre)
+    cmd = ["docker", "exec", BRUIN_CONTAINER, "sh", BRUIN_RUN_SCRIPT, env]
 
     try:
         with open(log_file, "w") as lf:
             lf.write(f"[{datetime.now().isoformat()}] MDG Pipeline — Run ID: {run_id}\n")
             lf.write(f"[{datetime.now().isoformat()}] Cmd: {' '.join(cmd)}\n")
+            lf.write(f"[{datetime.now().isoformat()}] Ambiente SAP: {env} (database {env_db_name(env)})\n")
             lf.write(f"[{datetime.now().isoformat()}] Cleanup inbox post-run: {'SI' if cleanup else 'NO'}\n")
             lf.write(f"[{datetime.now().isoformat()}] Estrazione full (oggetti già in SAP non esclusi): "
                      f"{'SI' if full else 'NO'}\n")
@@ -338,6 +355,7 @@ async def execute_bruin_pipeline(run_id: str, log_file: Path, cleanup: bool = Fa
             started_at=state.started_at,
             finished_at=state.ended_at,
             notes=notes,
+            dbname=env_db_name(env),
         )
 
 # ---------------------------------------------------------------------------
@@ -433,7 +451,8 @@ async def run_pipeline(background_tasks: BackgroundTasks,
                        force: bool = False,
                        cleanup: bool = False,
                        full: bool = False,
-                       original_codes: bool = False):
+                       original_codes: bool = False,
+                       env: str = DEFAULT_ENV):
     """
     Avvia la pipeline Bruin.
 
@@ -441,6 +460,8 @@ async def run_pipeline(background_tasks: BackgroundTasks,
     - `cleanup=true` — svuota la cartella inbox al termine se Bruin esce con successo (exit_code=0)
     - `full=true`    — estrazione "full": gli oggetti già presenti in SAP non sono esclusi
     - `original_codes=true` — BP con il codice del vecchio ERP (nessuna trascodifica nel codice SAP)
+    - `env=DS4-200` — ambiente SAP (registrato e attivo in cfg.environments); DEFAULT = database
+      e cartelle di sempre
     - Rifiuta se una pipeline è già in esecuzione
     """
     global state
@@ -460,9 +481,11 @@ async def run_pipeline(background_tasks: BackgroundTasks,
                    f"Usa ?force=true per bypassare il controllo."
         )
 
+    env = resolve_run_env(env)
+
     # Opzioni del run: lette da setup.pipeline_run_open all'apertura del run
     try:
-        save_run_request(full, original_codes)
+        save_run_request(full, original_codes, env_db_name(env))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Opzioni del run non salvate: {e}")
 
@@ -477,12 +500,14 @@ async def run_pipeline(background_tasks: BackgroundTasks,
     state.exit_code  = None
     state.error_msg  = None
     state.log_file   = log_file
+    state.env        = env
 
-    background_tasks.add_task(execute_bruin_pipeline, run_id, log_file, cleanup, full, original_codes)
+    background_tasks.add_task(execute_bruin_pipeline, run_id, log_file, cleanup, full, original_codes, env)
 
     cleanup_msg = " (cleanup inbox attivo)" if cleanup else ""
     cleanup_msg += " (estrazione full)" if full else ""
     cleanup_msg += " (codice BP originale)" if original_codes else ""
+    cleanup_msg += f" — ambiente {env}"
     return RunResponse(
         run_id=run_id,
         status=RunStatus.RUNNING,
@@ -510,6 +535,7 @@ def pipeline_status():
         exit_code=state.exit_code,
         duration_s=duration,
         error_msg=state.error_msg,
+        env=state.env,
     )
 
 
@@ -609,6 +635,245 @@ def pipeline_progress():
         })
     result["running"].sort(key=lambda r: -r["elapsed_s"])
     return result
+
+
+# ---------------------------------------------------------------------------
+# Ambienti SAP
+# ---------------------------------------------------------------------------
+
+def env_db_name(env: str) -> str:
+    """Database dell'ambiente: POSTGRES_DB per DEFAULT, <POSTGRES_DB>_<ambiente> per gli altri (es. mdg_ds4_200)."""
+    return POSTGRES_DB if env == DEFAULT_ENV else f"{POSTGRES_DB}_{env.lower().replace('-', '_')}"
+
+
+def env_folders(env: str) -> list[Path]:
+    """Cartelle del datalake dell'ambiente (ingresso ERP, tabelle SAP, altri file, output)."""
+    roots = [Path(SEMAPHORE_PATH).parent, SAP_PATH, OTHERS_PATH, OUT_MDG_PATH]
+    return roots if env == DEFAULT_ENV else [root / env for root in roots]
+
+
+def ensure_env_registry(cur):
+    cur.execute("CREATE SCHEMA IF NOT EXISTS cfg")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS cfg.environments (
+            env_id      VARCHAR(20)  NOT NULL PRIMARY KEY,
+            sap_system  VARCHAR(10)  NOT NULL,
+            sap_client  VARCHAR(4)   NOT NULL,
+            description TEXT,
+            color       VARCHAR(20),
+            active      BOOLEAN      NOT NULL DEFAULT TRUE,
+            db_name     VARCHAR(63)  NOT NULL,
+            created_at  TIMESTAMP    NOT NULL DEFAULT LOCALTIMESTAMP
+        )""")
+
+
+def database_exists(dbname: str) -> bool:
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
+            return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
+def resolve_run_env(env: str) -> str:
+    """Ambiente del run in maiuscolo: DEFAULT, oppure un ambiente registrato, attivo e con il database."""
+    env = (env or DEFAULT_ENV).strip().upper()
+    if env == DEFAULT_ENV:
+        return env
+    if not ENV_ID_RE.match(env):
+        raise HTTPException(status_code=422, detail=f"Ambiente non valido: {env} (atteso sistema-mandante, es. DS4-200)")
+    conn = get_db_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            ensure_env_registry(cur)
+            cur.execute("SELECT active FROM cfg.environments WHERE env_id = %s", (env,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Ambiente {env} non registrato")
+    if not row[0]:
+        raise HTTPException(status_code=422, detail=f"Ambiente {env} disattivato")
+    if not database_exists(env_db_name(env)):
+        raise HTTPException(status_code=500, detail=f"Database {env_db_name(env)} dell'ambiente {env} non trovato")
+    return env
+
+
+class EnvironmentRequest(BaseModel):
+    sap_system:  str
+    sap_client:  str
+    description: Optional[str] = None
+    color:       Optional[str] = None
+    # Ambiente da cui copiare il database (DEFAULT = database comune attuale) e cosa copiare:
+    #   structure  schemi, tabelle, funzioni e catalogo controlli, senza dati
+    #   staging    struttura + dati dello schema stg (correzioni _STG, elenchi, catalogo, cache VIES),
+    #              senza esiti dei controlli e storico run
+    #   all        copia completa (raw, ref, stg, prd, esiti e storico): migrazione dei dati attuali
+    copy_from:   str = DEFAULT_ENV
+    copy_data:   str = "structure"
+
+
+POSTGRES_CONTAINER = os.getenv("POSTGRES_CONTAINER", "mdg_postgres")
+# Schemi del solo database comune (utenti, registro ambienti): mai copiati negli ambienti
+COMMON_SCHEMAS     = ["usr", "cfg"]
+# Tabelle stg legate al singolo run: non copiate con copy_data = staging
+STG_RUNTIME_TABLES = ["check_results", "pipeline_runs", "pipeline_run_request"]
+COPY_MODES         = {"structure", "staging", "all"}
+
+
+def _docker_exec(container: str, script: str, timeout: int = 3600) -> str:
+    """Esegue uno script sh in un container (le credenziali restano quelle del container)."""
+    import subprocess
+    result = subprocess.run(["docker", "exec", container, "sh", "-c", script],
+                            capture_output=True, text=True, timeout=timeout)
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout or "").strip()[-1500:])
+    return result.stdout
+
+
+def copy_environment_db(src_db: str, dst_db: str, mode: str):
+    """
+    Copia il database src_db in dst_db (già creato e vuoto) con pg_dump | psql nel container
+    PostgreSQL: funziona anche con i servizi collegati al database di origine.
+    """
+    excl = " ".join(f"-N {s}" for s in COMMON_SCHEMAS)
+    pg = 'pg_dump -U "$POSTGRES_USER" --no-owner --no-privileges'
+    restore = f'psql -U "$POSTGRES_USER" -d {dst_db} -v ON_ERROR_STOP=1 -q'
+    _docker_exec(POSTGRES_CONTAINER, f"set -o pipefail 2>/dev/null; {pg} --schema-only {excl} -d {src_db} | {restore}")
+    if mode == "staging":
+        skip = " ".join(f"--exclude-table-data=stg.{t}" for t in STG_RUNTIME_TABLES)
+        _docker_exec(POSTGRES_CONTAINER, f"set -o pipefail 2>/dev/null; {pg} --data-only -n stg {skip} "
+                                         f"-T stg.pipeline_run_seq -d {src_db} | {restore}")
+    elif mode == "all":
+        _docker_exec(POSTGRES_CONTAINER, f"set -o pipefail 2>/dev/null; {pg} --data-only {excl} "
+                                         f"--exclude-table-data=stg.pipeline_run_request -d {src_db} | {restore}")
+
+
+def copy_check_states(src_env: str, dst_env: str):
+    """Stato dei controlli (bruin/config/check_states[_<ambiente>].json): copiato se l'origine esiste."""
+    name = lambda e: "check_states.json" if e == DEFAULT_ENV else f"check_states_{e}.json"
+    src, dst = f"/project/bruin/config/{name(src_env)}", f"/project/bruin/config/{name(dst_env)}"
+    _docker_exec(BRUIN_CONTAINER, f'[ ! -f "{src}" ] || [ -f "{dst}" ] || cp "{src}" "{dst}"', timeout=60)
+
+
+class EnvironmentUpdate(BaseModel):
+    description: Optional[str]  = None
+    color:       Optional[str]  = None
+    active:      Optional[bool] = None
+
+
+def _environment_rows(cur) -> list[dict]:
+    cur.execute("""SELECT env_id, sap_system, sap_client, description, color, active, db_name, created_at
+                   FROM cfg.environments ORDER BY sap_system, sap_client""")
+    cols = [d[0] for d in cur.description]
+    rows = []
+    for r in cur.fetchall():
+        row = dict(zip(cols, r))
+        row["created_at"] = row["created_at"].isoformat() if row["created_at"] else None
+        row["folders"] = [str(p) for p in env_folders(row["env_id"])]
+        rows.append(row)
+    return rows
+
+
+@app.get("/environments", tags=["Ambienti"])
+def list_environments():
+    """Ambienti SAP registrati (cfg.environments), con database e cartelle."""
+    conn = get_db_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            ensure_env_registry(cur)
+            return _environment_rows(cur)
+    finally:
+        conn.close()
+
+
+@app.post("/environments", tags=["Ambienti"])
+def create_environment(req: EnvironmentRequest):
+    """
+    Registra un ambiente SAP (sistema + mandante, es. DS4 + 200 -> DS4-200), crea il suo database
+    copiandolo da un ambiente esistente (copy_from, copy_data: vedi EnvironmentRequest), le sue
+    sottocartelle nel datalake e lo stato dei controlli. La pipeline richiede che tutte le tabelle
+    esistano: per questo un ambiente nasce sempre almeno con la struttura di un altro.
+    Se l'ambiente esiste già restituisce 409; se la copia fallisce database e registrazione
+    vengono annullati.
+    """
+    system, client = req.sap_system.strip().upper(), req.sap_client.strip()
+    if not ENV_SYSTEM_RE.match(system) or not ENV_CLIENT_RE.match(client):
+        raise HTTPException(status_code=422, detail="Sistema (es. DS4) o mandante (es. 200) non validi")
+    if req.copy_data not in COPY_MODES:
+        raise HTTPException(status_code=422, detail=f"copy_data deve essere uno di {sorted(COPY_MODES)}")
+    env = f"{system}-{client}"
+    dbname = env_db_name(env)
+    src_env = resolve_run_env(req.copy_from)      # DEFAULT o ambiente registrato, attivo, con database
+    src_db = env_db_name(src_env)
+    if database_exists(dbname):
+        raise HTTPException(status_code=409, detail=f"Il database {dbname} esiste già")
+    conn = get_db_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            ensure_env_registry(cur)
+            cur.execute("SELECT 1 FROM cfg.environments WHERE env_id = %s", (env,))
+            if cur.fetchone():
+                raise HTTPException(status_code=409, detail=f"Ambiente {env} già registrato")
+            cur.execute("""INSERT INTO cfg.environments (env_id, sap_system, sap_client, description, color, db_name)
+                           VALUES (%s, %s, %s, %s, %s, %s)""",
+                        (env, system, client, req.description, req.color, dbname))
+    finally:
+        conn.close()
+    try:
+        _set_database(dbname, create=True)          # CREATE DATABASE non può stare in una transazione
+        copy_environment_db(src_db, dbname, req.copy_data)
+        copy_check_states(src_env, env)
+    except Exception as e:
+        # Annulla: database e registrazione (le cartelle, se create, restano vuote e innocue)
+        try:
+            _set_database(dbname, create=False)
+        finally:
+            conn = get_db_connection()
+            try:
+                with conn, conn.cursor() as cur:
+                    cur.execute("DELETE FROM cfg.environments WHERE env_id = %s", (env,))
+            finally:
+                conn.close()
+        raise HTTPException(status_code=500, detail=f"Creazione dell'ambiente {env} annullata: {e}")
+    for folder in env_folders(env):
+        folder.mkdir(parents=True, exist_ok=True)
+    return {"env_id": env, "db_name": dbname, "copied_from": src_env, "copy_data": req.copy_data,
+            "folders": [str(p) for p in env_folders(env)],
+            "message": f"Ambiente {env} creato da {src_env} ({req.copy_data}): database {dbname} e cartelle pronti"}
+
+
+def _set_database(dbname: str, create: bool):
+    """CREATE DATABASE (create=True) o DROP DATABASE IF EXISTS, fuori transazione."""
+    conn = get_db_connection()
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(f'CREATE DATABASE "{dbname}"' if create else f'DROP DATABASE IF EXISTS "{dbname}"')
+    finally:
+        conn.close()
+
+
+@app.patch("/environments/{env_id}", tags=["Ambienti"])
+def update_environment(env_id: str, req: EnvironmentUpdate):
+    """Modifica descrizione, colore o stato (attivo/disattivato) di un ambiente. Nessuna cancellazione."""
+    env = env_id.strip().upper()
+    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not fields:
+        raise HTTPException(status_code=422, detail="Nessun campo da modificare")
+    conn = get_db_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            ensure_env_registry(cur)
+            sets = ", ".join(f"{k} = %s" for k in fields)
+            cur.execute(f"UPDATE cfg.environments SET {sets} WHERE env_id = %s", (*fields.values(), env))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail=f"Ambiente {env} non registrato")
+            return {"env_id": env, "updated": sorted(fields)}
+    finally:
+        conn.close()
 
 
 @app.get("/pipeline/runs", tags=["Pipeline"])

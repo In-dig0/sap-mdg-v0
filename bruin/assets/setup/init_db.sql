@@ -67,6 +67,9 @@ CREATE TABLE IF NOT EXISTS stg.pipeline_runs (
 ALTER TABLE stg.pipeline_runs
     ADD COLUMN IF NOT EXISTS opt_full           BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS opt_original_codes BOOLEAN NOT NULL DEFAULT FALSE;
+-- Ambiente SAP del run (MDG_ENV, es. DS4-200; DEFAULT senza ambiente)
+ALTER TABLE stg.pipeline_runs
+    ADD COLUMN IF NOT EXISTS mdg_env VARCHAR(20) NOT NULL DEFAULT 'DEFAULT';
 
 -- Opzioni richieste dall'API all'avvio (una sola riga): setup.pipeline_run_open le copia nel
 -- run che apre e cancella la richiesta (i run avviati da terminale usano i valori di default)
