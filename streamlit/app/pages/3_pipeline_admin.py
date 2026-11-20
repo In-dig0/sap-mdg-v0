@@ -51,11 +51,12 @@ def api_health():
     except Exception as e:
         return None, str(e)
 
-def api_run_pipeline(force: bool = False, cleanup: bool = False):
+def api_run_pipeline(force: bool = False, cleanup: bool = False, full: bool = False,
+                     original_codes: bool = False):
     try:
         r = requests.post(
             f"{API_BASE}/pipeline/run",
-            params={"force": force, "cleanup": cleanup},
+            params={"force": force, "cleanup": cleanup, "full": full, "original_codes": original_codes},
             timeout=5,
         )
         r.raise_for_status()
@@ -431,23 +432,43 @@ with tab_ctrl:
     # ── 1. Avvia pipeline ────────────────────────────────────────────────
     st.subheader("▶️ Avvia pipeline")
 
-    force_mode = st.checkbox("Ignora file semaforo", value=False,
-                             help="Avvia la pipeline solo se è presente un file semaforo nella inbox ('DATASET_READY.txt').")
-    cleanup_mode = st.checkbox("Svuota inbox post-run", value=False,
-                               help="Cancella tutti i file dalla cartella inbox se la pipeline termina con successo (exit code 0)")
+    col_opt_left, col_opt_right = st.columns(2)
+    with col_opt_left:
+        force_mode = st.checkbox("Ignora file semaforo", value=False,
+                                 help="Avvia la pipeline solo se è presente un file semaforo nella inbox ('DATASET_READY.txt').")
+        cleanup_mode = st.checkbox("Svuota inbox post-run", value=False,
+                                   help="Cancella tutti i file dalla cartella inbox se la pipeline termina con successo (exit code 0)")
+    with col_opt_right:
+        full_mode = st.checkbox(
+            "Estrazione full", value=False,
+            help="Estrae tutti i record dei flussi, anche gli oggetti già presenti in SAP (BP in "
+                 "SAP_EXPORT_BUT000, info record cliente-materiale in SAP_EXPORT_KNMT, materiali in "
+                 "SAP_EXPORT_MARC). Restano le esclusioni dei controlli. I file hanno _MDGOUT_FULL_ "
+                 "nel nome: non sono da caricare in SAP.")
+        original_mode = st.checkbox(
+            "Codice BP originale", value=False,
+            help="Scrive i BP (clienti, destinatari merci, fornitori) con il codice del vecchio ERP, "
+                 "senza la trascodifica nel codice SAP di SAP_EXPORT_BUT000. I file hanno _MDGOUT_ORIG_ "
+                 "nel nome: non sono da caricare in SAP.")
 
     col_left, col_center, col_right = st.columns([2, 3, 2])
     with col_center:
         avvia = st.button("🚀 Avvia Pipeline MDG", use_container_width=True, type="primary")
 
     if avvia:
-        result, err = api_run_pipeline(force=force_mode, cleanup=cleanup_mode)
+        result, err = api_run_pipeline(force=force_mode, cleanup=cleanup_mode, full=full_mode,
+                                       original_codes=original_mode)
         if err:
             st.error(f"Errore avvio: {err}")
         else:
             st.success(f"Pipeline avviata — Run ID: `{result['run_id']}`")
             if cleanup_mode:
                 st.info("🧹 Cleanup inbox attivo: i file verranno eliminati al termine se Bruin ha successo.")
+            if full_mode or original_mode:
+                st.info("📦 Opzioni del run: "
+                        + ", ".join(filter(None, ["estrazione full" if full_mode else "",
+                                                  "codice BP originale" if original_mode else ""]))
+                        + " — i file di output hanno l'etichetta nel nome e non sono da caricare in SAP.")
             st.session_state["active_run_id"] = result["run_id"]
 
     st.divider()
@@ -819,6 +840,7 @@ with tab_storico:
                 "checks_error":   "❌ Errori",
                 "checks_warning": "⚠️ Warning",
                 "notes":          "Note",
+                "options":        "Opzioni",
             })
             st.dataframe(display, use_container_width=True, hide_index=True)
 

@@ -19,6 +19,8 @@ description: >
   <tabella>_discarded.xlsx.
   I clienti di stg.export_exclude_add (interlocutori e credito già caricati in SAP) sono
   esclusi: riepilogo in <nome ZIP>_gia_in_SAP.xlsx; se non resta nulla lo ZIP non è generato.
+  Opzioni del run (Gestione pipeline): con l'estrazione "full" l'elenco dei clienti già caricati
+  non è applicato; con il codice BP originale KUNNR resta il codice del vecchio ERP.
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
   e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.xlsx.
   ZBP-AddInterlocutoreCli: esclusi (negli scarti) anche i codici presenti solo come
@@ -50,7 +52,7 @@ from prd_export_clienti_zip import (
     TEST_DIR, already_in_sap_path,
 )
 from prd_merge_lib import exclusion_enabled
-from prd_output_lib import zip_stem
+from prd_output_lib import zip_stem, full_extraction, original_codes
 from prd_discard_lib import flush_discards, reset_discards
 
 logging.basicConfig(
@@ -221,8 +223,11 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
     buf = io.BytesIO()
     # Clienti e DM già caricati in SAP: KUNNR con il nuovo codice (BUT000, BU_SORT2)
     sap_codes = get_but000_map(conn, sort_cols=("BU_SORT2",))
-    # Clienti con questi dati già caricati in SAP (elenco manuale): esclusi dallo ZIP
-    done_map  = {c: sap_codes.get(c, "") for c in get_exclude_add(conn)}
+    # Clienti con questi dati già caricati in SAP (elenco manuale): esclusi dallo ZIP, salvo
+    # l'estrazione "full"
+    done_map  = {} if full_extraction() else {c: sap_codes.get(c, "") for c in get_exclude_add(conn)}
+    # Codice BP originale: nessuna trascodifica (mappa identità, così CK425 resta valido)
+    code_map  = {c: c for c in sap_codes} if original_codes() else sap_codes
     excluded  = []
 
     # Esclusioni attive nel catalogo: CK518/CK519 clienti assenti dall'anagrafica, CK426 codici
@@ -273,7 +278,7 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
                 excluded_keys=(orphan_keys | dm_keys | set(done_map)) or None, fk_col=KEY_COL,
                 key_filter=(KEY_COL, key_filter) if key_filter else None,
                 write_discards=not key_filter,
-                value_map={KEY_COL: sap_codes},
+                value_map={KEY_COL: code_map},
                 drop_if_unmapped=[KEY_COL] if unmapped_on else None,
                 discard_reasons={"unmapped": ("CK425", "Cliente non ancora presente in SAP")},
                 row_fn=contact_fn if raw_table == CONTACT_TABLE else None,

@@ -41,6 +41,9 @@ FOLDER_REGISTRY: dict[str, dict] = {
     "out_mdg": {"path": lambda: OUT_MDG_PATH,                "label": "out_source_mdg",    "semaphore": False, "readonly": False},
     # ZIP dell'estrazione ristretta (test), generati se stg.export_filter contiene codici
     "out_mdg_test": {"path": lambda: OUT_MDG_PATH / "test",  "label": "out_source_mdg/test", "semaphore": False, "readonly": False},
+    # File Excel per SAP (gruppo prodotti, dati di vendita clienti, fornitori conto lavoro)
+    "out_mdg_excel": {"path": lambda: OUT_MDG_PATH / "excel", "label": "out_source_mdg/excel",
+                      "semaphore": False, "readonly": False},
     # Righe scartate dagli export (per tabella e per controllo)
     "out_mdg_discarded": {"path": lambda: OUT_MDG_PATH / "discarded", "label": "out_source_mdg/discarded",
                           "semaphore": False, "readonly": False},
@@ -239,7 +242,33 @@ def cleanup_inbox(log_file: Path) -> tuple[int, int]:
     return eliminated, errors
 
 
-async def execute_bruin_pipeline(run_id: str, log_file: Path, cleanup: bool = False):
+def save_run_request(full: bool, original_codes: bool):
+    """
+    Opzioni del prossimo run in stg.pipeline_run_request (una riga): setup.pipeline_run_open le
+    copia nel run in stg.pipeline_runs e cancella la richiesta.
+    """
+    conn = get_db_connection()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS stg.pipeline_run_request (
+                    id                 INTEGER   NOT NULL DEFAULT 1 PRIMARY KEY CHECK (id = 1),
+                    opt_full           BOOLEAN   NOT NULL DEFAULT FALSE,
+                    opt_original_codes BOOLEAN   NOT NULL DEFAULT FALSE,
+                    requested_at       TIMESTAMP NOT NULL DEFAULT LOCALTIMESTAMP
+                )""")
+            cur.execute("""
+                INSERT INTO stg.pipeline_run_request (id, opt_full, opt_original_codes, requested_at)
+                VALUES (1, %s, %s, LOCALTIMESTAMP)
+                ON CONFLICT (id) DO UPDATE SET opt_full = EXCLUDED.opt_full,
+                    opt_original_codes = EXCLUDED.opt_original_codes, requested_at = EXCLUDED.requested_at
+            """, (full, original_codes))
+    finally:
+        conn.close()
+
+
+async def execute_bruin_pipeline(run_id: str, log_file: Path, cleanup: bool = False,
+                                 full: bool = False, original_codes: bool = False):
     """
     Esegue 'bruin run' nel container mdg_bruin tramite 'docker exec'.
     Usa asyncio.create_subprocess_exec — genuinamente non bloccante,
@@ -256,6 +285,10 @@ async def execute_bruin_pipeline(run_id: str, log_file: Path, cleanup: bool = Fa
             lf.write(f"[{datetime.now().isoformat()}] MDG Pipeline — Run ID: {run_id}\n")
             lf.write(f"[{datetime.now().isoformat()}] Cmd: {' '.join(cmd)}\n")
             lf.write(f"[{datetime.now().isoformat()}] Cleanup inbox post-run: {'SI' if cleanup else 'NO'}\n")
+            lf.write(f"[{datetime.now().isoformat()}] Estrazione full (oggetti già in SAP non esclusi): "
+                     f"{'SI' if full else 'NO'}\n")
+            lf.write(f"[{datetime.now().isoformat()}] Codice BP: "
+                     f"{'originale (nessuna trascodifica)' if original_codes else 'SAP (trascodificato)'}\n")
             lf.write("-" * 60 + "\n")
             lf.flush()
 
@@ -398,12 +431,16 @@ def health():
 @app.post("/pipeline/run", response_model=RunResponse, tags=["Pipeline"])
 async def run_pipeline(background_tasks: BackgroundTasks,
                        force: bool = False,
-                       cleanup: bool = False):
+                       cleanup: bool = False,
+                       full: bool = False,
+                       original_codes: bool = False):
     """
     Avvia la pipeline Bruin.
 
     - `force=true`   — bypassa il controllo del file semaforo
     - `cleanup=true` — svuota la cartella inbox al termine se Bruin esce con successo (exit_code=0)
+    - `full=true`    — estrazione "full": gli oggetti già presenti in SAP non sono esclusi
+    - `original_codes=true` — BP con il codice del vecchio ERP (nessuna trascodifica nel codice SAP)
     - Rifiuta se una pipeline è già in esecuzione
     """
     global state
@@ -423,6 +460,12 @@ async def run_pipeline(background_tasks: BackgroundTasks,
                    f"Usa ?force=true per bypassare il controllo."
         )
 
+    # Opzioni del run: lette da setup.pipeline_run_open all'apertura del run
+    try:
+        save_run_request(full, original_codes)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Opzioni del run non salvate: {e}")
+
     # Inizializza il nuovo run
     run_id   = str(uuid.uuid4())[:8]
     log_file = LOG_DIR / f"run_{run_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -435,9 +478,11 @@ async def run_pipeline(background_tasks: BackgroundTasks,
     state.error_msg  = None
     state.log_file   = log_file
 
-    background_tasks.add_task(execute_bruin_pipeline, run_id, log_file, cleanup)
+    background_tasks.add_task(execute_bruin_pipeline, run_id, log_file, cleanup, full, original_codes)
 
     cleanup_msg = " (cleanup inbox attivo)" if cleanup else ""
+    cleanup_msg += " (estrazione full)" if full else ""
+    cleanup_msg += " (codice BP originale)" if original_codes else ""
     return RunResponse(
         run_id=run_id,
         status=RunStatus.RUNNING,
@@ -577,8 +622,10 @@ def pipeline_runs(limit: int = 20):
         cur.execute("""
             SELECT run_id, pipeline_name, started_at, finished_at,
                    status, records_loaded, checks_run, checks_error,
-                   checks_warning, notes
-            FROM stg.pipeline_runs
+                   checks_warning, notes,
+                   (to_jsonb(p) ->> 'opt_full')::boolean,
+                   (to_jsonb(p) ->> 'opt_original_codes')::boolean
+            FROM stg.pipeline_runs p
             ORDER BY started_at DESC
             LIMIT %s
         """, (limit,))
@@ -597,6 +644,8 @@ def pipeline_runs(limit: int = 20):
                 "checks_error":    r[7],
                 "checks_warning":  r[8],
                 "notes":           r[9],
+                "options":         ", ".join(filter(None, ["full" if r[10] else "",
+                                                           "codice originale" if r[11] else ""])),
             }
             for r in rows
         ]
@@ -862,6 +911,19 @@ def _list_optional_folder(endpoint: str) -> dict:
     if not folder.exists():
         return {"path": str(folder), "count": 0, "files": []}
     return _list_folder(endpoint)
+
+@app.get("/files/out_mdg_excel", tags=["File"])
+def list_out_mdg_excel():
+    """Lista i file Excel per SAP (out_source_mdg/excel)."""
+    return _list_optional_folder("out_mdg_excel")
+
+@app.delete("/files/out_mdg_excel/{filename}", tags=["File"])
+def delete_out_mdg_excel_file(filename: str):
+    return _delete_file("out_mdg_excel", filename)
+
+@app.delete("/files/out_mdg_excel", tags=["File"])
+def delete_all_out_mdg_excel_files():
+    return _delete_all_files("out_mdg_excel")
 
 @app.get("/files/out_mdg_discarded", tags=["File"])
 def list_out_mdg_discarded():

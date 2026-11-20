@@ -31,6 +31,8 @@ description: >
   generato anche lo ZIP con i soli clienti indicati in out_source_mdg/test.
   I clienti già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT2) sono esclusi da tutte le
   tabelle: riepilogo in <nome ZIP>_gia_in_SAP.xlsx; se non resta nulla lo ZIP non è generato.
+  Opzioni del run (Gestione pipeline): con l'estrazione "full" i clienti già in SAP non sono
+  esclusi; con il codice BP originale KUNN2 non è trascodificato (prd_output_lib.run_options).
   Un ZIP separato viene creato per ogni valore distinto di _source
   trovato in prd."S_CUST_GEN#ZBP_DatiGenerali".
   I CSV dentro il ZIP usano separatore ";" e non includono colonne audit.
@@ -53,7 +55,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_merge_lib import exclusion_enabled
-from prd_output_lib import output_zip_path
+from prd_output_lib import output_zip_path, full_extraction, original_codes
 from prd_discard_lib import (
     REPORT_DIR, add_discards, flush_discards, reset_discards, write_xlsx,
 )
@@ -601,9 +603,12 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
     buf = io.BytesIO()
     kf  = ("KUNNR(k/*)", key_filter) if key_filter else None
     # Clienti già creati in SAP (BUT000, BU_SORT2): esclusi da tutte le tabelle dello ZIP
-    sap_map  = get_but000_map(conn, sort_cols=("BU_SORT2",))
+    # (estrazione "full": non esclusi)
+    sap_map  = {} if full_extraction() else get_but000_map(conn, sort_cols=("BU_SORT2",))
     sap_keys = set(sap_map)
     excluded = []
+    # Partner KUNN2 con il codice SAP, salvo l'opzione "codice BP originale"
+    partner_map = {} if original_codes() else get_but000_map(conn)
 
     # Esclusioni attive nel catalogo: CK220 codici fiscali senza TAXNUM, CK422 partner senza
     # riferimento, CK423 partner RA/ZA con fornitore non in SAP
@@ -670,7 +675,7 @@ def build_zip(conn, source_name: str, key_filter: set | None = None,
                 conn, src_schema, raw_table, source_name, raw_cols,
                 excluded_keys=(sap_keys if _is_master else orphan_keys | sap_keys) or None,
                 fk_col="KUNNR(k/*)",
-                value_map={PARTNER_COL: get_but000_map(conn), PARVW_COL: PARVW_MAP}
+                value_map={PARTNER_COL: partner_map, PARVW_COL: PARVW_MAP}
                           if raw_table == PARTNER_TABLE else None,
                 value_map_skip_if_equal={PARTNER_COL: "KUNNR(k/*)"} if raw_table == PARTNER_TABLE else None,
                 drop_if_all_empty=PARTNER_REF_COLS if raw_table == PARTNER_TABLE and partner_ref_on else None,

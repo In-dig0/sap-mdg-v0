@@ -9,7 +9,8 @@ description: >
   trascodificato con il BP SAP e MATNR, la chiave del Migration Cockpit) non sono esportati, anche
   se MATERIALBYCUSTOMER è diverso (SAP rifiuterebbe l'inserimento: "instance already exists"):
   riepilogo e dettaglio, con il KDMAT di SAP e l'indicazione se è diverso, in
-  report/<file in ingresso>_gia_in_SAP.xlsx.
+  report/<file in ingresso>_gia_in_SAP.xlsx. Opzioni del run (Gestione pipeline): con l'estrazione
+  "full" non sono esclusi; con il codice BP originale CUSTOMER non è trascodificato.
   Le righe segnalate da un controllo sugli info record cliente-materiale attivo e con
   l'esclusione dall'output attiva nel catalogo non sono esportate e finiscono in
   discarded/S_CUSTMAT_INFORMATFOR_discarded.xlsx con controllo e motivo:
@@ -44,7 +45,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "stg"))
-from prd_output_lib import output_zip_path
+from prd_output_lib import output_zip_path, full_extraction, original_codes
 from prd_discard_lib import add_discards, flush_discards, reset_discards
 from prd_merge_lib import exclusion_enabled
 from ck_query_lib import custmat_customer_sql, custmat_in_sap_sql, CUSTMAT_VIA, CUSTMAT_KNMT
@@ -230,8 +231,10 @@ def main():
             cur.execute(f'SELECT DISTINCT "_source" FROM raw.{q(TABLE)} WHERE "_source" IS NOT NULL ORDER BY 1')
             sources = [r[0] for r in cur.fetchall()]
             excluded = get_excluded(cur)
-            customer_map = get_customer_map(cur)
-            in_sap = get_in_sap(cur)
+            # Opzioni del run: codice BP originale (nessuna trascodifica), estrazione "full"
+            # (info record già in SAP non esclusi)
+            customer_map = {} if original_codes() else get_customer_map(cur)
+            in_sap = {} if full_extraction() else get_in_sap(cur)
             for source_name in sources:
                 log.info("=== Generazione ZIP: %s ===", source_name)
                 zip_bytes, n_rows = build_zip(cur, source_name, cols, excluded, customer_map, in_sap)

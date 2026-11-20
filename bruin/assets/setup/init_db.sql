@@ -61,6 +61,22 @@ CREATE TABLE IF NOT EXISTS stg.pipeline_runs (
     CONSTRAINT pk_pipeline_runs PRIMARY KEY (run_id)
 );
 
+-- Opzioni del run scelte nella pagina Gestione pipeline (prd_output_lib.run_options):
+--   opt_full           estrazione "full", gli oggetti già presenti in SAP non sono esclusi
+--   opt_original_codes BP con il codice del vecchio ERP, senza trascodifica nel codice SAP
+ALTER TABLE stg.pipeline_runs
+    ADD COLUMN IF NOT EXISTS opt_full           BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS opt_original_codes BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Opzioni richieste dall'API all'avvio (una sola riga): setup.pipeline_run_open le copia nel
+-- run che apre e cancella la richiesta (i run avviati da terminale usano i valori di default)
+CREATE TABLE IF NOT EXISTS stg.pipeline_run_request (
+    id                 INTEGER   NOT NULL DEFAULT 1 PRIMARY KEY CHECK (id = 1),
+    opt_full           BOOLEAN   NOT NULL DEFAULT FALSE,
+    opt_original_codes BOOLEAN   NOT NULL DEFAULT FALSE,
+    requested_at       TIMESTAMP NOT NULL DEFAULT LOCALTIMESTAMP
+);
+
 -- =============================================================================
 -- stg.check_results
 -- =============================================================================

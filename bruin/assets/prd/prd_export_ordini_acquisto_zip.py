@@ -16,7 +16,8 @@ description: >
   Fornitore: in S_EKKO LIFNR(*) (codice del vecchio ERP) è trascodificato con il BP SAP come negli
   info record acquisti (BU_SORT1 dei BP fornitori ZBP/ZIC o, per i fornitori 05a, REF_KUNNR tramite
   BU_SORT2); un codice che è già un BP SAP resta invariato. I fornitori senza codice SAP sono
-  segnalati da CK062 ed esportati con il codice originale.
+  segnalati da CK062 ed esportati con il codice originale. Con l'opzione "codice BP originale"
+  della pagina Gestione pipeline LIFNR(*) non è trascodificato.
   Le imputazioni senza trascodifica valida (record assente, COD_SAP_DEF vuoto o '??', posizione
   non trovata) sono segnalate da CK536 ed esportate con il KOSTL originale di DBCOGE.
   Nessuna esclusione: i controlli sugli ordini (CK060-062, CK222-225, CK415, CK520-524, CK529,
@@ -44,7 +45,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "stg"))
-from prd_output_lib import output_zip_path
+from prd_output_lib import output_zip_path, original_codes
 from ck_query_lib import po_cdc_sql, PO_ACCOUNT_TABLE, CDC_TRASCO
 from prd_export_inforecord_zip import get_lifnr_map
 
@@ -231,7 +232,8 @@ def main():
             sources = [r[0] for r in cur.fetchall()]
             cdc_map = get_cdc_map(cur) if PO_ACCOUNT_TABLE in cols_map else {}
             orders = get_order_filter(cur)
-            supplier_map = get_supplier_map(cur)
+            # Opzione "codice BP originale": LIFNR(*) resta il codice del vecchio ERP
+            supplier_map = {} if original_codes() else get_supplier_map(cur)
             for source_name in sources:
                 log.info("=== Generazione ZIP: %s ===", source_name)
                 zip_bytes = build_zip(cur, source_name, cols_map, cdc_map, supplier_map)

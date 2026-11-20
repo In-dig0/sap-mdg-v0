@@ -28,7 +28,7 @@ Cartelle del datalake (volumi Docker, montate in Bruin sotto `/project/datalake/
 | `in_source_pprod`  | ZIP/CSV estratti dall'ERP attuale (quello sostituito da S/4HANA); include il semaforo `DATASET_READY.txt` | `ingest_zip_to_raw` → `raw` (i CSV di `DM14_CONTRATTI` in tabelle `<nome>#CONTRATTI`, per non mescolarli con gli ordini DM27) |
 | `in_source_sap`    | Tabelle di controllo SAP in XLSX                                  | `ingest_xlsx_to_ref` → `ref`      |
 | `in_source_others` | Altri file XLSX di supporto                                       | `ingest_others_to_stg` → `stg`    |
-| `out_source_mdg`   | Output di MDG: ZIP per il caricamento in SAP (`<file in ingresso>_MDGOUT_YYYYMMDD_HHMI.zip` con data e ora di avvio del run, solo l'ultimo per flusso, `prd_output_lib.py`) e i file Excel `GruppoProdotti_MDGOUT_YYYYMMDD_HHMI.xlsx`, `Clienti_fattura_email_MDGOUT_YYYYMMDD_HHMI.xlsx`, `Clienti_SpeseIncasso_MDGOUT_YYYYMMDD_HHMI.xlsx`, `Clienti_SpeseImballo_MDGOUT_YYYYMMDD_HHMI.xlsx` e `Fornitori_ContoLavoro_MDGOUT_YYYYMMDD_HHMI.xlsx`; sottocartelle `discarded/` (scarti in Excel per tabella con controllo e motivo, per controllo, dell'ingestione e `RIEPILOGO_SCARTI.xlsx`; `prd_discard_lib.py`), `report/` (BP già in SAP, quadratura, in Excel), `test/` (estrazione ristretta), `backup/` (output degli ultimi 10 run, `BKP_<cartella>_YYYYMMDD_HHMI.zip` con data e ora del run che li ha prodotti, `setup.backup_output`) | scritta da `prd_export_*`, `prd_reconcile_zip` |
+| `out_source_mdg`   | Output di MDG: ZIP per il caricamento in SAP (`<file in ingresso>_MDGOUT_YYYYMMDD_HHMI.zip` con data e ora di avvio del run, solo l'ultimo per flusso, `prd_output_lib.py`; con le opzioni del run "Estrazione full" e "Codice BP originale" il nome ha `_MDGOUT_FULL_`, `_MDGOUT_ORIG_` o `_MDGOUT_FULL_ORIG_` e il file non è da caricare in SAP); sottocartelle `excel/` (file Excel per SAP `GruppoProdotti_MDGOUT_YYYYMMDD_HHMI.xlsx`, `Clienti_fattura_email_…`, `Clienti_SpeseIncasso_…`, `Clienti_SpeseImballo_…`, `Fornitori_ContoLavoro_…`), `discarded/` (scarti in Excel per tabella con controllo e motivo, per controllo, dell'ingestione e `RIEPILOGO_SCARTI.xlsx`; `prd_discard_lib.py`), `report/` (oggetti già in SAP: BP, info record cliente-materiale, materiali in `SAP_EXPORT_MARC`; quadratura; in Excel), `test/` (estrazione ristretta), `backup/` (output degli ultimi 10 run, `BKP_<cartella>_YYYYMMDD_HHMI.zip` con data e ora del run che li ha prodotti, `setup.backup_output`) | scritta da `prd_export_*`, `prd_reconcile_zip` |
 
 In Bruin le cartelle `in_source_*` sono montate in sola lettura.
 
@@ -48,6 +48,13 @@ Schemi PostgreSQL (db `mdg`): `raw`, `ref`, `stg`, `prd`, `usr` (utenti applicat
 | `fastapi`   | `mdg_fastapi`   | `api/`           | API REST: avvio pipeline Bruin da Streamlit             |
 | `mdg_auth`  | `mdg_auth`      | `auth/api/`      | Autenticazione JWT (FastAPI-Users) e gestione utenti    |
 | `streamlit` | `mdg_streamlit` | `streamlit/app/` | Dashboard (`dashboard.py` + `pages/`, vedi sotto)       |
+
+Opzioni del run (pagina Gestione pipeline, "Avvia pipeline"): **Estrazione full** (non esclude
+gli oggetti già in SAP: BP in BUT000, info record in KNMT, materiali in MARC; restano le esclusioni
+dei controlli) e **Codice BP originale** (BP senza trascodifica nel codice SAP). FastAPI le scrive in
+`stg.pipeline_run_request`, `setup.pipeline_run_open` le copia in `stg.pipeline_runs`
+(`opt_full`, `opt_original_codes`), gli export le leggono con `prd_output_lib.run_options()`.
+I run da terminale usano sempre il comportamento standard.
 
 Pagine Streamlit (`streamlit/app/pages/`): profilo utente, esiti check, catalogo controlli,
 gestione pipeline, gestione utenti, consultazione dati, targhette matricola, targhette DiBa,

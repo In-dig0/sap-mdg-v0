@@ -12,7 +12,8 @@ description: >
   I DM esclusi da prd."S_CUST_GEN#ZDM_DatiGenerali" (DELETED in STG o senza nome) sono
   esclusi anche dalle altre tabelle: righe in <tabella>_discarded.xlsx.
   I DM già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT2) sono esclusi da tutte le
-  tabelle: riepilogo in <nome ZIP>_gia_in_SAP.xlsx; se non resta nulla lo ZIP non è generato.
+  tabelle: riepilogo in <nome ZIP>_gia_in_SAP.xlsx; se non resta nulla lo ZIP non è generato
+  (con l'estrazione "full" della pagina Gestione pipeline non sono esclusi).
   Estrazione ristretta (test): nessuno ZIP dei DM (si presuppongono già caricati in SAP
   e presenti in SAP_EXPORT_BUT000); l'eventuale ZIP di test precedente viene rimosso.
   Un ZIP separato viene creato per ogni valore distinto di _source
@@ -36,7 +37,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_merge_lib import exclusion_enabled
-from prd_output_lib import remove_previous_zips
+from prd_output_lib import remove_previous_zips, full_extraction
 from prd_export_clienti_zip import (
     write_add_tables, TEST_DIR, get_but000_map, already_in_sap_rows,
     write_already_in_sap, write_output_zip, write_discarded_csv,
@@ -221,7 +222,8 @@ def build_zip(conn, source_name: str, excluded_out: list | None = None) -> bytes
     """excluded_out: se passata, riceve le righe escluse perché il DM è già in SAP."""
     buf = io.BytesIO()
     # DM già creati in SAP (BUT000, BU_SORT2): esclusi da tutte le tabelle dello ZIP
-    sap_map  = get_but000_map(conn, sort_cols=("BU_SORT2",))
+    # (estrazione "full": non esclusi)
+    sap_map  = {} if full_extraction() else get_but000_map(conn, sort_cols=("BU_SORT2",))
     sap_keys = set(sap_map)
     excluded = []
 

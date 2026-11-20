@@ -111,12 +111,27 @@ def main():
                 ) VALUES (%s, %s, %s, %s)
             """, (run_id, "mdg_migration_pipeline", now, "running"))
 
+            # Opzioni richieste dalla pagina Gestione pipeline (API) negli ultimi minuti: copiate
+            # nel run e consumate; senza richiesta (run da terminale) restano i valori di default
+            cur.execute("""
+                DELETE FROM stg.pipeline_run_request
+                WHERE requested_at > LOCALTIMESTAMP - INTERVAL '15 minutes'
+                RETURNING opt_full, opt_original_codes
+            """)
+            request = cur.fetchone()
+            cur.execute("DELETE FROM stg.pipeline_run_request")
+            opt_full, opt_original = request if request else (False, False)
+            cur.execute("UPDATE stg.pipeline_runs SET opt_full = %s, opt_original_codes = %s WHERE run_id = %s",
+                        (opt_full, opt_original, run_id))
+
         conn.commit()
 
         with open(SEMAPHORE_PATH, "w") as f:
             f.write(str(run_id))
 
         print(f"[OK] Pipeline run #{run_id} aperto alle {now.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        print(f"[OK] Estrazione full (oggetti già in SAP non esclusi): {'SI' if opt_full else 'NO'} — "
+              f"codice BP: {'originale (nessuna trascodifica)' if opt_original else 'SAP (trascodificato)'}")
 
     finally:
         conn.close()

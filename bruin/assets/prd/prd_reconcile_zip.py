@@ -126,7 +126,7 @@ def get_discard_exclusions(raw_tables) -> dict[str, int]:
 
 
 def get_already_in_sap_exclusions() -> dict[str, int]:
-    """Righe dei BP già in SAP escluse dagli export (somma della colonna RIGHE per TABELLA)."""
+    """Righe degli oggetti già in SAP (BP, info record cliente-materiale, materiali) escluse dagli export (somma della colonna RIGHE per TABELLA)."""
     excluded = {}
     if not os.path.isdir(REPORT_DIR):
         return excluded
@@ -239,7 +239,7 @@ def main():
             log.info("  Esclusi di proposito: %s — %d righe nel file di scarto", table, n)
         for table, n in get_already_in_sap_exclusions().items():
             excluded_counts[table] = excluded_counts.get(table, 0) + n
-            log.info("  Esclusi di proposito: %s — %d righe di BP già in SAP", table, n)
+            log.info("  Esclusi di proposito: %s — %d righe di oggetti già in SAP", table, n)
 
         # ── 2. Conteggio CSV nei ZIP ─────────────────────────────────────────
         zip_counts: dict[str, int] = {}   # {table: nr_righe_nel_zip}

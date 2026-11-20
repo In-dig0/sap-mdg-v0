@@ -5,8 +5,8 @@ depends:
   - setup.pipeline_run_open   # se il run viene rifiutato (altro run in corso) non si tocca nulla
 description: >
   Backup dell'output del run precedente, prima che la pipeline lo riscriva o lo cancelli.
-  Per ogni cartella di uscita con almeno un file (out_source_mdg e le sottocartelle discarded,
-  report, test) crea in out_source_mdg/backup/ uno ZIP con i file della cartella (non le
+  Per ogni cartella di uscita con almeno un file (out_source_mdg e le sottocartelle excel,
+  discarded, report, test) crea in out_source_mdg/backup/ uno ZIP con i file della cartella (non le
   sottocartelle): BKP_<cartella>_YYYYMMDD_HHMI.zip, con data e ora di avvio del run che ha
   prodotto i file (lo stesso suffisso dei suoi ZIP _MDGOUT_): l'ultimo run di stg.pipeline_runs
   avviato prima della modifica più recente dei file; se non c'è, la data di modifica dei file.
@@ -34,6 +34,7 @@ BACKUP_DIR = os.path.join(OUTPUT_DIR, "backup")
 # cartella -> nome nel file di backup
 FOLDERS = {
     OUTPUT_DIR:                           "out_source_mdg",
+    os.path.join(OUTPUT_DIR, "excel"):     "excel",
     os.path.join(OUTPUT_DIR, "discarded"): "discarded",
     os.path.join(OUTPUT_DIR, "report"):    "report",
     os.path.join(OUTPUT_DIR, "test"):      "test",

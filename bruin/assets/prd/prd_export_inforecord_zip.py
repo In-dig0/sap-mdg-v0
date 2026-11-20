@@ -13,7 +13,8 @@ description: >
   In S_EINA#INFORMATFOR il fornitore LIFNR(*) (codice del vecchio ERP) è trascodificato con
   il codice SAP (PARTNER di ref.SAP_EXPORT_BUT000, solo BP dei gruppi ZBP e ZIC, non i
   destinatari merci ZDM): tramite BU_SORT1 oppure, per i fornitori del flusso 05a (BP creato
-  come cliente), tramite REF_KUNNR e BU_SORT2.
+  come cliente), tramite REF_KUNNR e BU_SORT2. Con l'opzione "codice BP originale" della pagina
+  Gestione pipeline LIFNR(*) resta il codice del vecchio ERP (l'esclusione CK526 resta attiva).
   Gli info record con fornitore senza codice SAP (CK526, se l'esclusione dall'output è attiva
   nel catalogo) non sono esportati, in nessuna delle quattro tabelle: finiscono in
   <tabella>_discarded.xlsx. Se BUT000 non è caricata LIFNR(*)
@@ -52,7 +53,7 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "stg"))
-from prd_output_lib import output_zip_path
+from prd_output_lib import output_zip_path, original_codes
 from prd_export_clienti_zip import get_but000_map
 from prd_discard_lib import add_discards, flush_discards, reset_discards
 from prd_merge_lib import exclusion_enabled, failing_keys
@@ -281,7 +282,8 @@ def fetch_table_csv(conn, table, source_name, cols, lifnr_map, excluded, exclude
         add_discards(table, cols, dropped, "CK421", lambda row: excluded_scales[scale_key(row)])
         rows = [row for row in rows if scale_key(row) not in excluded_scales]
     if table == MASTER_TABLE:
-        rows = transcode_lifnr(cols, rows, lifnr_map)
+        if not original_codes():   # opzione "codice BP originale": LIFNR(*) del vecchio ERP
+            rows = transcode_lifnr(cols, rows, lifnr_map)
     if table == PURCHASING_TABLE:
         rows = force_lead_time(cols, rows, missing_lead_times, source_name)
     if table in CURRENCY_COLS:

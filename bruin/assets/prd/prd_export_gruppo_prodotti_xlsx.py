@@ -10,7 +10,7 @@ description: >
   Il file ha data e ora di avvio del run nel nome, come gli ZIP (GruppoProdotti_MDGOUT_
   YYYYMMDD_HHMI.xlsx): resta solo quello dell'ultimo run. Se manca S_MARA o la trascodifica
   non viene creato.
-  Output: /project/datalake/out_source_mdg/GruppoProdotti_MDGOUT_<YYYYMMDD_HHMI>.xlsx
+  Output: /project/datalake/out_source_mdg/excel/GruppoProdotti_MDGOUT_<YYYYMMDD_HHMI>.xlsx
 depends:
   - ingestion.ingest_zip_to_raw
   - ingestion.ingest_xlsx_to_ref
@@ -23,7 +23,7 @@ import psycopg2
 from openpyxl import Workbook
 
 sys.path.insert(0, os.path.dirname(__file__))
-from prd_output_lib import output_zip_path, remove_previous_zips
+from prd_output_lib import excel_output_path, remove_previous_excel
 
 logging.basicConfig(
     level=logging.INFO,
@@ -68,7 +68,7 @@ def table_exists(cur, schema: str, table: str) -> bool:
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     # Rimosso a ogni run: se oggi mancano i dati non deve restare il file di un run precedente
-    remove_previous_zips(OUTPUT_DIR, OUTPUT_NAME)
+    remove_previous_excel(OUTPUT_NAME)
 
     conn = psycopg2.connect(**DB_CONFIG)
     try:
@@ -96,7 +96,7 @@ def main():
     ws.append(HEADER)
     for row in out_rows:
         ws.append(row)
-    output_file = output_zip_path(OUTPUT_DIR, OUTPUT_NAME)
+    output_file = excel_output_path(OUTPUT_NAME)
     wb.save(output_file)
     log.info("  ✓  %s  (%d materiali; %d con EXTWG senza trascodifica)",
              output_file, len(out_rows), len(rows) - len(out_rows))

@@ -20,10 +20,12 @@ description: >
   ref.SAP_EXPORT_BUT000 con BU_SORT2 = codice cliente ERP): i clienti non presenti in SAP, con
   più BP o con valori diversi tra le aree di vendita sono esclusi e scritti negli scarti
   (discarded/<file>_discarded.xlsx). Senza BUT000 i file non vengono creati.
+  Con l'opzione "codice BP originale" (Gestione pipeline) KUNNR è il codice del vecchio ERP e i
+  clienti non in SAP non sono scartati.
   Nello ZIP clienti per SAP INCO3_L, PERRL e KABSS vengono svuotati (prd.export_clienti_zip).
   I file hanno data e ora di avvio del run nel nome, come gli ZIP (<file>_MDGOUT_YYYYMMDD_HHMI
   .xlsx): resta solo quello dell'ultimo run; non creati se nessun cliente ha il campo valorizzato.
-  Output: /project/datalake/out_source_mdg/<file>_MDGOUT_<YYYYMMDD_HHMI>.xlsx
+  Output: /project/datalake/out_source_mdg/excel/<file>_MDGOUT_<YYYYMMDD_HHMI>.xlsx
 depends:
   - prd.merge_dati_vendite
   - ingestion.ingest_xlsx_to_ref
@@ -36,7 +38,7 @@ import psycopg2
 from openpyxl import Workbook
 
 sys.path.insert(0, os.path.dirname(__file__))
-from prd_output_lib import output_zip_path, remove_previous_zips
+from prd_output_lib import excel_output_path, remove_previous_excel, original_codes
 from prd_discard_lib import add_discards, flush_discards, reset_discards
 
 logging.basicConfig(
@@ -150,6 +152,8 @@ def export_one(cur, name, field, required, header, fixed, label):
         value = fixed or vals[0]
         if len(vals) > 1 and not fixed:
             mixed.append((kunnr, ", ".join(partners), " | ".join(vals)))
+        elif original_codes():   # opzione "codice BP originale": codice del vecchio ERP
+            ok.append((kunnr, value))
         elif not partners:
             not_in_sap.append((kunnr, "", value))
         elif len(partners) > 1:
@@ -175,7 +179,7 @@ def export_one(cur, name, field, required, header, fixed, label):
     ws.append(["KUNNR", header])
     for partner, value in sorted(ok):
         ws.append([partner, value])
-    output_file = output_zip_path(OUTPUT_DIR, output_name)
+    output_file = excel_output_path(output_name)
     wb.save(output_file)
     log.info("  ✓  %s  (%d clienti, %s; %d esclusi)", output_file, len(ok), label,
              len(not_in_sap) + len(ambiguous) + len(mixed))
@@ -198,13 +202,15 @@ def export_condition(cur, name, field, label, condition, fixed_value, currency, 
             reason = f"Valori di {field} diversi tra le divisioni (SPART) dell'area di vendita {vkorg}/{vtweg}"
         elif "ZTERM" in columns and len(zterm) > 1:
             reason = f"Condizioni di pagamento ZTERM diverse tra le divisioni (SPART) dell'area di vendita {vkorg}/{vtweg}"
-        elif not partners:
+        elif not partners and not original_codes():
             reason = (f"Cliente non presente in SAP ({BUT000_TABLE}, BU_SORT2): {label} da assegnare dopo il "
                       "caricamento del cliente")
-        elif len(partners) > 1:
+        elif len(partners) > 1 and not original_codes():
             reason = f"Cliente associato a più BP SAP ({BUT000_TABLE}, BU_SORT2)"
         else:
-            values = {"KSCHL": condition, "VKORG": vkorg, "VTWEG": vtweg, "KUNNR": partners[0],
+            # opzione "codice BP originale": KUNNR è il codice del vecchio ERP
+            values = {"KSCHL": condition, "VKORG": vkorg, "VTWEG": vtweg,
+                      "KUNNR": kunnr if original_codes() else partners[0],
                       "NAME": bp_name or "", "DESC_KUNNR": bp_name or "", "CODCLI_OLD": kunnr, "ZTERM": zterm[0] if zterm else "",
                       "VALORE_MAGGIORAZIONE": fixed_value or vals[0], "DIVISA": currency or "",
                       "TIPO_MAGGIORAZIONE": cond_type, "DATA_INIZIO": CONDITION_VALID[0],
@@ -224,7 +230,7 @@ def export_condition(cur, name, field, label, condition, fixed_value, currency, 
     ws.append(columns)
     for n, values in enumerate(sorted(ok, key=lambda v: (v["KUNNR"], v["VKORG"], v["VTWEG"])), 1):
         ws.append([n if col == "" else "" if col.startswith("DUMMY") else values[col] for col in columns])
-    output_file = output_zip_path(OUTPUT_DIR, output_name)
+    output_file = excel_output_path(output_name)
     wb.save(output_file)
     log.info("  ✓  %s  (%d righe, %d clienti, %s; %d righe escluse)", output_file, len(ok),
              len({v["KUNNR"] for v in ok}), label, sum(len(v) for v in discards.values()))
@@ -235,7 +241,7 @@ def main():
     # Rimossi a ogni run: se oggi mancano i dati non deve restare il file di un run precedente
     names = [o[0] for o in OUTPUTS] + [c[0] for c in CONDITIONS]
     for name in names + LEGACY_NAMES:
-        remove_previous_zips(OUTPUT_DIR, f"{name}.xlsx")
+        remove_previous_excel(f"{name}.xlsx")
     reset_discards(names + LEGACY_NAMES)
 
     conn = psycopg2.connect(**DB_CONFIG)

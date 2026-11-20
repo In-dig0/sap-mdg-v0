@@ -47,7 +47,9 @@ description: >
   (REF_KUNNR) o il LIFNR è in stg.export_exclude_fornitori_cli (elenco manuale), con
   riepilogo in <nome ZIP>_gia_in_SAP.xlsx.
   I fornitori/vettori già presenti in SAP (ref.SAP_EXPORT_BUT000, BU_SORT1) sono esclusi
-  da tutte le tabelle: riepilogo in <nome ZIP>_gia_in_SAP.xlsx; se non resta nulla lo ZIP
+  da tutte le tabelle (salvo l'estrazione "full" della pagina Gestione pipeline; con il codice
+  BP originale REF_KUNNR/KUNNR del flusso 05a non sono trascodificati):
+  riepilogo in <nome ZIP>_gia_in_SAP.xlsx; se non resta nulla lo ZIP
   non è generato.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
 depends:
@@ -73,6 +75,7 @@ import sys
 import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
+from prd_output_lib import full_extraction, original_codes
 from prd_merge_lib import exclusion_enabled
 from prd_export_clienti_zip import (
     get_but000_map, already_in_sap_rows, write_already_in_sap, write_output_zip,
@@ -460,7 +463,9 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
     write_discards = key_filter is None
     buf = io.BytesIO()
     # Fornitori/vettori già creati in SAP (BUT000): esclusi da tutte le tabelle
-    sap_map  = get_but000_map(conn, sort_cols=flow["sap_sort_cols"])
+    # (estrazione "full": non esclusi)
+    full     = full_extraction()
+    sap_map  = {} if full else get_but000_map(conn, sort_cols=flow["sap_sort_cols"])
     sap_keys = set(sap_map)
     excluded = []
 
@@ -490,7 +495,7 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             log.warning("  *** %d fornitori con cliente di riferimento non presente in BUT000 (BU_SORT2) "
                         "esclusi da '%s': %s", len(unmapped), source_name, sorted(unmapped))
         # Fornitori già caricati in SAP (elenco manuale): esclusi come i BP già in BUT000
-        done_codes = get_exclude_fornitori_cli(conn)
+        done_codes = set() if full else get_exclude_fornitori_cli(conn)
         done = {lifnr: customer_codes.get(ref, "") for lifnr, ref in ref_map.items()
                 if ref in done_codes or lifnr.strip() in done_codes}
         if done:
@@ -498,7 +503,9 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
                      len(done), source_name, sorted(done))
             sap_map  = {**sap_map, **done}
             sap_keys = set(sap_map)
-        row_fns[CLI_MASTER] = customer_ref_row_fn(customer_codes)
+        # Codice SAP del cliente, salvo l'opzione "codice BP originale"
+        if not original_codes():
+            row_fns[CLI_MASTER] = customer_ref_row_fn(customer_codes)
         row_fns[CLI_BANK]   = fixed_values_row_fn(BANK_ACCNAME)
         customers = get_customer_data(conn)
         row_fns[CLI_CONTACT] = customer_contact_row_fn(
