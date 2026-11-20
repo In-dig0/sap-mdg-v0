@@ -32,9 +32,13 @@ description: >
   ne resta nessuna il CSV non è scritto:
     - CK051/CK052: settore industriale non in TB038A;
     - CK420: partner con fornitore LIFN2 (diverso da LIFNR) non presente in SAP (BUT000, BU_SORT1);
-      LIFN2 è già il codice del fornitore in SAP ed è esportato senza trascodifica;
     - CK418 (flusso 05a): coordinata bancaria (IBAN) uguale a quella del cliente di
       riferimento, già sul BP in SAP.
+  Nei partner (S_SUPPL_PARTNER#ZBP_Partner / #ZBP_AddPartner) LIFN2(k) diverso da LIFNR è
+  trascodificato con il codice SAP (PARTNER di ref.SAP_EXPORT_BUT000, tramite BU_SORT1), come
+  KUNN2 nei partner clienti; senza corrispondenza resta il codice originale. LIFN2 uguale a LIFNR
+  non è trascodificato (il file crea il fornitore con il codice originale); con l'opzione
+  "codice BP originale" della pagina Gestione pipeline nessuna trascodifica.
   Negli interlocutori (S_SUPPL_CONT#ZBP-Interlocutore) le email E_MAIL_B/E_MAIL sono in
   minuscolo; VNAME/LNAME, COUNTRY e REGION vengono dall'anagrafica
   prd."S_SUPPL_GEN#ZBP_DatiGenerali" (corretta in STG): NAME_FIRST_P/NAME_LAST_P per
@@ -189,8 +193,8 @@ ROW_RULES = {
         'EXISTS (SELECT 1 FROM ref."SAP_EXPORT_TB038A" t'
         ' WHERE t."ISTYPE" = "ISTYPE(k/*)" AND t."IND_SECTOR" = "IND_SECTOR(k/*)")',
     ),
-    # CK420: fornitore partner LIFN2 (diverso da LIFNR) già in SAP; il codice è quello del
-    # fornitore in SAP (es. indirizzi di ordinazione ZDM del flusso 02b), esportato invariato
+    # CK420: fornitore partner LIFN2 (diverso da LIFNR) già in SAP (es. indirizzi di ordinazione
+    # ZDM del flusso 02b); trascodificato con il codice SAP in uscita (partner_row_fn)
     "S_SUPPL_PARTNER#ZBP_Partner":    ("CK420", "ref.SAP_EXPORT_BUT000", LIFN2_IN_SAP),
     "S_SUPPL_PARTNER#ZBP_AddPartner": ("CK420", "ref.SAP_EXPORT_BUT000", LIFN2_IN_SAP),
     # CK418 (flusso 05a): IBAN uguale a quello del cliente di riferimento, già in SAP
@@ -343,6 +347,25 @@ def get_exclude_fornitori_cli(conn) -> set:
             return set()
         cur.execute("SELECT TRIM(kunnr) FROM stg.export_exclude_fornitori_cli WHERE COALESCE(TRIM(kunnr), '') <> ''")
         return {r[0] for r in cur.fetchall()}
+
+
+PARTNER_TABLES = ("S_SUPPL_PARTNER#ZBP_Partner", "S_SUPPL_PARTNER#ZBP_AddPartner")
+PARTNER_COL    = "LIFN2(k)"
+
+
+def partner_row_fn(vendor_codes: dict):
+    """
+    Partner: LIFN2 (vecchio codice fornitore) diverso da LIFNR -> codice SAP (BUT000, BU_SORT1);
+    senza corrispondenza resta invariato. LIFN2 = LIFNR: riferimento al fornitore stesso, invariato.
+    """
+    def fn(cols: list, row: list):
+        if PARTNER_COL not in cols or "LIFNR(k/*)" not in cols:
+            return
+        i = cols.index(PARTNER_COL)
+        old = (row[i] or "").strip()
+        if old and old != (row[cols.index("LIFNR(k/*)")] or "").strip():
+            row[i] = vendor_codes.get(old, row[i])
+    return fn
 
 
 def customer_ref_row_fn(customer_codes: dict):
@@ -513,6 +536,11 @@ def build_zip(conn, source_name: str, flow: dict, excluded_out: list | None = No
             key_col="LIFNR(k/*)")
 
     row_fns[SUPPLIER_BANK] = fixed_values_row_fn(BANK_ACCNAME)
+    # Partner: LIFN2 diverso da LIFNR con il codice SAP, salvo l'opzione "codice BP originale"
+    if not original_codes():
+        vendor_codes = get_but000_map(conn, sort_cols=("BU_SORT1",))
+        for partner_table in PARTNER_TABLES:
+            row_fns[partner_table] = partner_row_fn(vendor_codes)
     for company_table in COMPANY_TABLES:
         row_fns[company_table] = fixed_values_row_fn(COMPANY_VALUES)
 
