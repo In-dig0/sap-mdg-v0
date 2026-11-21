@@ -12,6 +12,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from mdg_auth import require_login, render_sidebar_menu
+from mdg_env_ui import env_db_name
 from mdg_export import df_to_xlsx, issues_filename
 
 st.set_page_config(
@@ -27,7 +28,7 @@ def get_db_params():
     return {
         "host":     os.environ["POSTGRES_HOST"],
         "port":     os.environ["POSTGRES_PORT"],
-        "dbname":   os.environ["POSTGRES_DB"],
+        "dbname":   env_db_name(),           # database dell'ambiente SAP scelto
         "user":     os.environ["POSTGRES_USER"],
         "password": os.environ["POSTGRES_PASSWORD"],
     }

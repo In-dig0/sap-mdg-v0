@@ -13,6 +13,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from mdg_auth import require_login, render_sidebar_menu, require_role
+from mdg_env_ui import api, current_env   # chiamate con l'ambiente SAP scelto
 
 def is_admin() -> bool:
     """Ritorna True se l'utente corrente ha ruolo admin_role."""
@@ -45,7 +46,7 @@ STATUS_COLORS = {
 
 def api_health():
     try:
-        r = requests.get(f"{API_BASE}/health", timeout=3)
+        r = api.get(f"{API_BASE}/health", timeout=3)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
@@ -54,7 +55,7 @@ def api_health():
 def api_run_pipeline(force: bool = False, cleanup: bool = False, full: bool = False,
                      original_codes: bool = False):
     try:
-        r = requests.post(
+        r = api.post(
             f"{API_BASE}/pipeline/run",
             params={"force": force, "cleanup": cleanup, "full": full, "original_codes": original_codes},
             timeout=5,
@@ -69,7 +70,7 @@ def api_run_pipeline(force: bool = False, cleanup: bool = False, full: bool = Fa
 
 def api_status():
     try:
-        r = requests.get(f"{API_BASE}/pipeline/status", timeout=3)
+        r = api.get(f"{API_BASE}/pipeline/status", timeout=3)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
@@ -77,7 +78,7 @@ def api_status():
 
 def api_progress():
     try:
-        r = requests.get(f"{API_BASE}/pipeline/progress", timeout=3)
+        r = api.get(f"{API_BASE}/pipeline/progress", timeout=3)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
@@ -85,7 +86,7 @@ def api_progress():
 
 def api_logs(tail: int = 200):
     try:
-        r = requests.get(f"{API_BASE}/pipeline/logs", params={"tail": tail}, timeout=5)
+        r = api.get(f"{API_BASE}/pipeline/logs", params={"tail": tail}, timeout=5)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
@@ -93,7 +94,7 @@ def api_logs(tail: int = 200):
 
 def api_runs_history(limit: int = 20):
     try:
-        r = requests.get(f"{API_BASE}/pipeline/runs", params={"limit": limit}, timeout=5)
+        r = api.get(f"{API_BASE}/pipeline/runs", params={"limit": limit}, timeout=5)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
@@ -101,7 +102,7 @@ def api_runs_history(limit: int = 20):
 
 def api_delete_all_runs():
     try:
-        r = requests.delete(f"{API_BASE}/pipeline/runs", timeout=5)
+        r = api.delete(f"{API_BASE}/pipeline/runs", timeout=5)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
@@ -109,14 +110,14 @@ def api_delete_all_runs():
 
 def api_create_semaphore():
     try:
-        r = requests.post(f"{API_BASE}/pipeline/semaphore", timeout=3)
+        r = api.post(f"{API_BASE}/pipeline/semaphore", timeout=3)
         return r.json(), None
     except Exception as e:
         return None, str(e)
 
 def api_delete_semaphore():
     try:
-        r = requests.delete(f"{API_BASE}/pipeline/semaphore", timeout=3)
+        r = api.delete(f"{API_BASE}/pipeline/semaphore", timeout=3)
         return r.json(), None
     except Exception as e:
         return None, str(e)
@@ -127,7 +128,7 @@ FOLDER_ENDPOINT = {}   # popolato dinamicamente da api_get_folders()
 def api_get_folders() -> list[dict]:
     """Chiama GET /files/folders e ritorna la lista delle cartelle registrate in FastAPI."""
     try:
-        r = requests.get(f"{API_BASE}/files/folders", timeout=3)
+        r = api.get(f"{API_BASE}/files/folders", timeout=3)
         r.raise_for_status()
         return r.json()          # [{endpoint, label, semaphore, exists}, ...]
     except Exception:
@@ -137,7 +138,7 @@ def api_get_folders() -> list[dict]:
 def api_list_files(endpoint: str):
     """endpoint: chiave del FOLDER_REGISTRY FastAPI (es. 'inbox', 'sap', 'others')"""
     try:
-        r = requests.get(f"{API_BASE}/files/{endpoint}", timeout=5)
+        r = api.get(f"{API_BASE}/files/{endpoint}", timeout=5)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
@@ -148,7 +149,7 @@ def api_inbox():
 
 def api_delete_file(filename: str, endpoint: str = "inbox"):
     try:
-        r = requests.delete(f"{API_BASE}/files/{endpoint}/{quote(filename, safe='')}", timeout=5)
+        r = api.delete(f"{API_BASE}/files/{endpoint}/{quote(filename, safe='')}", timeout=5)
         r.raise_for_status()
         return r.json(), None
     except requests.HTTPError as e:
@@ -158,7 +159,7 @@ def api_delete_file(filename: str, endpoint: str = "inbox"):
 
 def api_delete_all_files(endpoint: str = "inbox"):
     try:
-        r = requests.delete(f"{API_BASE}/files/{endpoint}", timeout=5)
+        r = api.delete(f"{API_BASE}/files/{endpoint}", timeout=5)
         r.raise_for_status()
         return r.json(), None
     except Exception as e:
@@ -167,7 +168,7 @@ def api_delete_all_files(endpoint: str = "inbox"):
 def api_raw_sources():
     """GET /db/raw/sources — file ZIP con dati caricati in raw."""
     try:
-        r = requests.get(f"{API_BASE}/db/raw/sources", timeout=30)
+        r = api.get(f"{API_BASE}/db/raw/sources", timeout=30)
         r.raise_for_status()
         return r.json().get("sources", []), None
     except Exception as e:
@@ -176,7 +177,7 @@ def api_raw_sources():
 def api_delete_raw_source(source: str):
     """DELETE /db/raw/sources/{source} — elimina da raw (e i NEW orfani in stg) i dati di uno ZIP."""
     try:
-        r = requests.delete(f"{API_BASE}/db/raw/sources/{quote(source, safe='')}", timeout=60)
+        r = api.delete(f"{API_BASE}/db/raw/sources/{quote(source, safe='')}", timeout=60)
         r.raise_for_status()
         return r.json(), None
     except requests.HTTPError as e:
@@ -187,7 +188,7 @@ def api_delete_raw_source(source: str):
 def api_get_code_list(path: str):
     """GET /db/{path} — elenco di codici (export-filter, export-filter-ordini, export-exclude-add, ...)."""
     try:
-        r = requests.get(f"{API_BASE}/db/{path}", timeout=10)
+        r = api.get(f"{API_BASE}/db/{path}", timeout=10)
         r.raise_for_status()
         return r.json().get("kunnr", []), None
     except Exception as e:
@@ -196,7 +197,7 @@ def api_get_code_list(path: str):
 def api_set_code_list(path: str, codes: list[str]):
     """PUT /db/{path} — sostituisce l'elenco (lista vuota = elenco svuotato)."""
     try:
-        r = requests.put(f"{API_BASE}/db/{path}", json={"kunnr": codes}, timeout=10)
+        r = api.put(f"{API_BASE}/db/{path}", json={"kunnr": codes}, timeout=10)
         r.raise_for_status()
         return r.json().get("kunnr", []), None
     except requests.HTTPError as e:
@@ -286,7 +287,7 @@ def confirm_delete_raw_source(src: dict):
 
 def api_upload_file(file_bytes: bytes, filename: str, endpoint: str = "inbox"):
     try:
-        r = requests.post(
+        r = api.post(
             f"{API_BASE}/files/{endpoint}/upload",
             files={"file": (filename, file_bytes)},
             timeout=30,
@@ -431,6 +432,8 @@ with tab_ctrl:
 
     # ── 1. Avvia pipeline ────────────────────────────────────────────────
     st.subheader("▶️ Avvia pipeline")
+    st.markdown(f"Ambiente SAP del run: **{current_env()}** — database, cartelle SFTP e stato dei "
+                "controlli dell'ambiente scelto nella barra laterale.")
 
     col_opt_left, col_opt_right = st.columns(2)
     with col_opt_left:
@@ -461,7 +464,7 @@ with tab_ctrl:
         if err:
             st.error(f"Errore avvio: {err}")
         else:
-            st.success(f"Pipeline avviata — Run ID: `{result['run_id']}`")
+            st.success(f"Pipeline avviata sull'ambiente {current_env()} — Run ID: `{result['run_id']}`")
             if cleanup_mode:
                 st.info("🧹 Cleanup inbox attivo: i file verranno eliminati al termine se Bruin ha successo.")
             if full_mode or original_mode:
@@ -667,7 +670,7 @@ with tab_sftp:
             # Pulsante download: recupera il file via API
             dl_url = f"{API_BASE}/files/{endpoint}/download/{quote(f['name'], safe='')}"
             try:
-                dl_resp = requests.get(dl_url, timeout=15)
+                dl_resp = api.get(dl_url, timeout=15)
                 dl_resp.raise_for_status()
                 c5.download_button(
                     label="⬇️",

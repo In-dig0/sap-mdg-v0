@@ -15,6 +15,7 @@ import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, DataReturnMode, JsCode
 
 from mdg_auth import require_role, render_sidebar_menu
+from mdg_env_ui import api, current_env   # chiamate con l'ambiente SAP scelto
 
 st.set_page_config(
     page_title="Edit Tables",
@@ -45,7 +46,7 @@ def enc(name: str) -> str:
 def get_stg_tables() -> list[str]:
     """Lista tabelle schema stg tramite FastAPI — GET /db/schema/stg/tables."""
     try:
-        r = requests.get(f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables", timeout=5)
+        r = api.get(f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables", timeout=5)
         r.raise_for_status()
         return r.json().get("tables", [])
     except Exception as e:
@@ -56,7 +57,7 @@ def get_stg_tables() -> list[str]:
 def get_table_columns(table: str) -> list[str]:
     """Colonne di una tabella tramite FastAPI — GET /db/schema/stg/tables/{table}/columns."""
     try:
-        r = requests.get(f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/columns", params={"table": table}, timeout=5)
+        r = api.get(f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/columns", params={"table": table}, timeout=5)
         r.raise_for_status()
         return r.json().get("columns", [])
     except Exception as e:
@@ -75,7 +76,7 @@ def load_table(table: str, status_filter: str, search: str) -> pd.DataFrame:
         params = {"status_filter": status_filter if status_filter != "Tutti" else None,
                   "search": search or None}
         params = {k: v for k, v in params.items() if v is not None}
-        r = requests.get(
+        r = api.get(
             f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/rows",
             params={"table": table, **params},
             timeout=30,
@@ -99,7 +100,7 @@ def load_table(table: str, status_filter: str, search: str) -> pd.DataFrame:
 def truncate_table(schema: str, table: str) -> bool:
     """Svuota una tabella tramite FastAPI — POST /db/tables/{schema}/{table}/truncate."""
     try:
-        r = requests.post(f"{API_BASE}/db/tables/{enc(schema)}/truncate", params={"table": table}, timeout=10)
+        r = api.post(f"{API_BASE}/db/tables/{enc(schema)}/truncate", params={"table": table}, timeout=10)
         r.raise_for_status()
         return True
     except requests.HTTPError as e:
@@ -131,7 +132,7 @@ def save_row(table: str, original_row: dict, updated_row: dict,
     if not key_cols:
         return False, "Tabella senza colonne chiave — UPDATE non supportato."
     try:
-        r = requests.patch(
+        r = api.patch(
             f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/rows",
             params={"table": table},
             json={
@@ -153,7 +154,7 @@ def save_row(table: str, original_row: dict, updated_row: dict,
 def insert_row(table: str, row: dict, key_cols: list[str]) -> tuple[bool, str | None]:
     """Inserisce una riga tramite FastAPI — POST /db/schema/stg/tables/rows."""
     try:
-        r = requests.post(
+        r = api.post(
             f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/rows",
             params={"table": table},
             json={"row": row, "key_cols": key_cols},
@@ -170,7 +171,7 @@ def insert_row(table: str, row: dict, key_cols: list[str]) -> tuple[bool, str | 
 def get_user_schemas() -> list[str]:
     """Schemi utente tramite FastAPI — GET /db/schemas."""
     try:
-        r = requests.get(f"{API_BASE}/db/schemas", timeout=5)
+        r = api.get(f"{API_BASE}/db/schemas", timeout=5)
         r.raise_for_status()
         return r.json().get("schemas", [])
     except Exception as e:
@@ -181,7 +182,7 @@ def get_user_schemas() -> list[str]:
 def truncate_schema_tables(schema: str) -> tuple[int, list[str]]:
     """Svuota tutte le tabelle di uno schema tramite FastAPI — POST /db/schema/{schema}/truncate."""
     try:
-        r = requests.post(f"{API_BASE}/db/schema/{enc(schema)}/truncate", timeout=30)
+        r = api.post(f"{API_BASE}/db/schema/{enc(schema)}/truncate", timeout=30)
         r.raise_for_status()
         data = r.json()
         return len(data.get("truncated", [])), data.get("errors", [])
@@ -195,7 +196,7 @@ def truncate_schema_tables(schema: str) -> tuple[int, list[str]]:
 def drop_table(schema: str, table: str) -> bool:
     """Elimina una tabella tramite FastAPI — DELETE /db/tables/{schema}/{table}."""
     try:
-        r = requests.delete(f"{API_BASE}/db/tables/{enc(schema)}", params={"table": table}, timeout=10)
+        r = api.delete(f"{API_BASE}/db/tables/{enc(schema)}", params={"table": table}, timeout=10)
         r.raise_for_status()
         return True
     except requests.HTTPError as e:
@@ -212,7 +213,7 @@ def delete_row(table: str, row: dict, key_cols: list[str]) -> bool:
         st.warning("⚠️ Tabella senza colonne chiave — DELETE non supportato.")
         return False
     try:
-        r = requests.delete(
+        r = api.delete(
             f"{API_BASE}/db/schema/{enc(STG_SCHEMA)}/tables/rows",
             params={"table": table},
             json={"row": {k: clean_cell(v) for k, v in row.items()}, "key_cols": key_cols},
@@ -435,7 +436,7 @@ with st.expander("⚠️ Zona Admin — operazioni irreversibili", expanded=Fals
         )
     # Carica tabelle dello schema selezionato
     try:
-        _rt = requests.get(f"{API_BASE}/db/tables", params={"schema": selected_schema_trunc_tbl}, timeout=5)
+        _rt = api.get(f"{API_BASE}/db/tables", params={"schema": selected_schema_trunc_tbl}, timeout=5)
         _rt.raise_for_status()
         _trunc_tables = [t["name"] for t in _rt.json().get("tables", [])]
     except Exception:
@@ -522,7 +523,7 @@ with st.expander("⚠️ Zona Admin — operazioni irreversibili", expanded=Fals
         )
     # Carica le tabelle dello schema selezionato tramite FastAPI
     try:
-        _r = requests.get(f"{API_BASE}/db/tables", params={"schema": selected_schema_drop}, timeout=5)
+        _r = api.get(f"{API_BASE}/db/tables", params={"schema": selected_schema_drop}, timeout=5)
         _r.raise_for_status()
         _drop_tables = [t["name"] for t in _r.json().get("tables", [])]
     except Exception:

@@ -58,6 +58,7 @@ Thumbs.db
 # --- Stato attivo/inattivo dei check ---
 # Scritto dalla pagina Check Catalog: ogni ambiente (locale, VPS) ha il suo.
 bruin/config/check_states.json
+bruin/config/check_states_*.json
 
 # --- Claude Code ---
 .claude/settings.local.json

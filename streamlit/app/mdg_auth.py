@@ -374,6 +374,9 @@ def render_sidebar_menu():
     """
     render_user_badge()
     st.sidebar.divider()
+    from mdg_env_ui import render_env_selector   # ambiente SAP per tutte le pagine
+    render_env_selector()
+    st.sidebar.divider()
 
     role = st.session_state.get("mdg_role", "business_role")
 
@@ -391,6 +394,7 @@ def render_sidebar_menu():
         st.sidebar.page_link("pages/2_check_catalog.py",  label="📋 Catalogo controlli")
         st.sidebar.page_link("pages/3_pipeline_admin.py", label="⚙️ Gestion Pipeline")
         st.sidebar.page_link("pages/4_admin_users.py",    label="👥 Utenti")
+        st.sidebar.page_link("pages/11_environments.py",  label="🌐 Ambienti SAP")
 
     # Pagine riservate agli Admin
     elif role == "admin_role":
@@ -399,6 +403,6 @@ def render_sidebar_menu():
         st.sidebar.page_link("pages/2_check_catalog.py",  label="📋 Catalogo controlli")
         st.sidebar.page_link("pages/3_pipeline_admin.py", label="⚙️ Gestion Pipeline")
         st.sidebar.page_link("pages/4_admin_users.py",    label="👥 Utenti")
+        st.sidebar.page_link("pages/11_environments.py",  label="🌐 Ambienti SAP")
         st.sidebar.page_link("pages/8_edit_tables.py",    label="✏️ Modifica Tabelle")
-        st.sidebar.page_link("pages/7_targhette_diba.py", label="🔩 Targhette + DIBA")
         st.sidebar.page_link("pages/10_access_log.py",    label="🔐 Log Accessi")

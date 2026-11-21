@@ -13,6 +13,7 @@ import pandas as pd
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from mdg_auth import require_login, render_sidebar_menu
+from mdg_env_ui import env_db_name, check_states_path
 
 st.set_page_config(
     page_title="Check Catalog",
@@ -23,7 +24,7 @@ st.set_page_config(
 require_login()
 render_sidebar_menu()
 
-STATES_PATH = "/app/config/check_states.json"
+STATES_PATH = check_states_path()   # stato dei controlli dell'ambiente scelto
 
 # Categorie dei controlli (stg.check_catalog.category), nell'ordine di visualizzazione.
 # Le categorie presenti nel DB ma non elencate qui vengono accodate col proprio codice.
@@ -46,7 +47,7 @@ def get_db_params():
     return {
         "host":     os.environ["POSTGRES_HOST"],
         "port":     os.environ["POSTGRES_PORT"],
-        "dbname":   os.environ["POSTGRES_DB"],
+        "dbname":   env_db_name(),           # database dell'ambiente SAP scelto
         "user":     os.environ["POSTGRES_USER"],
         "password": os.environ["POSTGRES_PASSWORD"],
     }

@@ -10,6 +10,8 @@ estrazione "full" (opt_full: non esclusi gli oggetti già in SAP) e codice origi
 (opt_original_codes: BP senza trascodifica nel codice SAP). Con le opzioni attive il nome ha
 un'etichetta dopo _MDGOUT_ (es. DM11_BOM_MDGOUT_FULL_20261120_0900.zip, _MDGOUT_ORIG_,
 _MDGOUT_FULL_ORIG_), per non confonderlo con i file da caricare in SAP.
+Per un ambiente SAP diverso da DEFAULT il nome contiene anche l'ambiente, prima delle opzioni
+(es. DM11_BOM_MDGOUT_PS4-100_20261121_0900.zip), per non caricare un file nel sistema sbagliato.
 I file Excel per SAP (GruppoProdotti, Clienti_*, Fornitori_ContoLavoro) vanno nella sottocartella
 excel/ di out_source_mdg (excel_output_path); quelli delle versioni precedenti nella cartella
 principale vengono rimossi.
@@ -24,12 +26,13 @@ from functools import lru_cache
 import psycopg2
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from mdg_env import DB_CONFIG, OUT_MDG  # noqa: E402
+from mdg_env import DB_CONFIG, OUT_MDG, MDG_ENV, IS_DEFAULT  # noqa: E402
 PIPELINE_NAME = "mdg_migration_pipeline"   # righe di stg.pipeline_runs scritte dalla pipeline
 STAMP_FORMAT  = "%Y%m%d_%H%M"
 
 OUT_SUFFIX = "_MDGOUT_"
-OUT_NAME_RE = re.compile(r"^(?P<stem>.+)(_MDGOUT_(?:[A-Z]+_)*\d{8}_\d{4}|_MDG-OUT_\d{8})\.(zip|xlsx)$",
+# Etichette facoltative dopo _MDGOUT_: ambiente SAP (es. DS4-200) e opzioni del run (FULL, ORIG)
+OUT_NAME_RE = re.compile(r"^(?P<stem>.+)(_MDGOUT_(?:[A-Z0-9]+(?:-\d+)?_)*\d{8}_\d{4}|_MDG-OUT_\d{8})\.(zip|xlsx)$",
                          re.IGNORECASE)
 # Opzioni del run: colonna di stg.pipeline_runs -> etichetta nel nome dei file di output
 RUN_OPTIONS = {"opt_full": "FULL", "opt_original_codes": "ORIG"}
@@ -107,7 +110,8 @@ def output_zip_name(source_name: str) -> str:
     di source_name (ZIP per SAP, oppure ad es. GruppoProdotti.xlsx).
     """
     ext = os.path.splitext(source_name)[1].lower() or ".zip"
-    return f"{zip_stem(source_name)}{OUT_SUFFIX}{run_options_label()}{run_stamp()}{ext}"
+    env_label = "" if IS_DEFAULT else f"{MDG_ENV}_"   # ambiente SAP nel nome (non per DEFAULT)
+    return f"{zip_stem(source_name)}{OUT_SUFFIX}{env_label}{run_options_label()}{run_stamp()}{ext}"
 
 
 def remove_previous_zips(directory: str, source_name: str) -> list[str]:

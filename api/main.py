@@ -4,6 +4,7 @@ Endpoints per avvio, monitoraggio e log della pipeline Bruin.
 """
 
 import asyncio
+import contextvars
 import json
 import os
 import re
@@ -16,7 +17,8 @@ from typing import Optional
 import psycopg2
 import psycopg2.extras
 import psycopg2.extensions
-from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -35,6 +37,22 @@ DEFAULT_ENV       = "DEFAULT"
 ENV_SYSTEM_RE     = re.compile(r"^[A-Z0-9]{2,10}$")
 ENV_CLIENT_RE     = re.compile(r"^\d{1,4}$")
 ENV_ID_RE         = re.compile(r"^[A-Z0-9]{2,10}-\d{1,4}$")
+# Ambiente della richiesta: intestazione HTTP X-MDG-Env (Streamlit la invia a ogni chiamata);
+# senza intestazione DEFAULT. Database e cartelle degli endpoint seguono questo ambiente,
+# salvo stato del servizio, log degli accessi (usr) e registro degli ambienti (database comune).
+ENV_HEADER        = "X-MDG-Env"
+REQUEST_ENV: contextvars.ContextVar[str] = contextvars.ContextVar("mdg_env", default="DEFAULT")
+
+
+def env_path(root: Path, env: Optional[str] = None) -> Path:
+    """Cartella del datalake per l'ambiente (della richiesta se env è None): root[/<ambiente>]."""
+    env = env or REQUEST_ENV.get()
+    return root if env == DEFAULT_ENV else root / env
+
+
+def semaphore_path(env: Optional[str] = None) -> Path:
+    """File semaforo DATASET_READY.txt nella cartella di ingresso dell'ambiente."""
+    return env_path(Path(SEMAPHORE_PATH).parent, env) / Path(SEMAPHORE_PATH).name
 SEMAPHORE_PATH    = os.getenv("SEMAPHORE_PATH", "/data/inbound/DATASET_READY.txt")
 SAP_PATH          = Path(os.getenv("SAP_PATH", "/data/in_source_sap"))
 OTHERS_PATH       = Path(os.getenv("OTHERS_PATH", "/data/in_source_others"))
@@ -44,23 +62,23 @@ LOG_DIR           = Path(os.getenv("LOG_DIR", "/logs"))
 # Mappa endpoint → (path, accetta_semaforo)
 # Estendibile aggiungendo nuovi volumi senza modificare il codice Streamlit.
 FOLDER_REGISTRY: dict[str, dict] = {
-    "inbox":   {"path": lambda: Path(SEMAPHORE_PATH).parent, "label": "in_source_pprod",  "semaphore": True,  "readonly": False},
-    "sap":     {"path": lambda: SAP_PATH,                    "label": "in_source_sap",     "semaphore": False, "readonly": False},
-    "others":  {"path": lambda: OTHERS_PATH,                 "label": "in_source_others",  "semaphore": False, "readonly": False},
-    "out_mdg": {"path": lambda: OUT_MDG_PATH,                "label": "out_source_mdg",    "semaphore": False, "readonly": False},
+    "inbox":   {"path": lambda: env_path(Path(SEMAPHORE_PATH).parent), "label": "in_source_pprod",  "semaphore": True,  "readonly": False},
+    "sap":     {"path": lambda: env_path(SAP_PATH),                    "label": "in_source_sap",     "semaphore": False, "readonly": False},
+    "others":  {"path": lambda: env_path(OTHERS_PATH),                 "label": "in_source_others",  "semaphore": False, "readonly": False},
+    "out_mdg": {"path": lambda: env_path(OUT_MDG_PATH),                "label": "out_source_mdg",    "semaphore": False, "readonly": False},
     # ZIP dell'estrazione ristretta (test), generati se stg.export_filter contiene codici
-    "out_mdg_test": {"path": lambda: OUT_MDG_PATH / "test",  "label": "out_source_mdg/test", "semaphore": False, "readonly": False},
+    "out_mdg_test": {"path": lambda: env_path(OUT_MDG_PATH) / "test",  "label": "out_source_mdg/test", "semaphore": False, "readonly": False},
     # File Excel per SAP (gruppo prodotti, dati di vendita clienti, fornitori conto lavoro)
-    "out_mdg_excel": {"path": lambda: OUT_MDG_PATH / "excel", "label": "out_source_mdg/excel",
+    "out_mdg_excel": {"path": lambda: env_path(OUT_MDG_PATH) / "excel", "label": "out_source_mdg/excel",
                       "semaphore": False, "readonly": False},
     # Righe scartate dagli export (per tabella e per controllo)
-    "out_mdg_discarded": {"path": lambda: OUT_MDG_PATH / "discarded", "label": "out_source_mdg/discarded",
+    "out_mdg_discarded": {"path": lambda: env_path(OUT_MDG_PATH) / "discarded", "label": "out_source_mdg/discarded",
                           "semaphore": False, "readonly": False},
     # Riepiloghi: BP già in SAP, quadratura
-    "out_mdg_report": {"path": lambda: OUT_MDG_PATH / "report", "label": "out_source_mdg/report",
+    "out_mdg_report": {"path": lambda: env_path(OUT_MDG_PATH) / "report", "label": "out_source_mdg/report",
                        "semaphore": False, "readonly": False},
     # Backup dell'output dei run precedenti (ultimi 10)
-    "out_mdg_backup": {"path": lambda: OUT_MDG_PATH / "backup", "label": "out_source_mdg/backup",
+    "out_mdg_backup": {"path": lambda: env_path(OUT_MDG_PATH) / "backup", "label": "out_source_mdg/backup",
                        "semaphore": False, "readonly": False},
 }
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -111,6 +129,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def mdg_env_middleware(request: Request, call_next):
+    """Imposta l'ambiente della richiesta dall'intestazione X-MDG-Env (DEFAULT se assente)."""
+    env = (request.headers.get(ENV_HEADER) or DEFAULT_ENV).strip().upper()
+    if env != DEFAULT_ENV and not ENV_ID_RE.match(env):
+        return JSONResponse(status_code=422, content={"detail": f"Ambiente non valido: {env}"})
+    token = REQUEST_ENV.set(env)
+    try:
+        return await call_next(request)
+    finally:
+        REQUEST_ENV.reset(token)
+
 # ---------------------------------------------------------------------------
 # Modelli risposta
 # ---------------------------------------------------------------------------
@@ -146,16 +177,19 @@ class HealthResponse(BaseModel):
 # Funzioni helper
 # ---------------------------------------------------------------------------
 
-def check_semaphore() -> bool:
-    """Verifica se il file semaforo DATASET_READY.txt esiste."""
-    return Path(SEMAPHORE_PATH).exists()
+def check_semaphore(env: Optional[str] = None) -> bool:
+    """Verifica se il file semaforo DATASET_READY.txt dell'ambiente esiste."""
+    return semaphore_path(env).exists()
 
-def get_db_connection(dbname: Optional[str] = None):
-    """Connessione al database comune (POSTGRES_DB) o, con dbname, a quello di un ambiente SAP."""
+def get_db_connection(dbname: Optional[str] = None, common: bool = False):
+    """
+    Connessione al database dell'ambiente della richiesta (X-MDG-Env); con common=True al database
+    comune (utenti, log accessi, registro ambienti); con dbname a quel database.
+    """
     return psycopg2.connect(
         host=POSTGRES_HOST,
         port=POSTGRES_PORT,
-        dbname=dbname or POSTGRES_DB,
+        dbname=dbname or (POSTGRES_DB if common else env_db_name(REQUEST_ENV.get())),
         user=POSTGRES_USER,
         password=POSTGRES_PASSWORD,
         connect_timeout=3,
@@ -163,7 +197,7 @@ def get_db_connection(dbname: Optional[str] = None):
 
 def check_postgres() -> str:
     try:
-        conn = get_db_connection()
+        conn = get_db_connection(common=True)
         conn.close()
         return "ok"
     except Exception as e:
@@ -228,12 +262,13 @@ def save_run_to_db(pipeline_name: str, status: str, started_at: datetime,
     except Exception:
         pass  # Non bloccare l'esecuzione in caso di errore DB
 
-def cleanup_inbox(log_file: Path) -> tuple[int, int]:
+def cleanup_inbox(log_file: Path, env: str = DEFAULT_ENV) -> tuple[int, int]:
     """
-    Cancella tutti i file nella cartella inbound (eccetto il semaforo,
-    già rimosso in precedenza). Restituisce (file_eliminati, errori).
+    Cancella tutti i file nella cartella inbound dell'ambiente (eccetto il semaforo,
+    già rimosso in precedenza). Le sottocartelle degli ambienti SAP (es. DS4-200) non
+    vengono mai toccate. Restituisce (file_eliminati, errori).
     """
-    inbound     = Path(SEMAPHORE_PATH).parent
+    inbound     = env_path(Path(SEMAPHORE_PATH).parent, env)
     eliminated  = 0
     errors      = 0
 
@@ -242,6 +277,8 @@ def cleanup_inbox(log_file: Path) -> tuple[int, int]:
             if item.is_file():
                 item.unlink()
                 eliminated += 1
+            elif item.is_dir() and ENV_ID_RE.match(item.name):
+                continue        # cartella di un altro ambiente
             elif item.is_dir():
                 import shutil
                 shutil.rmtree(item)
@@ -331,13 +368,13 @@ async def execute_bruin_pipeline(run_id: str, log_file: Path, cleanup: bool = Fa
 
         # Rimuovi semaforo dopo il run
         try:
-            Path(SEMAPHORE_PATH).unlink(missing_ok=True)
+            semaphore_path(env).unlink(missing_ok=True)
         except Exception:
             pass
 
         # Cleanup inbox se richiesto e pipeline OK
         if cleanup and process.returncode == 0:
-            await asyncio.to_thread(cleanup_inbox, log_file)
+            await asyncio.to_thread(cleanup_inbox, log_file, env)
 
     except Exception as e:
         state.status    = RunStatus.FAILED
@@ -377,7 +414,7 @@ def write_access_log(entry: AccessLogEntry):
     Chiamato da mdg_auth.py ad ogni tentativo di accesso.
     """
     try:
-        conn = get_db_connection()
+        conn = get_db_connection(common=True)
         cur  = conn.cursor()
         cur.execute("""
             INSERT INTO usr.access_log (email, success, reason, role, logged_at)
@@ -399,7 +436,7 @@ def get_access_log(limit: int = 200, email: Optional[str] = None, success: Optio
     Riservato agli admin (il controllo ruolo è fatto lato Streamlit).
     """
     try:
-        conn = get_db_connection()
+        conn = get_db_connection(common=True)
         cur  = conn.cursor()
         where_parts = []
         params      = []
@@ -452,7 +489,7 @@ async def run_pipeline(background_tasks: BackgroundTasks,
                        cleanup: bool = False,
                        full: bool = False,
                        original_codes: bool = False,
-                       env: str = DEFAULT_ENV):
+                       env: Optional[str] = None):
     """
     Avvia la pipeline Bruin.
 
@@ -460,8 +497,8 @@ async def run_pipeline(background_tasks: BackgroundTasks,
     - `cleanup=true` — svuota la cartella inbox al termine se Bruin esce con successo (exit_code=0)
     - `full=true`    — estrazione "full": gli oggetti già presenti in SAP non sono esclusi
     - `original_codes=true` — BP con il codice del vecchio ERP (nessuna trascodifica nel codice SAP)
-    - `env=DS4-200` — ambiente SAP (registrato e attivo in cfg.environments); DEFAULT = database
-      e cartelle di sempre
+    - `env=DS4-200` — ambiente SAP (registrato e attivo in cfg.environments); se assente quello
+      dell'intestazione X-MDG-Env; DEFAULT = database e cartelle di sempre
     - Rifiuta se una pipeline è già in esecuzione
     """
     global state
@@ -473,15 +510,15 @@ async def run_pipeline(background_tasks: BackgroundTasks,
             detail=f"Pipeline già in esecuzione (run_id: {state.run_id}). Attendi il completamento."
         )
 
-    # Controlla il semaforo (a meno che force=true)
-    if not force and not check_semaphore():
+    env = resolve_run_env(env or REQUEST_ENV.get())
+
+    # Controlla il semaforo dell'ambiente (a meno che force=true)
+    if not force and not check_semaphore(env):
         raise HTTPException(
             status_code=422,
-            detail=f"File semaforo non trovato: {SEMAPHORE_PATH}. "
+            detail=f"File semaforo non trovato: {semaphore_path(env)}. "
                    f"Usa ?force=true per bypassare il controllo."
         )
-
-    env = resolve_run_env(env)
 
     # Opzioni del run: lette da setup.pipeline_run_open all'apertura del run
     try:
@@ -668,7 +705,7 @@ def ensure_env_registry(cur):
 
 
 def database_exists(dbname: str) -> bool:
-    conn = get_db_connection()
+    conn = get_db_connection(common=True)
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (dbname,))
@@ -684,7 +721,7 @@ def resolve_run_env(env: str) -> str:
         return env
     if not ENV_ID_RE.match(env):
         raise HTTPException(status_code=422, detail=f"Ambiente non valido: {env} (atteso sistema-mandante, es. DS4-200)")
-    conn = get_db_connection()
+    conn = get_db_connection(common=True)
     try:
         with conn, conn.cursor() as cur:
             ensure_env_registry(cur)
@@ -780,7 +817,7 @@ def _environment_rows(cur) -> list[dict]:
 @app.get("/environments", tags=["Ambienti"])
 def list_environments():
     """Ambienti SAP registrati (cfg.environments), con database e cartelle."""
-    conn = get_db_connection()
+    conn = get_db_connection(common=True)
     try:
         with conn, conn.cursor() as cur:
             ensure_env_registry(cur)
@@ -810,7 +847,7 @@ def create_environment(req: EnvironmentRequest):
     src_db = env_db_name(src_env)
     if database_exists(dbname):
         raise HTTPException(status_code=409, detail=f"Il database {dbname} esiste già")
-    conn = get_db_connection()
+    conn = get_db_connection(common=True)
     try:
         with conn, conn.cursor() as cur:
             ensure_env_registry(cur)
@@ -831,7 +868,7 @@ def create_environment(req: EnvironmentRequest):
         try:
             _set_database(dbname, create=False)
         finally:
-            conn = get_db_connection()
+            conn = get_db_connection(common=True)
             try:
                 with conn, conn.cursor() as cur:
                     cur.execute("DELETE FROM cfg.environments WHERE env_id = %s", (env,))
@@ -847,7 +884,7 @@ def create_environment(req: EnvironmentRequest):
 
 def _set_database(dbname: str, create: bool):
     """CREATE DATABASE (create=True) o DROP DATABASE IF EXISTS, fuori transazione."""
-    conn = get_db_connection()
+    conn = get_db_connection(common=True)
     try:
         conn.autocommit = True
         with conn.cursor() as cur:
@@ -863,7 +900,7 @@ def update_environment(env_id: str, req: EnvironmentUpdate):
     fields = {k: v for k, v in req.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(status_code=422, detail="Nessun campo da modificare")
-    conn = get_db_connection()
+    conn = get_db_connection(common=True)
     try:
         with conn, conn.cursor() as cur:
             ensure_env_registry(cur)
@@ -948,10 +985,10 @@ def delete_all_runs():
 @app.delete("/pipeline/semaphore", tags=["Pipeline"])
 def delete_semaphore():
     """Rimuove manualmente il file semaforo (utile per reset/test)."""
-    path = Path(SEMAPHORE_PATH)
+    path = semaphore_path()
     if path.exists():
         path.unlink()
-        return {"message": f"Semaforo rimosso: {SEMAPHORE_PATH}"}
+        return {"message": f"Semaforo rimosso: {path}"}
     return {"message": "Semaforo già assente."}
 
 
@@ -959,9 +996,9 @@ def delete_semaphore():
 @app.post("/pipeline/semaphore", tags=["Pipeline"])
 def create_semaphore():
     """Crea il file semaforo manualmente (utile per test senza ERP)."""
-    path = Path(SEMAPHORE_PATH)
+    path = semaphore_path()
     path.touch()
-    return {"message": f"Semaforo creato: {SEMAPHORE_PATH}"}
+    return {"message": f"Semaforo creato: {path}"}
 
 
 @app.get("/files/folders", tags=["File"])
@@ -1621,7 +1658,7 @@ def list_raw_sources():
                     s["loaded_at"] = loaded_at
         cur.close()
         conn.close()
-        inbox = Path(SEMAPHORE_PATH).parent
+        inbox = env_path(Path(SEMAPHORE_PATH).parent)
         result = []
         for s in sorted(sources.values(), key=lambda x: x["source"]):
             s["in_inbox"]  = (inbox / s["source"]).exists()

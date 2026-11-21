@@ -57,7 +57,7 @@ dei controlli) e **Codice BP originale** (BP senza trascodifica nel codice SAP).
 I run da terminale usano sempre il comportamento standard.
 
 Pagine Streamlit (`streamlit/app/pages/`): profilo utente, esiti check, catalogo controlli,
-gestione pipeline, gestione utenti, consultazione dati, targhette matricola, targhette DiBa,
+gestione pipeline, gestione utenti, consultazione dati,
 modifica tabelle, info, log accessi. `pages/backup/` contiene vecchie versioni non attive.
 
 Ruoli applicativi (RBAC): `admin_role` (tutto, gestione utenti), `it_role`
@@ -126,7 +126,7 @@ Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `ch
 
 - **Non leggere, modificare o committare** `.env`, `sftpgo/keys/*` e qualunque credenziale.
   `.bruin.yml` è generato da `setup.sh` a partire dal `.env`: non modificarlo a mano.
-- `bruin/config/check_states.json` (stato attivo/inattivo dei check e, nella sezione
+- `bruin/config/check_states.json` e `check_states_<AMBIENTE>.json` (stato attivo/inattivo dei check e, nella sezione
   `exclude_output`, il flag "Escludi dall'output", scritti dalla pagina Check Catalog)
   **non è tracciato** da Git: ogni ambiente ha il proprio.
 - Esclusione dall'output: un record che non supera un check è escluso dai file per SAP solo
@@ -142,6 +142,11 @@ Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `ch
   (API `/environments`), un DB per ambiente (`mdg_<sistema>_<mandante>`) e sottocartelle `<AMBIENTE>`
   nel datalake. Il run per ambiente parte con `docker exec mdg_bruin sh /project/bruin/run_env.sh <AMBIENTE>`
   (connessione temporanea al DB dell'ambiente + `MDG_ENV`); senza ambiente vale `DEFAULT`.
+  Un ambiente nasce sempre per copia di un altro (`pg_dump`: struttura / staging / tutto), perché la
+  pipeline richiede che tutte le tabelle esistano. Streamlit: selettore dell'ambiente nella barra laterale
+  (`mdg_env_ui.py`), pagina "Ambienti SAP"; le chiamate a FastAPI portano l'intestazione `X-MDG-Env`
+  (database e cartelle della richiesta). Con un ambiente i file di output hanno l'ambiente nel nome
+  (`…_MDGOUT_DS4-200_…`) e lo stato dei controlli è in `bruin/config/check_states_<AMBIENTE>.json`.
 - Negli asset Python connessione al DB e cartelle del datalake si leggono da `bruin/assets/mdg_env.py`
   (`DB_CONFIG`, `IN_PPROD`, `IN_SAP`, `IN_OTHERS`, `OUT_MDG`, `CHECK_STATES_FILE`), mai scritti nel codice:
   preparano il multi-ambiente SAP (variabile `MDG_ENV`; senza, ambiente di default = DB `mdg` e cartelle attuali).
