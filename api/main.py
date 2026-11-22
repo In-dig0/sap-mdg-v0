@@ -232,7 +232,7 @@ def check_bruin_container() -> str:
 
 def save_run_to_db(pipeline_name: str, status: str, started_at: datetime,
                    finished_at: Optional[datetime], notes: Optional[str] = None,
-                   dbname: Optional[str] = None):
+                   dbname: Optional[str] = None, env: str = DEFAULT_ENV):
     """
     Inserisce o aggiorna il record del run in stg.pipeline_runs.
 
@@ -247,15 +247,16 @@ def save_run_to_db(pipeline_name: str, status: str, started_at: datetime,
         checks_error    integer      (NULL — non disponibile da FastAPI)
         checks_warning  integer      (NULL — non disponibile da FastAPI)
         notes           text
+        mdg_env         ambiente SAP del run (DS4-200, ...; DEFAULT per l'ambiente predefinito)
     """
     try:
         conn = get_db_connection(dbname)   # database dell'ambiente del run
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO stg.pipeline_runs
-                (pipeline_name, started_at, finished_at, status, notes)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (pipeline_name, started_at, finished_at, status, notes))
+                (pipeline_name, started_at, finished_at, status, notes, mdg_env)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (pipeline_name, started_at, finished_at, status, notes, env))
         conn.commit()
         cur.close()
         conn.close()
@@ -393,6 +394,7 @@ async def execute_bruin_pipeline(run_id: str, log_file: Path, cleanup: bool = Fa
             finished_at=state.ended_at,
             notes=notes,
             dbname=env_db_name(env),
+            env=env,
         )
 
 # ---------------------------------------------------------------------------
