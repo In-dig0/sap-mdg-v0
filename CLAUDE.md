@@ -110,6 +110,10 @@ uv venv && uv pip install -r requirements-host.txt
 # Deploy in produzione (sulla VPS)
 git pull
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Se il codice di Streamlit è cambiato (pagine aggiunte o rimosse, moduli come mdg_auth.py):
+# il codice è montato come volume, quindi --build non ricrea il container e il server tiene
+# in memoria il vecchio elenco delle pagine → riavviarlo
+docker restart mdg_streamlit
 ```
 
 ## Flusso Git
@@ -118,7 +122,8 @@ Repo: https://github.com/In-dig0/sap-mdg-v0 — si lavora **direttamente su `mai
 (niente branch, per semplicità).
 1. Sviluppo e test in locale su `main`, commit.
 2. `git push` (solo su richiesta esplicita).
-3. Sulla VPS: `git pull` + rebuild con i file di produzione.
+3. Sulla VPS: `git pull` + rebuild con i file di produzione (+ `docker restart mdg_streamlit`
+   se è cambiato il codice di Streamlit).
 
 Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`).
 
@@ -138,7 +143,7 @@ Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `ch
   per rinominare usare `git mv`.
 - Modifiche a `docker-compose.yml` impattano anche la produzione: verificare sempre
   la compatibilità con `docker-compose.prod.yml`.
-- Ambienti SAP (branch `multi-ambiente`, in corso): registro in `cfg.environments` del DB comune
+- Ambienti SAP (sistema + mandante, es. DS4-200; DS4 sviluppo, QS4 quality, PS4 produzione): registro in `cfg.environments` del DB comune
   (API `/environments`), un DB per ambiente (`mdg_<sistema>_<mandante>`) e sottocartelle `<AMBIENTE>`
   nel datalake. Il run per ambiente parte con `docker exec mdg_bruin sh /project/bruin/run_env.sh <AMBIENTE>`
   (connessione temporanea al DB dell'ambiente + `MDG_ENV`); senza ambiente vale `DEFAULT`.
@@ -147,9 +152,11 @@ Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `ch
   (`mdg_env_ui.py`), pagina "Ambienti SAP"; le chiamate a FastAPI portano l'intestazione `X-MDG-Env`
   (database e cartelle della richiesta). Con un ambiente i file di output hanno l'ambiente nel nome
   (`…_MDGOUT_DS4-200_…`) e lo stato dei controlli è in `bruin/config/check_states_<AMBIENTE>.json`.
+  Ogni ambiente riceve dall'ERP le sue estrazioni (`in_source_pprod/<AMBIENTE>/`, idem per `in_source_sap`
+  e `in_source_others`). L'ambiente `DEFAULT` (DB `mdg`, cartelle principali) resta come riserva.
 - Negli asset Python connessione al DB e cartelle del datalake si leggono da `bruin/assets/mdg_env.py`
   (`DB_CONFIG`, `IN_PPROD`, `IN_SAP`, `IN_OTHERS`, `OUT_MDG`, `CHECK_STATES_FILE`), mai scritti nel codice:
-  preparano il multi-ambiente SAP (variabile `MDG_ENV`; senza, ambiente di default = DB `mdg` e cartelle attuali).
+  dipendono dall'ambiente SAP del run (variabile `MDG_ENV`; senza, ambiente `DEFAULT` = DB `mdg` e cartelle principali).
 - I check Bruin devono restare **idempotenti** (rilanciabili senza duplicare risultati).
 - Interfaccia utente e messaggi dei check in **italiano**.
 - Prima di dichiarare conclusa una modifica: ricostruire il servizio interessato
@@ -157,4 +164,7 @@ Messaggi di commit in italiano, stile Conventional Commits (`feat:`, `fix:`, `ch
 
 ## Evolutive in corso
 
-<!-- Da completare: elenco delle modifiche da implementare -->
+- Ambienti SAP: strumento di copia dello staging tra ambienti (correzioni `_STG`, elenchi, catalogo
+  controlli), per allineare QS4/PS4 a DS4-200; decidere il futuro dell'ambiente `DEFAULT`.
+- Flusso `DM02A_MM-Clasmat` (classificazione materiali, CSV `S_CLF_MAT_*`): caricato in `raw`,
+  senza controlli né export.
