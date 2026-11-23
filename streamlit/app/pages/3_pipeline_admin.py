@@ -13,7 +13,8 @@ import pandas as pd
 import requests
 import streamlit as st
 from mdg_auth import require_login, render_sidebar_menu, require_role
-from mdg_env_ui import api, current_env   # chiamate con l'ambiente SAP scelto
+from mdg_env_ui import (api, current_env, env_info, env_color, env_db_name,  # ambiente SAP scelto
+                        DEFAULT_ENV)
 
 def is_admin() -> bool:
     """Ritorna True se l'utente corrente ha ruolo admin_role."""
@@ -322,6 +323,59 @@ SLOW_ASSET_DEFAULT_S = 120
 MAX_RUNNING_SHOWN = 5   # Bruin esegue molti check in parallelo: si mostrano i più lunghi
 
 
+def env_banner_html(env: str, big: bool = False) -> str:
+    """Riquadro con l'ambiente SAP in giallo e il bordo del colore dell'ambiente."""
+    info  = env_info(env)
+    label = "Predefinito (mdg)" if env == DEFAULT_ENV else env
+    desc  = info.get("description") or ""
+    size  = "2.1rem" if big else "1.6rem"
+    return (f'<div style="border:3px solid {env_color(env)};border-radius:10px;padding:10px 18px;'
+            f'margin:6px 0 14px 0;background:rgba(250,204,21,0.06)">'
+            f'<div style="font-size:0.85rem;opacity:0.8">Ambiente SAP del run</div>'
+            f'<div style="color:#FACC15;font-size:{size};font-weight:800;line-height:1.2">{label}</div>'
+            f'<div style="font-size:0.85rem;opacity:0.8">{desc + " — " if desc else ""}'
+            f'database <code>{env_db_name(env)}</code></div></div>')
+
+
+RUN_DIALOG_KEY = "run_dialog_opts"   # opzioni del run in attesa di conferma (finestra aperta)
+
+
+def close_run_dialog():
+    st.session_state.pop(RUN_DIALOG_KEY, None)
+    st.session_state.pop("confirm_default_env", None)
+
+
+@st.dialog("Conferma avvio pipeline", width="large", on_dismiss=close_run_dialog)
+def confirm_run_dialog(opts: dict):
+    """Finestra di conferma: ambiente in evidenza, opzioni scelte; per il predefinito una spunta in più."""
+    env = current_env()
+    st.markdown(env_banner_html(env, big=True), unsafe_allow_html=True)
+    out_dir = "out_source_mdg" + ("" if env == DEFAULT_ENV else f"/{env}")
+    st.markdown(f"Output in **{out_dir}**")
+    labels = {"force": "Ignora file semaforo", "cleanup": "Svuota inbox post-run",
+              "full": "Estrazione full (file da NON caricare in SAP)",
+              "original_codes": "Codice BP originale (file da NON caricare in SAP)"}
+    chosen = [labels[k] for k, v in opts.items() if v]
+    st.markdown("Opzioni del run: " + (", ".join(f"**{c}**" for c in chosen) if chosen else "nessuna"))
+
+    confirmed = True
+    if env == DEFAULT_ENV:
+        st.error("⚠️ **Ambiente predefinito (database mdg)**: non corrisponde a un sistema SAP. "
+                 "Per lavorare su un sistema SAP scegli l'ambiente (es. DS4-200) nella barra laterale.")
+        confirmed = st.checkbox("Confermo di voler lanciare il run sull'ambiente predefinito",
+                                key="confirm_default_env")
+
+    c1, c2 = st.columns(2)
+    if c1.button("🚀 Conferma e avvia", type="primary", use_container_width=True, disabled=not confirmed):
+        result, err = api_run_pipeline(**opts)
+        st.session_state["run_launch"] = {"env": env, "opts": opts, "result": result, "err": err}
+        close_run_dialog()
+        st.rerun()
+    if c2.button("Annulla", use_container_width=True):
+        close_run_dialog()
+        st.rerun()
+
+
 def format_duration(seconds: float) -> str:
     seconds = int(seconds)
     return f"{seconds // 60} min {seconds % 60:02d} s" if seconds >= 60 else f"{seconds} s"
@@ -441,8 +495,8 @@ with tab_ctrl:
 
     # ── 1. Avvia pipeline ────────────────────────────────────────────────
     st.subheader("▶️ Avvia pipeline")
-    st.markdown(f"Ambiente SAP del run: **{current_env()}** — database, cartelle SFTP e stato dei "
-                "controlli dell'ambiente scelto nella barra laterale.")
+    st.markdown(env_banner_html(current_env()), unsafe_allow_html=True)
+    st.caption("Database, cartelle SFTP e stato dei controlli dell'ambiente scelto nella barra laterale.")
 
     col_opt_left, col_opt_right = st.columns(2)
     with col_opt_left:
@@ -468,12 +522,21 @@ with tab_ctrl:
         avvia = st.button("🚀 Avvia Pipeline MDG", use_container_width=True, type="primary")
 
     if avvia:
-        result, err = api_run_pipeline(force=force_mode, cleanup=cleanup_mode, full=full_mode,
-                                       original_codes=original_mode)
+        st.session_state[RUN_DIALOG_KEY] = {"force": force_mode, "cleanup": cleanup_mode,
+                                            "full": full_mode, "original_codes": original_mode}
+    if RUN_DIALOG_KEY in st.session_state:
+        confirm_run_dialog(st.session_state[RUN_DIALOG_KEY])
+
+    # Esito dell'avvio confermato nella finestra di dialogo
+    launch = st.session_state.pop("run_launch", None)
+    if launch:
+        result, err = launch["result"], launch["err"]
+        cleanup_mode, full_mode = launch["opts"]["cleanup"], launch["opts"]["full"]
+        original_mode = launch["opts"]["original_codes"]
         if err:
             st.error(f"Errore avvio: {err}")
         else:
-            st.success(f"Pipeline avviata sull'ambiente {current_env()} — Run ID: `{result['run_id']}`")
+            st.success(f"Pipeline avviata sull'ambiente {launch['env']} — Run ID: `{result['run_id']}`")
             if cleanup_mode:
                 st.info("🧹 Cleanup inbox attivo: i file verranno eliminati al termine se Bruin ha successo.")
             if full_mode or original_mode:
