@@ -18,6 +18,11 @@ description: >
   BU_SORT2); un codice che è già un BP SAP resta invariato. I fornitori senza codice SAP sono
   segnalati da CK062 ed esportati con il codice originale. Con l'opzione "codice BP originale"
   della pagina Gestione pipeline LIFNR(*) non è trascodificato.
+  Incoterm: se in S_EKKO INCO1 è vuoto, INCO1 e INCO2_L sono presi dall'anagrafica del fornitore
+  (S_SUPPL_PURCHASING ZBP_OrganAcq, poi ZBP_AddOrganAcq, con LIFNR del vecchio ERP + EKORG, prima della
+  trascodifica del fornitore); INCO2_L solo se vuota e se INCO1 coincide con quello del fornitore.
+  Ordini completati in report/<nome ZIP>_incoterms_da_BP.xlsx; i rimasti senza Incoterm sono
+  segnalati da CK222.
   Le imputazioni senza trascodifica valida (record assente, COD_SAP_DEF vuoto o '??', posizione
   non trovata) sono segnalate da CK536 ed esportate con il KOSTL originale di DBCOGE.
   Nessuna esclusione: i controlli sugli ordini (CK060-062, CK222-225, CK415, CK520-524, CK529,
@@ -31,6 +36,7 @@ description: >
 depends:
   - stg.ck536_po_kostl_trasco_cdc
   - stg.ck062_po_lifnr_but000
+  - stg.ck222_po_incoterm
   - ingestion.ingest_xlsx_to_ref
 @bruin """
 
@@ -46,8 +52,9 @@ import psycopg2
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "stg"))
 from prd_output_lib import output_zip_path, original_codes
-from ck_query_lib import po_cdc_sql, PO_ACCOUNT_TABLE, CDC_TRASCO
+from ck_query_lib import po_cdc_sql, po_bp_incoterms_sql, PO_ACCOUNT_TABLE, CDC_TRASCO
 from prd_export_inforecord_zip import get_lifnr_map
+from prd_discard_lib import REPORT_DIR, write_xlsx
 
 logging.basicConfig(
     level=logging.INFO,
@@ -68,6 +75,8 @@ RAW_TABLES   = ["S_EKKO", "S_EKKO_TEXT", "S_EKPO", "S_EKET", "S_COMP", "S_EKKN"]
 ACCOUNT_KEY_COLS = ["EBELN(k/*)", "EBELP(k/*)", "ZEKKN(k/*)"]   # object_key di CK536
 KOSTL_COL    = "KOSTL"
 LIFNR_COL    = "LIFNR(*)"   # fornitore in S_EKKO, trascodificato con il BP SAP
+EKORG_COL    = "EKORG(*)"
+INCO1_COL, INCO2_COL = "INCO1", "INCO2_L"
 
 
 def q(name):
@@ -118,6 +127,67 @@ def transcode_supplier(cols, rows, supplier_map, source_name):
     return out
 
 
+def get_incoterm_map(cur) -> dict:
+    """(LIFNR del vecchio ERP, EKORG) -> (INCO1, INCO2, tabella) dall'anagrafica del fornitore."""
+    sql = po_bp_incoterms_sql(cur)
+    if not sql:
+        log.warning("  Anagrafica acquisti del fornitore non caricata — Incoterm vuoti non completati")
+        return {}
+    cur.execute(sql)
+    return {(lifnr, ekorg): (inco1, inco2, src) for lifnr, ekorg, inco1, inco2, src in cur.fetchall()}
+
+
+def fill_incoterms(cols, rows, incoterm_map, source_name, filled=None):
+    """
+    INCO1 vuoto -> INCO1 (e INCO2_L se vuota) dell'anagrafica del fornitore; INCO2_L vuota con INCO1
+    uguale a quello del fornitore -> INCO2 del fornitore. Da applicare prima della trascodifica di LIFNR.
+    filled: lista in cui annotare gli ordini completati (per il report).
+    """
+    if not all(c in cols for c in (LIFNR_COL, EKORG_COL, INCO1_COL, INCO2_COL)):
+        return rows
+    ebeln, lifnr, ekorg = cols.index(ebeln_col(cols)), cols.index(LIFNR_COL), cols.index(EKORG_COL)
+    i1, i2 = cols.index(INCO1_COL), cols.index(INCO2_COL)
+    out, n1, n2 = [], 0, 0
+    for row in rows:
+        bp = incoterm_map.get(((row[lifnr] or "").strip(), (row[ekorg] or "").strip()))
+        if bp:
+            bp_inco1, bp_inco2, src = bp
+            new1 = (row[i1] or "").strip() or bp_inco1
+            set1 = not (row[i1] or "").strip()
+            set2 = not (row[i2] or "").strip() and bp_inco2 and new1 == bp_inco1
+            if set1 or set2:
+                row = list(row)
+                if set1:
+                    row[i1], n1 = bp_inco1, n1 + 1
+                if set2:
+                    row[i2], n2 = bp_inco2, n2 + 1
+                if filled is not None:
+                    filled.append([row[ebeln], row[lifnr], row[ekorg], bp_inco1 if set1 else "",
+                                   bp_inco2 if set2 else "", src])
+        out.append(row)
+    if n1 or n2:
+        log.info("  [INCOTERM] S_EKKO: INCO1 preso dall'anagrafica del fornitore su %d ordini, INCO2_L su %d ('%s')",
+                 n1, n2, source_name)
+    return out
+
+
+def incoterm_report_path(source_name):
+    return os.path.join(REPORT_DIR, f"{os.path.splitext(source_name)[0]}_incoterms_da_BP.xlsx")
+
+
+def write_incoterm_report(source_name, filled):
+    """report/<ZIP>_incoterms_da_BP.xlsx: ordini con Incoterm presi dall'anagrafica del fornitore."""
+    path = incoterm_report_path(source_name)
+    if not filled:
+        if os.path.exists(path):
+            os.remove(path)
+        return
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    write_xlsx(path, [("incoterms_da_BP", ["EBELN", "LIFNR", "EKORG", "INCO1", "INCO2_L", "ORIGINE"],
+                       sorted(filled))])
+    log.info("  [INCOTERM] %d ordini completati dall'anagrafica del fornitore: %s", len(filled), path)
+
+
 def get_cdc_map(cur) -> dict:
     """object_key di S_EKKN (EBELN|EBELP|ZEKKN) -> codice SAP del centro di costo (un solo codice valido)."""
     if not table_exists(cur, "ref", CDC_TRASCO):
@@ -147,13 +217,16 @@ def ebeln_col(cols):
     return next(c for c in cols if c.split("(")[0] == "EBELN")
 
 
-def fetch_table_csv(cur, table, source_name, cols, cdc_map, orders=None, supplier_map=None) -> tuple[bytes, int]:
+def fetch_table_csv(cur, table, source_name, cols, cdc_map, orders=None, supplier_map=None,
+                    incoterm_map=None, filled=None) -> tuple[bytes, int]:
     cur.execute(f'SELECT {", ".join(q(c) for c in cols)} FROM raw.{q(table)} WHERE "_source" = %s ORDER BY 1',
                 (source_name,))
     rows = cur.fetchall()
     if orders is not None:
         idx = cols.index(ebeln_col(cols))
         rows = [row for row in rows if (row[idx] or "").strip() in orders]
+    if table == MASTER_TABLE and incoterm_map:   # con il codice fornitore del vecchio ERP
+        rows = fill_incoterms(cols, rows, incoterm_map, source_name, filled)
     if table == MASTER_TABLE and supplier_map:
         rows = transcode_supplier(cols, rows, supplier_map, source_name)
     if table == PO_ACCOUNT_TABLE and cdc_map:
@@ -175,18 +248,20 @@ def fetch_table_csv(cur, table, source_name, cols, cdc_map, orders=None, supplie
     return buf.getvalue().encode("utf-8"), len(rows)
 
 
-def build_zip(cur, source_name, cols_map, cdc_map, supplier_map, orders=None) -> bytes:
+def build_zip(cur, source_name, cols_map, cdc_map, supplier_map, orders=None,
+              incoterm_map=None, filled=None) -> bytes:
     """ZIP con le tabelle del flusso (orders: solo questi numeri d'ordine, None = tutti)."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for table, cols in cols_map.items():
-            csv_bytes, n_rows = fetch_table_csv(cur, table, source_name, cols, cdc_map, orders, supplier_map)
+            csv_bytes, n_rows = fetch_table_csv(cur, table, source_name, cols, cdc_map, orders, supplier_map,
+                                                incoterm_map, filled)
             if n_rows:
                 zf.writestr(f"{table}.csv", csv_bytes)
     return buf.getvalue()
 
 
-def write_test_zip(cur, source_name, cols_map, cdc_map, supplier_map, orders: set):
+def write_test_zip(cur, source_name, cols_map, cdc_map, supplier_map, orders: set, incoterm_map=None):
     """Estrazione ristretta: rimuove lo ZIP di test precedente e scrive quello con i soli ordini indicati."""
     test_path = output_zip_path(TEST_DIR, source_name)   # rimuove anche il precedente
     if not orders:
@@ -202,7 +277,7 @@ def write_test_zip(cur, source_name, cols_map, cdc_map, supplier_map, orders: se
         log.info("  [TEST] %s: nessun ordine dell'elenco — ZIP di test non generato", source_name)
         return
     log.info("=== Estrazione ristretta (test): %d ordini ===", len(found))
-    zip_bytes = build_zip(cur, source_name, cols_map, cdc_map, supplier_map, found)
+    zip_bytes = build_zip(cur, source_name, cols_map, cdc_map, supplier_map, found, incoterm_map)
     os.makedirs(TEST_DIR, exist_ok=True)
     with open(test_path, "wb") as f:
         f.write(zip_bytes)
@@ -229,14 +304,18 @@ def main():
             orders = get_order_filter(cur)
             # Opzione "codice BP originale": LIFNR(*) resta il codice del vecchio ERP
             supplier_map = {} if original_codes() else get_supplier_map(cur)
+            incoterm_map = get_incoterm_map(cur)
             for source_name in sources:
                 log.info("=== Generazione ZIP: %s ===", source_name)
-                zip_bytes = build_zip(cur, source_name, cols_map, cdc_map, supplier_map)
+                filled = []
+                zip_bytes = build_zip(cur, source_name, cols_map, cdc_map, supplier_map,
+                                      incoterm_map=incoterm_map, filled=filled)
+                write_incoterm_report(source_name, filled)
                 output_path = output_zip_path(OUTPUT_DIR, source_name)
                 with open(output_path, "wb") as f:
                     f.write(zip_bytes)
                 log.info("  ✓  %s  (%.1f KB)", output_path, len(zip_bytes) / 1024)
-                write_test_zip(cur, source_name, cols_map, cdc_map, supplier_map, orders)
+                write_test_zip(cur, source_name, cols_map, cdc_map, supplier_map, orders, incoterm_map)
     finally:
         conn.close()
     log.info("=== export_ordini_acquisto_zip completato ===")

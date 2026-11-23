@@ -231,6 +231,30 @@ CDC_TRASCO       = "SAP_TRASCO_CDC"     # COD_DBCOGE + DIV -> COD_SAP_DEF
 PO_ACCOUNT_KEY   = ('x."EBELN(k/*)" || \'|\' || x."EBELP(k/*)" || \'|\' || x."ZEKKN(k/*)"')
 
 
+# Ordini di acquisto (DM27): Incoterm vuoti di S_EKKO presi dall'anagrafica del fornitore
+# (organizzazione acquisti del BP), in quest'ordine di priorità
+PO_INCOTERM_BP_TABLES = ["S_SUPPL_PURCHASING#ZBP_OrganAcq", "S_SUPPL_PURCHASING#ZBP_AddOrganAcq"]
+
+
+def po_bp_incoterms_sql(cur) -> str | None:
+    """
+    Incoterm del fornitore per organizzazione acquisti, dalle tabelle di PO_INCOTERM_BP_TABLES caricate
+    (la prima che ha la coppia vince): colonne lifnr (codice del vecchio ERP), ekorg, inco1, inco2,
+    src (nome breve della tabella, es. ZBP_OrganAcq). Solo righe con INCO1 valorizzato.
+    None se nessuna tabella è caricata.
+    """
+    parts = [f"""SELECT {prio} AS prio, '{t.split('#')[-1]}' AS src, TRIM("LIFNR(k/*)") AS lifnr,
+                        TRIM("EKORG(k/*)") AS ekorg, TRIM("INCO1") AS inco1, NULLIF(TRIM("INCO2"), '') AS inco2
+                 FROM raw."{t}" WHERE COALESCE(TRIM("INCO1"), '') <> ''"""
+             for prio, t in enumerate(PO_INCOTERM_BP_TABLES) if table_exists(cur, "raw", t)]
+    if not parts:
+        return None
+    return f"""
+SELECT DISTINCT ON (lifnr, ekorg) lifnr, ekorg, inco1, inco2, src
+FROM ({' UNION ALL '.join(parts)}) b
+ORDER BY lifnr, ekorg, prio"""
+
+
 def po_cdc_sql() -> str:
     """
     Righe di S_EKKN con KOSTL valorizzato e la trascodifica del centro di costo DBCOGE nel codice SAP:
