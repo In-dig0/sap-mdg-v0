@@ -174,6 +174,15 @@ def api_raw_sources():
     except Exception as e:
         return [], str(e)
 
+def api_ref_tables():
+    """GET /db/ref/tables — tabelle SAP dello schema ref con righe, ultimo caricamento e file."""
+    try:
+        r = api.get(f"{API_BASE}/db/ref/tables", timeout=60)
+        r.raise_for_status()
+        return r.json(), None
+    except Exception as e:
+        return {}, str(e)
+
 def api_delete_raw_source(source: str):
     """DELETE /db/raw/sources/{source} — elimina da raw (e i NEW orfani in stg) i dati di uno ZIP."""
     try:
@@ -579,6 +588,50 @@ with tab_ctrl:
                         _, e = api_delete_semaphore()
                         st.toast("Semaforo rimosso" if not e else f"Errore: {e}")
                         st.rerun()
+
+    # ── 5. Tabelle SAP caricate (schema ref) ─────────────────────────────
+    with st.expander("🗃️ Tabelle SAP caricate (schema ref)", expanded=False):
+        st.caption("Tabelle di controllo SAP caricate dai file XLSX di **in_source_sap**. "
+                   "Se il file non è più nella cartella, la pipeline non ricarica la tabella e usa "
+                   "i dati dell'ultimo caricamento: togliere i file che non cambiano rende il run più veloce.")
+        ref_data, err = api_ref_tables()
+        if err:
+            st.error(f"Impossibile leggere le tabelle ref: {err}")
+        elif not ref_data.get("tables"):
+            st.info("Nessuna tabella nello schema ref: al primo run servono i file XLSX in in_source_sap.")
+        else:
+            ref_df = pd.DataFrame(ref_data["tables"])
+            ref_df["loaded_at"] = (pd.to_datetime(ref_df["loaded_at"], utc=True, errors="coerce")
+                                   .dt.tz_convert("Europe/Rome"))
+            ref_df["file_in_cartella"] = ref_df["file"].notna()
+            loaded = ref_df[ref_df["rows"] > 0]
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Tabelle caricate", len(loaded))
+            m2.metric("Righe totali", f"{int(loaded['rows'].sum()):,}".replace(",", "."))
+            m3.metric("Con file in cartella", int(loaded["file_in_cartella"].sum()))
+            oldest = loaded["loaded_at"].min()
+            m4.metric("Caricamento più vecchio",
+                      oldest.strftime("%d/%m/%Y") if pd.notna(oldest) else "—")
+
+            show_empty = st.toggle("Mostra anche le tabelle vuote", value=False, key="ref_show_empty",
+                                   help="Tabelle senza righe: residui di caricamenti di prova o file vuoti.")
+            view = ref_df if show_empty else loaded
+            st.dataframe(
+                view[["table", "rows", "loaded_at", "file_in_cartella", "source"]],
+                hide_index=True, use_container_width=True,
+                column_config={
+                    "table":            st.column_config.TextColumn("Tabella"),
+                    "rows":             st.column_config.NumberColumn("Righe", format="localized"),
+                    "loaded_at":        st.column_config.DatetimeColumn("Ultimo caricamento",
+                                                                        format="DD/MM/YYYY HH:mm"),
+                    "file_in_cartella": st.column_config.CheckboxColumn(
+                        "File in cartella", help="File XLSX presente in in_source_sap: ricaricato a ogni run"),
+                    "source":           st.column_config.TextColumn("File di origine"),
+                },
+            )
+            if ref_data.get("files_without_table"):
+                st.warning("File in in_source_sap non ancora caricati (verranno caricati al prossimo run): "
+                           + ", ".join(ref_data["files_without_table"]))
 
 
 # ===========================================================================

@@ -1671,6 +1671,53 @@ def list_raw_sources():
         raise HTTPException(status_code=503, detail=f"Errore DB durante la lettura delle sorgenti raw: {e}")
 
 
+@app.get("/db/ref/tables", tags=["Database"])
+def list_ref_tables():
+    """
+    Tabelle SAP dello schema ref dell'ambiente: righe, data dell'ultimo caricamento e presenza
+    del file XLSX in in_source_sap. Senza il file la pipeline non ricarica la tabella e usa
+    i dati dell'ultimo caricamento (ingest_xlsx_to_ref).
+    """
+    try:
+        conn = get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT t.table_name,
+                   bool_or(c.column_name = '_loaded_at'),
+                   bool_or(c.column_name = '_source')
+            FROM information_schema.tables t
+            JOIN information_schema.columns c
+              ON c.table_schema = t.table_schema AND c.table_name = t.table_name
+            WHERE t.table_schema = 'ref' AND t.table_type = 'BASE TABLE'
+            GROUP BY 1 ORDER BY 1
+        """)
+        tables = cur.fetchall()
+        sap_dir = env_path(SAP_PATH)
+        files = ({p.stem: p.name for p in sap_dir.iterdir()
+                  if p.is_file() and p.suffix.lower() in (".xlsx", ".xls")}
+                 if sap_dir.is_dir() else {})
+        result = []
+        for table, has_loaded, has_source in tables:
+            qt = psycopg2.extensions.quote_ident(table, cur)
+            loaded_expr = 'MAX("_loaded_at")' if has_loaded else "NULL"
+            source_expr = 'MAX("_source")' if has_source else "NULL"
+            cur.execute(f"SELECT COUNT(*), {loaded_expr}, {source_expr} FROM ref.{qt}")
+            rows, loaded_at, source = cur.fetchone()
+            result.append({
+                "table":     table,
+                "rows":      rows,
+                "loaded_at": loaded_at.isoformat() if loaded_at else None,
+                "source":    source,
+                "file":      files.get(table),
+            })
+        cur.close()
+        conn.close()
+        return {"folder": str(sap_dir), "tables": result,
+                "files_without_table": sorted(set(files) - {t[0] for t in tables})}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Errore DB durante la lettura delle tabelle ref: {e}")
+
+
 @app.delete("/db/raw/sources/{source}", tags=["Database"])
 def delete_raw_source(source: str):
     """
