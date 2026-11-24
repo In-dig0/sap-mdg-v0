@@ -23,6 +23,9 @@ description: >
   non è applicato; con il codice BP originale KUNNR resta il codice del vecchio ERP.
   Le righe di clienti assenti dall'anagrafica (raw S_CUST_GEN#ZBP-DatiGenerali
   e S_CUST_GEN#ZDM-DatiGenerali) sono escluse e scritte in <tabella>_discarded.xlsx.
+  Codici già SAP: in questi file il cliente può arrivare con il BP SAP (PARTNER di
+  ref.SAP_EXPORT_BUT000, es. 0001000084). Questi codici non sono orfani, restano invariati
+  nello ZIP e gli interlocutori prendono i dati anagrafici dal cliente ERP con BU_SORT2.
   ZBP-AddInterlocutoreCli: esclusi (negli scarti) anche i codici presenti solo come
   destinatari merci (ZDM e non ZBP). Negli interlocutori (S_CUST_CONT#ZBP-AddInterlocutore)
   le email E_MAIL_B/E_MAIL sono in minuscolo; COUNTRY e REGION vengono dall'anagrafica
@@ -49,7 +52,7 @@ from prd_export_clienti_zip import (
     fetch_table_csv, write_discarded_csv, ADD_FLOW, ADD_MOVED_TABLES,
     get_export_filter, write_test_zip, get_but000_map,
     get_exclude_add, already_in_sap_rows, write_already_in_sap, write_output_zip,
-    TEST_DIR, already_in_sap_path,
+    TEST_DIR, already_in_sap_path, BUT000_TABLE,
 )
 from prd_merge_lib import exclusion_enabled
 from prd_output_lib import zip_stem, full_extraction, original_codes
@@ -166,13 +169,25 @@ def get_flow_sources(conn, flow: str, tables: list[str]) -> list[str]:
     return sorted(sources)
 
 
+def get_sap_partners(conn) -> set:
+    """BP SAP esistenti (PARTNER di ref.SAP_EXPORT_BUT000); vuoto se la tabella non è caricata."""
+    if not table_exists(conn, "ref", BUT000_TABLE):
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(f'SELECT DISTINCT TRIM("PARTNER") FROM ref.{q(BUT000_TABLE)} '
+                    f'WHERE COALESCE(TRIM("PARTNER"), \'\') <> \'\'')
+        return {r[0] for r in cur.fetchall()}
+
+
 def get_orphan_keys(conn, source_name: str, tables: list[str]) -> set:
-    """Clienti presenti nelle tabelle del flusso ma in nessuna anagrafica clienti."""
+    """Clienti presenti nelle tabelle del flusso ma in nessuna anagrafica clienti e non già BP SAP."""
     masters = [t for t in MASTER_TABLES if table_exists(conn, "raw", t)]
-    not_in_master = " AND ".join(
-        f'NOT EXISTS (SELECT 1 FROM raw.{q(m)} mst WHERE mst.{q(KEY_COL)} = x.{q(KEY_COL)})'
-        for m in masters
-    ) or "TRUE"
+    conds = [f'NOT EXISTS (SELECT 1 FROM raw.{q(m)} mst WHERE mst.{q(KEY_COL)} = x.{q(KEY_COL)})'
+             for m in masters]
+    if table_exists(conn, "ref", BUT000_TABLE):   # codice già SAP: non è un orfano
+        conds.append(f'NOT EXISTS (SELECT 1 FROM ref.{q(BUT000_TABLE)} b '
+                     f'WHERE TRIM(b."PARTNER") = TRIM(x.{q(KEY_COL)}))')
+    not_in_master = " AND ".join(conds) or "TRUE"
     orphans = set()
     with conn.cursor() as cur:
         for table in tables:
@@ -227,7 +242,10 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
     # l'estrazione "full"
     done_map  = {} if full_extraction() else {c: sap_codes.get(c, "") for c in get_exclude_add(conn)}
     # Codice BP originale: nessuna trascodifica (mappa identità, così CK425 resta valido)
-    code_map  = {c: c for c in sap_codes} if original_codes() else sap_codes
+    code_map  = {c: c for c in sap_codes} if original_codes() else dict(sap_codes)
+    # Codici che sono già BP SAP: restano invariati (e non sono "senza trascodifica" per CK425)
+    partners  = get_sap_partners(conn)
+    code_map.update({p: p for p in partners})
     excluded  = []
 
     # Esclusioni attive nel catalogo: CK518/CK519 clienti assenti dall'anagrafica, CK426 codici
@@ -255,7 +273,12 @@ def build_zip(conn, source_name: str, tables: list[str], key_filter: set | None 
         if dm_keys:
             log.warning("  *** %d destinatari merci (non clienti) esclusi da '%s': %s",
                         len(dm_keys), source_name, sorted(dm_keys))
-        contact_fn = contact_row_fn(get_customer_data(conn))
+        customers = get_customer_data(conn)
+        # Interlocutori con il codice SAP: dati del cliente ERP corrispondente (BU_SORT2)
+        for old, partner in sap_codes.items():
+            if partner in partners and old in customers:
+                customers.setdefault(partner, customers[old])
+        contact_fn = contact_row_fn(customers)
 
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for raw_table in tables:

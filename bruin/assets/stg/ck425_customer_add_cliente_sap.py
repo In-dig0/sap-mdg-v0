@@ -8,6 +8,7 @@ description: >
   CK425 — CROSS_SOURCE: Dati dei clienti caricati dopo la creazione del cliente (03b dati
   aggiuntivi e interlocutori, 07a gestione credito): il cliente KUNNR(k/*) deve essere già in
   SAP (ref.SAP_EXPORT_BUT000, BU_SORT2), perché nello ZIP il codice è sostituito con quello SAP.
+  Un codice che è già un BP SAP (PARTNER di BUT000, es. 0001000084) è valido così com'è.
   Con l'esclusione dall'output attiva nel catalogo le righe non sono esportate
   (prd.export_clienti_add_zip, file discarded/). Un esito per cliente e tabella.
   Saltato se BUT000 non è caricata.
@@ -41,8 +42,11 @@ WHERE x."_source" ILIKE '{flow}' AND COALESCE(TRIM(x."KUNNR(k/*)"), '') <> ''"""
              for t, flow in TABLES.items() if table_exists(cur, "raw", t)]
     if not parts:
         return None
-    return ("""WITH customers AS (SELECT DISTINCT TRIM("BU_SORT2") AS kunnr FROM ref."SAP_EXPORT_BUT000"
-                   WHERE COALESCE(TRIM("BU_SORT2"), '') <> '')""" + "\nUNION ALL".join(parts))
+    return ("""WITH customers AS (SELECT TRIM("BU_SORT2") AS kunnr FROM ref."SAP_EXPORT_BUT000"
+                   WHERE COALESCE(TRIM("BU_SORT2"), '') <> ''
+                   UNION   -- codici che sono già BP SAP
+                   SELECT TRIM("PARTNER") FROM ref."SAP_EXPORT_BUT000"
+                   WHERE COALESCE(TRIM("PARTNER"), '') <> '')""" + "\nUNION ALL".join(parts))
 
 
 if __name__ == "__main__":

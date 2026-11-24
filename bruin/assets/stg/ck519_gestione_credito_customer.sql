@@ -7,7 +7,8 @@ description: >
   CK519 — CROSS_SOURCE: Clienti, gestione credito (rischio e fido) (file ZIP il cui nome contiene "ZBP-GestioneCredito"):
   ogni KUNNR(k/*) delle tabelle S_UKM_PROFILE#ZBP-Rischio, S_UKM_SEGMENT#ZBP-Fido
   deve essere presente in almeno una delle anagrafiche clienti
-  raw.S_CUST_GEN#ZBP-DatiGenerali oppure raw.S_CUST_GEN#ZDM-DatiGenerali.
+  raw.S_CUST_GEN#ZBP-DatiGenerali oppure raw.S_CUST_GEN#ZDM-DatiGenerali, oppure essere già un BP
+  SAP (PARTNER di ref.SAP_EXPORT_BUT000): in questi file il cliente può arrivare con il codice SAP.
   Un esito per cliente e per tabella.
 connection: mdg_postgres
 @bruin */
@@ -38,30 +39,15 @@ SELECT
     'BP'                                         AS category,
     f.kunnr                                      AS object_key,
     'CK519'                                      AS check_id,
-    CASE
-        WHEN NOT EXISTS (
-            SELECT 1 FROM raw."S_CUST_GEN#ZBP-DatiGenerali" zbp
-            WHERE zbp."KUNNR(k/*)" = f.kunnr
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM raw."S_CUST_GEN#ZDM-DatiGenerali" zdm
-            WHERE zdm."KUNNR(k/*)" = f.kunnr
-        )
-            THEN 'Cliente [' || f.kunnr || '] presente in ' || f.source_table
-                 || ' ma non in S_CUST_GEN#ZBP-DatiGenerali né in S_CUST_GEN#ZDM-DatiGenerali'
-        ELSE 'Ok'
+    CASE WHEN m.missing
+         THEN 'Cliente [' || f.kunnr || '] presente in ' || f.source_table
+              || ' ma non in S_CUST_GEN#ZBP-DatiGenerali né in S_CUST_GEN#ZDM-DatiGenerali'
+              || ' e non è un BP SAP (SAP_EXPORT_BUT000)'
+         ELSE 'Ok'
     END                                          AS message,
-    CASE
-        WHEN NOT EXISTS (
-            SELECT 1 FROM raw."S_CUST_GEN#ZBP-DatiGenerali" zbp
-            WHERE zbp."KUNNR(k/*)" = f.kunnr
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM raw."S_CUST_GEN#ZDM-DatiGenerali" zdm
-            WHERE zdm."KUNNR(k/*)" = f.kunnr
-        )
-            THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK519')
-        ELSE 'Ok'
+    CASE WHEN m.missing
+         THEN (SELECT severity FROM stg.check_catalog WHERE check_id = 'CK519')
+         ELSE 'Ok'
     END                                          AS status,
     (SELECT run_id::integer FROM stg.pipeline_runs
      WHERE status = 'running'
@@ -69,6 +55,12 @@ SELECT
     f.zip_source                                 AS zip_source,
     NOW()                                        AS created_at
 FROM clienti_flusso f
+CROSS JOIN LATERAL (
+    SELECT NOT EXISTS (SELECT 1 FROM raw."S_CUST_GEN#ZBP-DatiGenerali" zbp WHERE zbp."KUNNR(k/*)" = f.kunnr)
+       AND NOT EXISTS (SELECT 1 FROM raw."S_CUST_GEN#ZDM-DatiGenerali" zdm WHERE zdm."KUNNR(k/*)" = f.kunnr)
+       AND NOT EXISTS (SELECT 1 FROM ref."SAP_EXPORT_BUT000" b WHERE TRIM(b."PARTNER") = TRIM(f.kunnr))
+       AS missing
+) m
 WHERE (
     SELECT COALESCE(is_active, FALSE)
     FROM stg.check_catalog WHERE check_id = 'CK519'
