@@ -13,6 +13,9 @@ description: >
   riepilogo in report/<nome ZIP>_gia_in_SAP.xlsx (righe escluse per tabella ed elenco dei
   materiali). Non esclusi con l'estrazione "full" della pagina Gestione pipeline o se
   SAP_EXPORT_MARC non è caricata.
+  CK016 (tipo materiale obbligatorio e presente in SAP_EXPORT_T134): con l'esclusione dall'output
+  attiva nel catalogo (default disattivata) i materiali segnalati sono esclusi da tutte le tabelle
+  dello ZIP e scritti in discarded/<tabella>_discarded.xlsx (solo quelli non già in SAP).
   Il CSV usa separatore ";" e non include colonne audit.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
   Se non ci sono materiali non viene creato nulla. Il vecchio file a nome fisso
@@ -20,6 +23,7 @@ description: >
 depends:
   - ingestion.ingest_zip_to_raw   # prima girava a inizio pipeline, su raw non ancora caricata
   - ingestion.ingest_xlsx_to_ref  # SAP_EXPORT_MARC: materiali già migrati in SAP
+  - stg.ck016_mara_mtart          # esclusione dall'output dei materiali con tipo materiale non valido
 @bruin """
 
 import os
@@ -33,7 +37,8 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_output_lib import output_zip_path, full_extraction
-from prd_discard_lib import REPORT_DIR, write_xlsx
+from prd_discard_lib import REPORT_DIR, write_xlsx, add_discards, flush_discards, reset_discards
+from prd_merge_lib import exclusion_enabled
 
 logging.basicConfig(
     level=logging.INFO,
@@ -51,6 +56,7 @@ LEGACY_OUTPUT = "DM08_MATERIALI.zip"       # vecchio nome fisso, non più genera
 AUDIT_COLS  = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"}
 SAP_MARC    = "SAP_EXPORT_MARC"            # materiali già migrati in SAP (MATNR)
 MATERIAL_COLS = ("PRODUCT(k/*)", "MATNR(k/*)", "MATNR")   # colonna del materiale nelle tabelle
+EXCLUSION_CHECKS = ["CK016"]               # check con esclusione dall'output dei materiali
 
 RAW_TABLES = [
     "S_MARA",
@@ -122,13 +128,64 @@ def load_sap_materials(conn) -> bool:
     return True
 
 
-def fetch_table_csv(conn, table, cols, source_name, exclude_sap=False):
+def load_check_exclusions(conn) -> dict:
+    """
+    Materiali da escludere per i check con esclusione dall'output attiva (EXCLUSION_CHECKS):
+    tabella temporanea ck_mat (matnr, check_id, message). Restituisce {check_id: n. materiali}.
+    """
+    counts = {}
+    with conn.cursor() as cur:
+        cur.execute("""CREATE TEMP TABLE IF NOT EXISTS ck_mat (matnr TEXT, check_id TEXT, message TEXT)
+                       ON COMMIT PRESERVE ROWS; TRUNCATE ck_mat""")
+        for check_id in EXCLUSION_CHECKS:
+            if not exclusion_enabled(cur, check_id):
+                continue
+            cur.execute("""
+                INSERT INTO ck_mat
+                SELECT DISTINCT ON (TRIM(object_key)) TRIM(object_key), check_id, message
+                FROM stg.check_results
+                WHERE check_id = %s AND status <> 'Ok'
+                  AND run_id = (SELECT MAX(run_id) FROM stg.check_results WHERE check_id = %s)
+                ORDER BY TRIM(object_key)
+            """, (check_id, check_id))
+            counts[check_id] = cur.rowcount
+            if cur.rowcount:
+                log.warning("  *** [%s] %d materiali ESCLUSI dall'output (esclusione attiva nel catalogo)",
+                            check_id, cur.rowcount)
+        cur.execute("ANALYZE ck_mat")
+    return counts
+
+
+def discard_check_exclusions(conn, table, cols, source_name, exclude_sap=False):
+    """Righe dei materiali esclusi dai check (non già in SAP) negli scarti della tabella."""
+    mat = material_col(cols)
+    if not mat:
+        return
+    not_sap = (f" AND NOT EXISTS (SELECT 1 FROM sap_mat s WHERE s.matnr = TRIM(x.{q(mat)}))"
+               if exclude_sap else "")
+    with conn.cursor() as cur:
+        cur.execute(
+            f'SELECT c.check_id, c.message, {", ".join("x." + q(c) for c in cols)} '
+            f'FROM raw.{q(table)} x JOIN ck_mat c ON c.matnr = TRIM(x.{q(mat)}) '
+            f'WHERE x."_source" = %s{not_sap} ORDER BY 3',
+            (source_name,))
+        rows = cur.fetchall()
+    for check_id in sorted({r[0] for r in rows}):
+        sel = [r for r in rows if r[0] == check_id]
+        messages = {tuple(r[2:]): r[1] for r in sel}
+        add_discards(table, cols, [list(r[2:]) for r in sel], check_id,
+                     lambda row, m=messages: m.get(tuple(row), ""))
+
+
+def fetch_table_csv(conn, table, cols, source_name, exclude_sap=False, exclude_checks=False):
     fqt      = "raw." + q(table)
     col_list = ", ".join(q(c) for c in cols)
     mat      = material_col(cols)
     where    = ""
     if exclude_sap and mat:
         where = f" AND NOT EXISTS (SELECT 1 FROM sap_mat s WHERE s.matnr = TRIM({q(mat)}))"
+    if exclude_checks and mat:
+        where += f" AND NOT EXISTS (SELECT 1 FROM ck_mat c WHERE c.matnr = TRIM({q(mat)}))"
     with conn.cursor() as cur:
         cur.execute(
             f'SELECT {col_list} FROM {fqt} WHERE "_source" = %s{where} ORDER BY 1',
@@ -182,7 +239,7 @@ def write_already_in_sap(conn, source_name, cols_map):
              len(materials), source_name, SAP_MARC, path)
 
 
-def build_zip(conn, source_name, cols_map, exclude_sap=False):
+def build_zip(conn, source_name, cols_map, exclude_sap=False, exclude_checks=False):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for table in RAW_TABLES:
@@ -190,7 +247,9 @@ def build_zip(conn, source_name, cols_map, exclude_sap=False):
             if not cols:
                 log.warning("  SKIP raw.%s — tabella non trovata o senza colonne", table)
                 continue
-            csv_bytes = fetch_table_csv(conn, table, cols, source_name, exclude_sap)
+            if exclude_checks:
+                discard_check_exclusions(conn, table, cols, source_name, exclude_sap)
+            csv_bytes = fetch_table_csv(conn, table, cols, source_name, exclude_sap, exclude_checks)
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
                 log.info("  raw.%s: 0 righe — skip", table)
@@ -211,6 +270,7 @@ def remove_legacy_output(sources):
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    reset_discards(RAW_TABLES)
     conn = get_connection()
     try:
         if not table_exists(conn, MASTER_TABLE):
@@ -235,6 +295,7 @@ def main():
                 log.warning("  raw.%s — tabella non trovata, verra omessa.", table)
 
         exclude_sap = load_sap_materials(conn)
+        exclude_checks = any(load_check_exclusions(conn).values())
         log.info("Sorgenti trovate: %s", sources)
         for source_name in sources:
             log.info("=== Generazione ZIP: %s ===", source_name)
@@ -242,7 +303,7 @@ def main():
                 write_already_in_sap(conn, source_name, cols_map)
             elif os.path.exists(already_in_sap_path(source_name)):
                 os.remove(already_in_sap_path(source_name))
-            zip_bytes   = build_zip(conn, source_name, cols_map, exclude_sap)
+            zip_bytes   = build_zip(conn, source_name, cols_map, exclude_sap, exclude_checks)
             output_path = output_zip_path(OUTPUT_DIR, source_name)
             if not zipfile.ZipFile(io.BytesIO(zip_bytes)).namelist():
                 log.warning("  ✗  %s: nessun materiale da esportare (tutti già in SAP) — ZIP non generato",
@@ -251,6 +312,7 @@ def main():
             with open(output_path, "wb") as f:
                 f.write(zip_bytes)
             log.info("  ✓  %s  (%.1f KB)", output_path, len(zip_bytes) / 1024)
+        flush_discards()
     finally:
         conn.close()
     log.info("=== export_materiali_zip completato ===")

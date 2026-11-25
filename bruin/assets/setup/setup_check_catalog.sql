@@ -633,7 +633,8 @@ DELETE FROM stg.check_catalog WHERE check_id IN ('CK202', 'CK204', 'CK029');
 --   CK424                    fornitori 05a                  (prd.export_suppliers_zip)
 --   CK531-CK535              info record cliente-materiale  (prd.export_custmat_zip)
 --   CK527 distinte base (prd.export_bom_zip), CK528 info record (prd.export_inforecord_zip) e
---   CK537 operazioni dei cicli (prd.export_cicli_lavoro_zip): supportati, default disattivato.
+--   CK537 operazioni dei cicli (prd.export_cicli_lavoro_zip) e CK016 tipo materiale
+--   (prd.export_materiali_zip): supportati, default disattivato.
 UPDATE stg.check_catalog
 SET exclude_supported = check_id IN (
         'CK034', 'CK506', 'CK511', 'CK525',
@@ -642,7 +643,7 @@ SET exclude_supported = check_id IN (
         'CK048', 'CK056', 'CK213', 'CK802',
         'CK220', 'CK404', 'CK403', 'CK526',
         'CK518', 'CK519', 'CK422', 'CK423', 'CK424', 'CK425', 'CK426', 'CK421',
-        'CK527', 'CK528', 'CK531', 'CK532', 'CK533', 'CK534', 'CK535', 'CK537'),
+        'CK527', 'CK528', 'CK531', 'CK532', 'CK533', 'CK534', 'CK535', 'CK537', 'CK016'),
     exclude_output = check_id IN (
         'CK034', 'CK506', 'CK511', 'CK525',
         'CK051', 'CK052', 'CK402', 'CK418', 'CK420',
