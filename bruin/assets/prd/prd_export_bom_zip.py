@@ -12,12 +12,16 @@ description: >
   distinte con materiale padre o un componente non ancora migrati in SAP non sono esportate:
   testata e tutte le posizioni (chiave MATNR, WERKS, STLAN, STLAL) finiscono in
   <tabella>_discarded.xlsx.
+  Allo stesso modo con l'esclusione dall'output di CK505 attiva (default: disattivata): le distinte
+  con almeno un componente non esteso alla divisione in S_MARC non sono esportate (testata e tutte
+  le posizioni, non solo la posizione con il problema).
   Il CSV usa separatore ";" e non include colonne audit.
   Un ZIP separato per ogni valore distinto di _source.
   Output: /project/datalake/out_source_mdg/<_source>
 depends:
   - stg.ck406_bom_item_header_orphans
   - stg.ck527_bom_materiale_in_sap_marc
+  - stg.ck505_bom_item_in_marc
 @bruin """
 
 import os
@@ -80,18 +84,30 @@ def table_exists(conn, table):
         return cur.fetchone() is not None
 
 
-def get_excluded_boms(conn):
+# Check che escludono l'intera distinta (testata e posizioni) e motivo negli scarti
+BOM_EXCLUSION_CHECKS = {
+    "CK527": "Distinta con materiale padre o componente non migrato in SAP nella divisione",
+    "CK505": "Distinta con componente non esteso alla divisione nell'anagrafica materiali (S_MARC)",
+}
+
+
+def get_excluded_boms(conn) -> dict:
     """
-    Chiavi MATNR|WERKS|STLAN|STLAL delle distinte con un esito non Ok di CK527 (testata o
-    posizione), se l'esclusione dall'output di CK527 è attiva nel catalogo.
+    Chiave MATNR|WERKS|STLAN|STLAL -> (check, motivo) delle distinte con un esito non Ok
+    (testata o posizione) dei check di BOM_EXCLUSION_CHECKS con l'esclusione dall'output attiva.
+    Una distinta segnalata da più check prende il primo.
     """
+    boms = {}
     with conn.cursor() as cur:
-        if not exclusion_enabled(cur, "CK527"):
-            return set()
-        boms = {"|".join(key.split("|")[:len(BOM_KEY_COLS)]) for key in failing_keys(cur, "CK527")}
-    if boms:
-        log.warning("  *** [CK527] %d distinte base ESCLUSE (testata e posizioni): materiale padre o "
-                    "componente non ancora migrato in SAP", len(boms))
+        for check_id, reason in BOM_EXCLUSION_CHECKS.items():
+            if not exclusion_enabled(cur, check_id):
+                continue
+            keys = {"|".join(key.split("|")[:len(BOM_KEY_COLS)]) for key in failing_keys(cur, check_id)}
+            new = keys - boms.keys()
+            boms.update({k: (check_id, reason) for k in new})
+            if keys:
+                log.warning("  *** [%s] %d distinte base ESCLUSE (testata e posizioni): %s",
+                            check_id, len(keys), reason)
     return boms
 
 
@@ -105,10 +121,10 @@ def fetch_table_csv(conn, table, source_name, cols, excluded):
         idx = [cols.index(c) for c in BOM_KEY_COLS]
         bom_key = lambda row: "|".join(row[i] or "" for i in idx)
         discarded = [row for row in rows if bom_key(row) in excluded]
-        if discarded:
-            add_discards(table, cols, discarded, "CK527",
-                         "Distinta con materiale padre o componente non migrato in SAP nella divisione")
-            rows = [row for row in rows if bom_key(row) not in excluded]
+        for check_id in sorted({excluded[bom_key(r)][0] for r in discarded}):
+            sel = [r for r in discarded if excluded[bom_key(r)][0] == check_id]
+            add_discards(table, cols, sel, check_id, excluded[bom_key(sel[0])][1])
+        rows = [row for row in rows if bom_key(row) not in excluded]
 
     def sanitize(val):
         if val is None: return ""

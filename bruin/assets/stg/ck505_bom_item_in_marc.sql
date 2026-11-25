@@ -6,7 +6,9 @@ depends:
 description: >
   CK505 — CROSS_SOURCE: Distinte base (S_BOM_ITEM): ogni componente
   (IDNRK + WERKS) deve essere presente nell'anagrafica materiali S_MARC
-  come coppia (PRODUCT(k/*) + WERKS(k/*)).
+  come coppia (PRODUCT(k/*) + WERKS(k/*)). Un esito per posizione, chiave
+  MATNR|WERKS|STLAN|STLAL|ITMID: con l'esclusione dall'output attiva l'intera distinta
+  (testata e tutte le posizioni) non è esportata (prd.export_bom_zip).
 connection: mdg_postgres
 @bruin */
 
@@ -17,8 +19,8 @@ INSERT INTO stg.check_results (
 SELECT
     'S_BOM_ITEM'                                  AS source_table,
     'MAT'                                         AS category,
-    bom."MATNR(k/*)" || '|' ||
-    bom."WERKS(k)"                                AS object_key,
+    bom."MATNR(k/*)" || '|' || bom."WERKS(k)" || '|' || bom."STLAN(k/*)" || '|' ||
+    bom."STLAL(k/*)" || '|' || bom."ITMID(k/*)"   AS object_key,
     'CK505'                                       AS check_id,
     CASE
         WHEN bom."IDNRK" IS NULL OR bom."IDNRK" = ''
