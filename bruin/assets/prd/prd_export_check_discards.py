@@ -32,6 +32,9 @@ depends:
   - stg.ck403_zdm_clienti_orphans
   - stg.ck526_inforecord_lifnr_sap
   - stg.ck527_bom_materiale_in_sap_marc
+  - stg.ck505_bom_item_in_marc
+  - stg.ck016_mara_mtart
+  - stg.ck537_cicli_centro_lavoro_crhd
   - stg.ck528_inforecord_materiale_in_sap_marc
   - stg.ck518_add_interlocutore_cli_customer
   - stg.ck519_gestione_credito_customer
