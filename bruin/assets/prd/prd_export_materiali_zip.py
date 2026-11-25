@@ -16,6 +16,12 @@ description: >
   CK016 (tipo materiale obbligatorio e presente in SAP_EXPORT_T134): con l'esclusione dall'output
   attiva nel catalogo (default disattivata) i materiali segnalati sono esclusi da tutte le tabelle
   dello ZIP e scritti in discarded/<tabella>_discarded.xlsx (solo quelli non già in SAP).
+  CK527 (distinte base con materiale padre o componente non in SAP): con l'esclusione dall'output
+  attiva nel catalogo le distinte non sono esportate (prd.export_bom_zip) e qui il loro materiale
+  padre esce con lo stato "08" (materiale incompleto): S_MARA.MSTAE e S_MVKE.VMSTA su tutto il
+  materiale, S_MARC.MMSTA solo nella divisione della distinta. Solo nel file per SAP (raw invariata);
+  elenco in report/<nome ZIP>_stato_08_CK527.xlsx. Riguarda solo i padri esportati, cioè non già in
+  SAP_EXPORT_MARC (salvo estrazione "full").
   Il CSV usa separatore ";" e non include colonne audit.
   Output: /project/datalake/out_source_mdg/<nome_source>.zip
   Se non ci sono materiali non viene creato nulla. Il vecchio file a nome fisso
@@ -24,6 +30,7 @@ depends:
   - ingestion.ingest_zip_to_raw   # prima girava a inizio pipeline, su raw non ancora caricata
   - ingestion.ingest_xlsx_to_ref  # SAP_EXPORT_MARC: materiali già migrati in SAP
   - stg.ck016_mara_mtart          # esclusione dall'output dei materiali con tipo materiale non valido
+  - stg.ck527_bom_materiale_in_sap_marc  # stato 08 sui padri delle distinte escluse
 @bruin """
 
 import os
@@ -38,7 +45,7 @@ import psycopg2
 sys.path.insert(0, os.path.dirname(__file__))
 from prd_output_lib import output_zip_path, full_extraction
 from prd_discard_lib import REPORT_DIR, write_xlsx, add_discards, flush_discards, reset_discards
-from prd_merge_lib import exclusion_enabled
+from prd_merge_lib import exclusion_enabled, failing_keys
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +64,10 @@ AUDIT_COLS  = {"_source", "_loaded_at", "_status", "_zip_source", "_xlsx_source"
 SAP_MARC    = "SAP_EXPORT_MARC"            # materiali già migrati in SAP (MATNR)
 MATERIAL_COLS = ("PRODUCT(k/*)", "MATNR(k/*)", "MATNR")   # colonna del materiale nelle tabelle
 EXCLUSION_CHECKS = ["CK016"]               # check con esclusione dall'output dei materiali
+# Stato "materiale incompleto" forzato sui padri delle distinte escluse da CK527:
+# tabella -> (colonna dello stato, colonna della divisione o None = tutto il materiale)
+FORCED_STATUS = "08"
+STATUS_COLS = {"S_MARA": ("MSTAE", None), "S_MARC": ("MMSTA", "WERKS(k/*)"), "S_MVKE": ("VMSTA", None)}
 
 RAW_TABLES = [
     "S_MARA",
@@ -177,7 +188,65 @@ def discard_check_exclusions(conn, table, cols, source_name, exclude_sap=False):
                      lambda row, m=messages: m.get(tuple(row), ""))
 
 
-def fetch_table_csv(conn, table, cols, source_name, exclude_sap=False, exclude_checks=False):
+def load_ck527_parents(conn) -> set:
+    """
+    (materiale, divisione) padri delle distinte segnalate da CK527 (testata o posizione), se
+    l'esclusione dall'output di CK527 è attiva: le distinte non sono esportate e il padre esce
+    con lo stato FORCED_STATUS. Chiave dell'esito: MATNR|WERKS|STLAN|STLAL[|ITMID].
+    """
+    with conn.cursor() as cur:
+        if not exclusion_enabled(cur, "CK527"):
+            return set()
+        parents = set()
+        for key in failing_keys(cur, "CK527"):
+            parts = key.split("|")
+            if len(parts) >= 2 and parts[0].strip():
+                parents.add((parts[0].strip(), parts[1].strip()))
+    log.info("  [CK527] %d materiali padre di distinte escluse: stato %s nel file per SAP",
+             len({m for m, _ in parents}), FORCED_STATUS)
+    return parents
+
+
+def force_status(table, cols, rows, parents, changed):
+    """Stato FORCED_STATUS sulle righe dei materiali padre (STATUS_COLS); changed riceve le modifiche."""
+    if not parents or table not in STATUS_COLS:
+        return rows
+    status_col, plant_col = STATUS_COLS[table]
+    mat = material_col(cols)
+    if not mat or status_col not in cols or (plant_col and plant_col not in cols):
+        return rows
+    i_mat, i_st = cols.index(mat), cols.index(status_col)
+    i_pl = cols.index(plant_col) if plant_col else None
+    materials = {m for m, _ in parents}
+    out = []
+    for row in rows:
+        m = (row[i_mat] or "").strip()
+        hit = (m, (row[i_pl] or "").strip()) in parents if plant_col else m in materials
+        if hit and (row[i_st] or "").strip() != FORCED_STATUS:
+            row = list(row)
+            changed.append([table, m, (row[i_pl] or "").strip() if plant_col else "", status_col,
+                            row[i_st] or "", FORCED_STATUS])
+            row[i_st] = FORCED_STATUS
+        out.append(row)
+    return out
+
+
+def write_forced_status(source_name, changed):
+    """report/<ZIP>_stato_08_CK527.xlsx: stati forzati sui padri delle distinte escluse da CK527."""
+    path = os.path.join(REPORT_DIR, f"{os.path.splitext(source_name)[0]}_stato_08_CK527.xlsx")
+    if not changed:
+        if os.path.exists(path):
+            os.remove(path)
+        return
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    write_xlsx(path, [("stato_08", ["TABELLA", "MATERIALE", "DIVISIONE", "CAMPO", "STATO_ORIGINALE",
+                                    "STATO_SAP"], changed)])
+    log.warning("  [CK527] stato %s forzato su %d righe (%d materiali): %s", FORCED_STATUS,
+                len(changed), len({r[1] for r in changed}), path)
+
+
+def fetch_table_csv(conn, table, cols, source_name, exclude_sap=False, exclude_checks=False,
+                    parents=None, changed=None):
     fqt      = "raw." + q(table)
     col_list = ", ".join(q(c) for c in cols)
     mat      = material_col(cols)
@@ -192,6 +261,8 @@ def fetch_table_csv(conn, table, cols, source_name, exclude_sap=False, exclude_c
             (source_name,)
         )
         rows = cur.fetchall()
+    if parents and changed is not None:
+        rows = force_status(table, cols, rows, parents, changed)
 
     def sanitize(val):
         if val is None: return ""
@@ -239,7 +310,8 @@ def write_already_in_sap(conn, source_name, cols_map):
              len(materials), source_name, SAP_MARC, path)
 
 
-def build_zip(conn, source_name, cols_map, exclude_sap=False, exclude_checks=False):
+def build_zip(conn, source_name, cols_map, exclude_sap=False, exclude_checks=False,
+              parents=None, changed=None):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for table in RAW_TABLES:
@@ -249,7 +321,8 @@ def build_zip(conn, source_name, cols_map, exclude_sap=False, exclude_checks=Fal
                 continue
             if exclude_checks:
                 discard_check_exclusions(conn, table, cols, source_name, exclude_sap)
-            csv_bytes = fetch_table_csv(conn, table, cols, source_name, exclude_sap, exclude_checks)
+            csv_bytes = fetch_table_csv(conn, table, cols, source_name, exclude_sap, exclude_checks,
+                                        parents, changed)
             n_rows = csv_bytes.count(b"\r\n") - 1
             if n_rows <= 0:
                 log.info("  raw.%s: 0 righe — skip", table)
@@ -296,6 +369,7 @@ def main():
 
         exclude_sap = load_sap_materials(conn)
         exclude_checks = any(load_check_exclusions(conn).values())
+        parents = load_ck527_parents(conn)
         log.info("Sorgenti trovate: %s", sources)
         for source_name in sources:
             log.info("=== Generazione ZIP: %s ===", source_name)
@@ -303,7 +377,10 @@ def main():
                 write_already_in_sap(conn, source_name, cols_map)
             elif os.path.exists(already_in_sap_path(source_name)):
                 os.remove(already_in_sap_path(source_name))
-            zip_bytes   = build_zip(conn, source_name, cols_map, exclude_sap, exclude_checks)
+            changed     = []
+            zip_bytes   = build_zip(conn, source_name, cols_map, exclude_sap, exclude_checks,
+                                    parents, changed)
+            write_forced_status(source_name, changed)
             output_path = output_zip_path(OUTPUT_DIR, source_name)
             if not zipfile.ZipFile(io.BytesIO(zip_bytes)).namelist():
                 log.warning("  ✗  %s: nessun materiale da esportare (tutti già in SAP) — ZIP non generato",
