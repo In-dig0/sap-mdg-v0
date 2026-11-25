@@ -15,7 +15,7 @@ import pandas as pd
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from mdg_auth import require_login, render_sidebar_menu
-from mdg_env_ui import env_db_name
+from mdg_env_ui import current_env, env_db_name
 from mdg_export import issues_filename, issues_to_xlsx
 
 st.set_page_config(
@@ -27,17 +27,17 @@ st.set_page_config(
 require_login()
 render_sidebar_menu()
 
-def get_db_params():
+def get_db_params(env: str | None = None):
     return {
         "host":     os.environ["POSTGRES_HOST"],
         "port":     os.environ["POSTGRES_PORT"],
-        "dbname":   env_db_name(),           # database dell'ambiente SAP scelto
+        "dbname":   env_db_name(env),        # database dell'ambiente SAP scelto
         "user":     os.environ["POSTGRES_USER"],
         "password": os.environ["POSTGRES_PASSWORD"],
     }
 
-def run_query(sql: str, params=None) -> pd.DataFrame:
-    conn = psycopg2.connect(**get_db_params(), cursor_factory=RealDictCursor)
+def run_query(sql: str, params=None, env: str | None = None) -> pd.DataFrame:
+    conn = psycopg2.connect(**get_db_params(env), cursor_factory=RealDictCursor)
     try:
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -47,8 +47,12 @@ def run_query(sql: str, params=None) -> pd.DataFrame:
         conn.close()
 
 
-def export_issues(check_id: str, source_table: str, description: str, category: str) -> bytes:
-    """Excel dei record in Error/Warning di un controllo (stesso formato della pagina di dettaglio)."""
+def export_issues(check_id: str, source_table: str, description: str, category: str, env: str) -> bytes:
+    """Excel dei record in Error/Warning di un controllo (stesso formato della pagina di dettaglio).
+
+    L'ambiente va passato esplicitamente: il file è generato al clic, fuori dall'esecuzione
+    della pagina, dove st.session_state (e quindi l'ambiente scelto) non è disponibile.
+    """
     df_issues = run_query("""
         SELECT
             object_key  AS "Codice oggetto",
@@ -58,7 +62,7 @@ def export_issues(check_id: str, source_table: str, description: str, category: 
         FROM stg.check_results
         WHERE check_id = %s AND source_table = %s AND status IN ('Error', 'Warning')
         ORDER BY message, object_key
-    """, (check_id, source_table))
+    """, (check_id, source_table), env=env)
     return issues_to_xlsx(df_issues, check_id, description, category)
 
 
@@ -261,9 +265,10 @@ else:
                     st.download_button(
                         "⬇️ Excel errori",
                         # Il file viene generato solo al clic (callable senza argomenti)
-                        data=lambda c=check_id, t=source_table, d=description, g=category:
-                            export_issues(c, t, d, g),
-                        file_name=issues_filename(check_id, source_table),
+                        data=lambda c=check_id, t=source_table, d=description, g=category,
+                                    e=current_env():
+                            export_issues(c, t, d, g, e),
+                        file_name=issues_filename(check_id, source_table, current_env()),
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key=f"xlsx_{check_id}_{source_table}_{category}",
                         use_container_width=True,

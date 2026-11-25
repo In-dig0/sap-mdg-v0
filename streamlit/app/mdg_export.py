@@ -9,9 +9,11 @@ from datetime import date
 import pandas as pd
 
 
-def issues_filename(check_id: str, source_table: str) -> str:
-    """Nome del file Excel: controllo, tabella di controllo e data (es. CK518-S_CUST_CONT#ZBP-AddInterlocutore_20261023.xlsx)."""
-    return f"{check_id}-{source_table}_{date.today().strftime('%Y%m%d')}.xlsx"
+def issues_filename(check_id: str, source_table: str, env: str | None = None) -> str:
+    """Nome del file Excel: controllo, tabella di controllo, ambiente SAP (se diverso da DEFAULT) e data
+    (es. CK518-S_CUST_CONT#ZBP-AddInterlocutore_DS4-200_20261023.xlsx)."""
+    env_part = f"_{env}" if env and env != "DEFAULT" else ""
+    return f"{check_id}-{source_table}{env_part}_{date.today().strftime('%Y%m%d')}.xlsx"
 
 
 def df_to_xlsx(

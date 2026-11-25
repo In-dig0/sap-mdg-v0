@@ -12,7 +12,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from mdg_auth import require_login, render_sidebar_menu
-from mdg_env_ui import env_db_name
+from mdg_env_ui import current_env, env_db_name
 from mdg_export import df_to_xlsx, issues_filename
 
 st.set_page_config(
@@ -345,6 +345,6 @@ else:
     st.download_button(
         label=export_label,
         data=xlsx_data,
-        file_name=issues_filename(check_id, source_table),
+        file_name=issues_filename(check_id, source_table, current_env()),
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
