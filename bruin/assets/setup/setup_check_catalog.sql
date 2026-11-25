@@ -550,7 +550,7 @@ VALUES
      'SAP_EXPORT_BUT000 (BP ZBP/ZIC: BU_SORT1 / REF_KUNNR e BU_SORT2)','Warning','CROSS_SOURCE',TRUE,NOW()),
     ('CK527','Distinte base: il materiale padre e ogni componente devono essere già migrati in SAP nella divisione della distinta',
      'BOM','S_BOM_HEADER / S_BOM_ITEM','MATNR(k/*) / IDNRK + WERKS(k)',
-     'SAP_EXPORT_MARC (MATNR + WERKS)','Warning','CROSS_SOURCE',TRUE,NOW()),
+     'SAP_EXPORT_MARC (MATNR + WERKS)','Error','CROSS_SOURCE',TRUE,NOW()),
     ('CK528','Info record acquisti: il materiale deve essere già migrato in SAP',
      'PIR','S_EINA#INFORMATFOR','MATNR',
      'SAP_EXPORT_MARC (MATNR)','Warning','CROSS_SOURCE',TRUE,NOW()),

@@ -8,7 +8,7 @@ description: >
   e ogni componente (S_BOM_ITEM, IDNRK + WERKS(k)) devono essere già migrati in SAP, cioè
   presenti in ref.SAP_EXPORT_MARC (MATNR + WERKS).
   Il codice materiale SAP è uguale a quello del vecchio ERP (confronto senza spazi iniziali
-  e finali). Assente: Warning, in SAP la migrazione andrebbe in errore.
+  e finali). Assente: Error, in SAP la migrazione andrebbe in errore.
   Con l'esclusione dall'output attiva nel catalogo (default: disattivata) l'intera distinta
   (testata e tutte le posizioni) non è esportata (prd.export_bom_zip, file *_discarded.xlsx).
   Chiave: MATNR|WERKS|STLAN|STLAL (testata), più |ITMID (posizione). Un esito per riga.
